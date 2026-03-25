@@ -1,0 +1,42 @@
+# Node.js
+node_modules/
+.next/
+*.log
+dev.log
+server.log
+.env.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+venv/
+.env
+
+# Backend specific
+backend/output/
+backend/logs/
+backend/tmp/
+
+# OS Generated Files
+.DS_Store
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE / Editors
+.vscode/
+.idea/
+*.swp
+.history/
+
+# Markdown files
+*.md
+!README.md
+
+# Test & benchmark files
+benchmark_truthjudge.py
+test_frontend_claims.js
+test_real_audio.py
+test_video_claims.py

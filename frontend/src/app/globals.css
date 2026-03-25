@@ -1,0 +1,221 @@
+@import "tailwindcss";
+@import "../../node_modules/tw-animate-css/dist/tw-animate.css";
+@custom-variant dark (&:is(.dark *));
+
+/* AMBIENT STUDIO Design System - Tailwind CSS 4 Theme */
+@theme inline {
+  --color-bg: #080c10;
+  --color-surface: #0f1520;
+  --color-surface2: #162030;
+  --color-border: #1e2d42;
+  --color-accent: #00e5ff;
+  --color-accent2: #7c4dff;
+  --color-accent3: #00e676;
+  --color-warn: #ff6b35;
+  --color-text: #c8d8e8;
+  --color-text-dim: #4a6a8a;
+  --color-text-bright: #eaf4ff;
+
+  --radius-sm: calc(0.5rem - 4px);
+  --radius-md: calc(0.5rem - 2px);
+  --radius-lg: 0.5rem;
+  --radius-xl: calc(0.5rem + 4px);
+
+  --color-background: #080c10;
+  --color-foreground: #c8d8e8;
+  --color-card: #0f1520;
+  --color-card-foreground: #c8d8e8;
+  --color-popover: #0f1520;
+  --color-popover-foreground: #c8d8e8;
+  --color-primary: #00e5ff;
+  --color-primary-foreground: #080c10;
+  --color-secondary: #162030;
+  --color-secondary-foreground: #c8d8e8;
+  --color-muted: #162030;
+  --color-muted-foreground: #4a6a8a;
+  --color-accent-foreground: #080c10;
+  --color-destructive: #ff6b35;
+  --color-input: #162030;
+  --color-ring: #00e5ff;
+
+  --font-sans: var(--font-syne), system-ui, sans-serif;
+  --font-mono: var(--font-space-mono), ui-monospace, monospace;
+}
+
+/* CSS Variables for JS access */
+:root {
+  --bg: #080c10;
+  --surface: #0f1520;
+  --surface2: #162030;
+  --border: #1e2d42;
+  --accent: #00e5ff;
+  --accent2: #7c4dff;
+  --accent3: #00e676;
+  --warn: #ff6b35;
+  --text: #c8d8e8;
+  --text-dim: #4a6a8a;
+  --text-bright: #eaf4ff;
+  --glow: rgba(0, 229, 255, 0.15);
+  --glow2: rgba(124, 77, 255, 0.12);
+  --radius: 0.5rem;
+  --background: #080c10;
+  --foreground: #c8d8e8;
+}
+
+/* Grid-dot background texture */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0, 229, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 229, 255, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Base styles */
+*,
+*::before,
+*::after {
+  border-color: var(--border);
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-syne), system-ui, sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
+/* Custom slider styles */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--surface2);
+  border-radius: 2px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border-radius: 50%;
+  margin-top: -5px;
+  box-shadow: 0 0 10px var(--glow);
+  transition: transform 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  background: var(--surface2);
+  border-radius: 2px;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border-radius: 50%;
+  border: none;
+  box-shadow: 0 0 10px var(--glow);
+}
+
+/* Pulse animations */
+@keyframes pulse-slow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes pulse-fast {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 2s ease-in-out infinite;
+}
+
+.animate-pulse-fast {
+  animation: pulse-fast 0.5s ease-in-out infinite;
+}
+
+/* Glow effects */
+.glow-cyan {
+  box-shadow:
+    0 0 20px var(--glow),
+    0 0 40px var(--glow);
+}
+
+.glow-purple {
+  box-shadow:
+    0 0 20px var(--glow2),
+    0 0 40px var(--glow2);
+}
+
+/* Track colors */
+.track-color-0 {
+  --track-color: #00e5ff;
+}
+.track-color-1 {
+  --track-color: #7c4dff;
+}
+.track-color-2 {
+  --track-color: #00e676;
+}
+.track-color-3 {
+  --track-color: #ff6b35;
+}
+.track-color-4 {
+  --track-color: #ffd740;
+}
+.track-color-5 {
+  --track-color: #ff4081;
+}
+.track-color-6 {
+  --track-color: #64ffda;
+}
+.track-color-7 {
+  --track-color: #b388ff;
+}

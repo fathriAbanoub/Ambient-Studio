@@ -1,0 +1,2 @@
+Requirement already satisfied: scipy in /home/bobaayad/.pyenv/versions/3.11.9/lib/python3.11/site-packages (1.14.1)
+Requirement already satisfied: numpy<2.3,>=1.23.5 in /home/bobaayad/.pyenv/versions/3.11.9/lib/python3.11/site-packages (from scipy) (1.26.4)
