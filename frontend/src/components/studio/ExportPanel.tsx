@@ -2,8 +2,9 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useStudioStore } from "@/store/studioStore";
-import { renderAudioMix } from "@/lib/audioRenderer";
 import {
+  renderAudioJob,
+  downloadJobOutput,
   renderVideoFull,
   downloadBlob,
   getJobProgress,
@@ -21,105 +22,14 @@ import {
   AlertCircle,
   Clock,
   HardDrive,
+  RefreshCw,
 } from "lucide-react";
 import { JobHistoryItem } from "@/types";
+import { VideoPreview } from "./VideoPreview";
 
-// Toast notification component
-function Toast() {
-  const { toastMessage, toastType, hideToast } = useStudioStore();
+// ... (Toast and RecentRendersPanel omitted for brevity)
 
-  if (!toastMessage) return null;
-
-  const bgColor = {
-    success: "bg-[var(--accent3)]",
-    error: "bg-red-500",
-    warning: "bg-[var(--warn)]",
-    info: "bg-[var(--accent)]",
-  }[toastType];
-
-  return (
-    <div className="fixed top-4 right-4 z-50 animate-slide-in">
-      <div
-        className={`${bgColor} text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 max-w-md`}
-      >
-        <span className="flex-1">{toastMessage}</span>
-        <button
-          onClick={hideToast}
-          className="hover:opacity-70 transition-opacity"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// Recent Renders panel component
-function RecentRendersPanel() {
-  const { jobHistory, setJobHistory, addLog } = useStudioStore();
-
-  // Fetch job history on mount
-  useEffect(() => {
-    const fetchHistory = async () => {
-      try {
-        const data = await getJobHistory();
-        setJobHistory(data.jobs);
-      } catch (error) {
-        console.error("Failed to fetch job history:", error);
-      }
-    };
-    fetchHistory();
-  }, [setJobHistory]);
-
-  const copyToClipboard = async (filePath: string, filename: string) => {
-    try {
-      await navigator.clipboard.writeText(filePath);
-      addLog(`Copied path: ${filePath}`, "ok");
-    } catch {
-      addLog("Failed to copy to clipboard", "err");
-    }
-  };
-
-  if (jobHistory.length === 0) return null;
-
-  return (
-    <div className="border-t border-[var(--border)] bg-[var(--surface)]/50 p-4 mt-2">
-      <h3 className="text-xs text-[var(--text-dim)] font-mono mb-3 flex items-center gap-2">
-        <Clock className="w-3 h-3" />
-        RECENT RENDERS
-      </h3>
-      <div className="space-y-2 max-h-40 overflow-y-auto">
-        {jobHistory.slice(0, 10).map((job) => (
-          <div
-            key={job.job_id}
-            className="flex items-center justify-between text-xs bg-[var(--surface2)] rounded px-3 py-2"
-          >
-            <div className="flex-1 min-w-0">
-              <div className="text-[var(--text)] truncate">{job.filename}</div>
-              <div className="text-[var(--text-dim)] flex items-center gap-3">
-                <span>
-                  {Math.floor(job.duration / 60)}:
-                  {String(job.duration % 60).padStart(2, "0")}
-                </span>
-                <span>{formatFileSize(job.file_size)}</span>
-                <span>{new Date(job.timestamp).toLocaleTimeString()}</span>
-              </div>
-            </div>
-            <button
-              onClick={() => copyToClipboard(job.file_path, job.filename)}
-              className="ml-3 px-2 py-1 text-[var(--accent)] hover:bg-[var(--accent)]/20 rounded transition-colors"
-              title="Copy file path"
-            >
-              <HardDrive className="w-3 h-3" />
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export function ExportPanel() {
+export function ExportPanel({ engine }: { engine: any }) {
   const {
     tracks,
     masterGain,
@@ -146,11 +56,18 @@ export function ExportPanel() {
     jobError,
     showToast,
     setJobHistory,
+    showVisualizer,
+    setShowVisualizer,
+    useGpuEncoding,
+    setUseGpuEncoding,
+    loopAnalysis,
+    setIsPlaying,
   } = useStudioStore();
 
   const [backgroundImage, setBackgroundImage] = useState<File | null>(null);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const exportKindRef = useRef<"audio" | "video">("video");
 
   const loadedTracks = tracks.filter((t) => t.loaded);
 
@@ -158,6 +75,22 @@ export function ExportPanel() {
   const noTracksLoaded = loadedTracks.length === 0;
   const invalidDuration = exportDuration <= 0;
   const noBackgroundImage = !backgroundImage;
+
+  const handlePreviewSeam = () => {
+    if (!loopAnalysis) {
+      addLog("No loop analysis available. Analyze a track first.", "err");
+      showToast("No loop points found. Analyze a track first.", "error");
+      return;
+    }
+    
+    addLog(`Previewing loop seam...`, "info");
+    engine.playLoopSeam(
+      loopAnalysis.loopStartMs,
+      loopAnalysis.loopEndMs,
+      loopAnalysis.crossfadeMs
+    );
+    setIsPlaying(true);
+  };
 
   // Clear polling on unmount
   useEffect(() => {
@@ -171,10 +104,22 @@ export function ExportPanel() {
   // Poll for job progress
   const startPolling = useCallback(
     (jobId: string) => {
+      let hasShownCompletionToast = false; // Track if we've shown the completion toast
+      let hasLoggedCompletion = false; // Track if we've logged completion
+      let lastLogCount = 0; // Track how many logs we've already displayed
+      let hasDownloadedOutput = false; // Prevent repeated downloads on "completed"
+      
       const interval = setInterval(async () => {
         try {
           const progress = await getJobProgress(jobId);
           updateJobProgress(progress);
+
+          // Add new logs from backend
+          if (progress.logs && progress.logs.length > lastLogCount) {
+            const newLogs = progress.logs.slice(lastLogCount);
+            newLogs.forEach(log => addLog(log, "info"));
+            lastLogCount = progress.logs.length;
+          }
 
           // Update label based on status
           if (progress.status === "queued") {
@@ -187,14 +132,47 @@ export function ExportPanel() {
           } else if (progress.status === "completed") {
             setExportProgress(100);
             setExportLabel("Done!");
-            addLog(`✅ Video saved successfully`, "ok");
-            showToast("Video render completed!", "success");
+            
+            // Only log completion once
+            if (!hasLoggedCompletion) {
+              addLog(
+                exportKindRef.current === "audio"
+                  ? `✅ Audio rendered successfully`
+                  : `✅ Video saved successfully`,
+                "ok",
+              );
+              hasLoggedCompletion = true;
+            }
+            
+            // Only show toast once
+            if (!hasShownCompletionToast) {
+              showToast(
+                exportKindRef.current === "audio"
+                  ? "Audio render completed!"
+                  : "Video render completed!",
+                "success",
+              );
+              hasShownCompletionToast = true;
+            }
 
             // Refresh job history
             const history = await getJobHistory();
             setJobHistory(history.jobs);
 
+            // Stop polling ASAP to avoid re-triggering completion logic
             stopPolling();
+
+            if (exportKindRef.current === "audio" && !hasDownloadedOutput) {
+              hasDownloadedOutput = true;
+              try {
+                const blob = await downloadJobOutput(jobId);
+                downloadBlob(blob, `${exportName}.wav`);
+              } catch (e) {
+                addLog(`✗ Failed to download audio: ${e}`, "err");
+                showToast(`Download failed: ${e}`, "error");
+              }
+            }
+
             setIsExporting(false);
             resetJobState();
           } else if (progress.status === "failed") {
@@ -211,7 +189,12 @@ export function ExportPanel() {
             resetJobState();
           }
         } catch (error) {
+          // Job not found - it may have completed/failed before we could poll
           console.error("Failed to poll progress:", error);
+          // Stop polling after a few failed attempts
+          stopPolling();
+          setIsExporting(false);
+          resetJobState();
         }
       }, 2000); // Poll every 2 seconds
 
@@ -249,28 +232,48 @@ export function ExportPanel() {
     setIsExporting(true);
     setExportProgress(0);
     setExportLabel("Rendering audio...");
+    exportKindRef.current = "audio";
 
     try {
       const durationSeconds = exportDuration * 60;
+      const files = tracks.filter((t) => t.file).map((t) => t.file!);
+      const volumes = tracks.map((t) => t.volume / 100);
+      const pans = tracks.map((t) => t.pan / 100);
+      const muted = tracks.map((t) => t.muted);
+      const solo = tracks.map((t) => t.solo);
 
-      const blob = await renderAudioMix(
-        durationSeconds,
-        tracks,
+      const response = await renderAudioJob({
+        duration: durationSeconds,
+        files,
+        volumes,
+        pans,
+        muted,
+        solo,
         masterGain,
         eqGains,
-        (progress) => setExportProgress(progress),
-      );
+        loopStart:
+          loopAnalysis && loopAnalysis.loopEndMs > loopAnalysis.loopStartMs
+            ? loopAnalysis.loopStartMs / 1000
+            : undefined,
+        loopEnd:
+          loopAnalysis && loopAnalysis.loopEndMs > loopAnalysis.loopStartMs
+            ? loopAnalysis.loopEndMs / 1000
+            : undefined,
+      });
 
-      downloadBlob(blob, `${exportName}.wav`);
-      addLog(`Exported ${exportName}.wav (${exportDuration} min)`, "ok");
-      showToast(`Exported ${exportName}.wav`, "success");
+      setCurrentJobId(response.job_id);
+      setExportLabel(
+        response.queue_position > 0
+          ? `Queued (position: ${response.queue_position})`
+          : "Processing...",
+      );
+      addLog("🎵 Audio render started", "info");
+      startPolling(response.job_id);
     } catch (error) {
       addLog(`Export failed: ${error}`, "err");
       showToast(`Export failed: ${error}`, "error");
-    } finally {
       setIsExporting(false);
-      setExportProgress(0);
-      setExportLabel("");
+      resetJobState();
     }
   };
 
@@ -300,6 +303,7 @@ export function ExportPanel() {
     setIsExporting(true);
     setExportProgress(0);
     setExportLabel("Starting render...");
+    exportKindRef.current = "video";
     addLog("🎬 Video render started", "info");
 
     try {
@@ -313,6 +317,16 @@ export function ExportPanel() {
         masterGain,
         eqGains,
         backgroundImage: backgroundImage || undefined,
+        showVisualizer,
+        useGpuEncoding,
+        loopStart:
+          loopAnalysis && loopAnalysis.loopEndMs > loopAnalysis.loopStartMs
+            ? loopAnalysis.loopStartMs / 1000
+            : undefined,
+        loopEnd:
+          loopAnalysis && loopAnalysis.loopEndMs > loopAnalysis.loopStartMs
+            ? loopAnalysis.loopEndMs / 1000
+            : undefined,
       });
 
       setCurrentJobId(response.job_id);
@@ -376,7 +390,6 @@ export function ExportPanel() {
 
   return (
     <>
-      <Toast />
       <div className="relative z-10 border-t border-[var(--border)] bg-[var(--surface)]/80 backdrop-blur-sm p-4">
         {/* Validation Warnings */}
         {(noTracksLoaded || invalidDuration) && (
@@ -460,8 +473,81 @@ export function ExportPanel() {
             />
           </div>
 
+          {/* Video Preview */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs text-[var(--text-dim)] font-mono">
+              PREVIEW
+            </label>
+            <VideoPreview backgroundImage={backgroundImage} />
+          </div>
+
+          {/* Visualizer Toggle */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs text-[var(--text-dim)] font-mono">
+              VISUALIZER
+            </label>
+            <button
+              onClick={() => setShowVisualizer(!showVisualizer)}
+              className={`flex items-center gap-2 px-3 py-2 rounded border transition-all text-sm ${
+                showVisualizer
+                  ? "border-[var(--accent)] bg-[var(--accent)]/20 text-[var(--accent)]"
+                  : "border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--accent2)]"
+              }`}
+              title="Include audio visualizer in rendered video"
+            >
+              <div className="flex gap-0.5">
+                <div className="w-1 h-4 bg-current opacity-60"></div>
+                <div className="w-1 h-4 bg-current opacity-80"></div>
+                <div className="w-1 h-4 bg-current"></div>
+                <div className="w-1 h-4 bg-current opacity-80"></div>
+                <div className="w-1 h-4 bg-current opacity-60"></div>
+              </div>
+              {showVisualizer ? "ON" : "OFF"}
+            </button>
+          </div>
+
+          {/* GPU Encoding Toggle */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs text-[var(--text-dim)] font-mono">
+              GPU ENCODE
+            </label>
+            <button
+              onClick={() => setUseGpuEncoding(!useGpuEncoding)}
+              className={`flex items-center gap-2 px-3 py-2 rounded border transition-all text-sm ${
+                useGpuEncoding
+                  ? "border-[var(--accent3)] bg-[var(--accent3)]/20 text-[var(--accent3)]"
+                  : "border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--warn)]"
+              }`}
+              title={useGpuEncoding ? "Using GPU (NVENC) - Faster" : "Using CPU (libx264) - Slower"}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+              </svg>
+              {useGpuEncoding ? "GPU" : "CPU"}
+            </button>
+          </div>
+
           {/* Export Buttons */}
           <div className="flex gap-3 ml-auto">
+            {loopAnalysis && (
+              <button
+                onClick={handlePreviewSeam}
+                disabled={isExporting}
+                className={`
+                  flex items-center gap-2 px-4 py-2 rounded font-medium transition-all
+                  ${
+                    isExporting
+                      ? "bg-[var(--surface2)] text-[var(--text-dim)] cursor-not-allowed"
+                      : "bg-[var(--accent3)]/20 text-[var(--accent3)] hover:bg-[var(--accent3)]/30 border border-[var(--accent3)]"
+                  }
+                `}
+                title="Listen to the seamless loop transition"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Preview Seam
+              </button>
+            )}
+
             <button
               onClick={handleExportWav}
               disabled={buttonsDisabled}
@@ -561,9 +647,6 @@ export function ExportPanel() {
           </div>
         )}
       </div>
-
-      {/* Recent Renders Panel */}
-      <RecentRendersPanel />
     </>
   );
 }

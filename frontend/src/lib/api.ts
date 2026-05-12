@@ -1,6 +1,6 @@
 // API utilities for AMBIENT STUDIO backend communication
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003";
 
 // ── Health Check ──────────────────────────────────────────────────────────────
 
@@ -22,6 +22,33 @@ export async function checkHealth(): Promise<HealthResponse | null> {
   }
 }
 
+// ── Loop Analysis ─────────────────────────────────────────────────────────────
+
+export interface LoopAnalysisResult {
+  loop_start_ms: number;
+  loop_end_ms: number;
+  score: number;
+  crossfade_ms: number;
+  duration_ms: number;
+}
+
+export async function analyzeLoop(file: File): Promise<LoopAnalysisResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${API_BASE}/analyze-loop`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Loop analysis failed: ${errorText}`);
+  }
+
+  return await res.json();
+}
+
 // ── Render Audio ──────────────────────────────────────────────────────────────
 
 export interface RenderAudioParams {
@@ -33,6 +60,8 @@ export interface RenderAudioParams {
   solo: boolean[];
   masterGain: number;
   eqGains: number[];
+  loopStart?: number;   // seconds
+  loopEnd?: number;     // seconds
 }
 
 export async function renderAudio(params: RenderAudioParams): Promise<Blob> {
@@ -60,6 +89,59 @@ export async function renderAudio(params: RenderAudioParams): Promise<Blob> {
     throw new Error(`Audio render failed: ${errorText}`);
   }
 
+  return await res.blob();
+}
+
+export interface RenderAudioJobResponse {
+  status: string;
+  job_id: string;
+  queue_position: number;
+}
+
+export async function renderAudioJob(
+  params: RenderAudioParams,
+): Promise<RenderAudioJobResponse> {
+  const formData = new FormData();
+
+  params.files.forEach((file) => {
+    formData.append("files", file);
+  });
+
+  formData.append("duration", String(params.duration));
+  formData.append("volumes", params.volumes.map((v) => v.toFixed(2)).join(","));
+  formData.append("pans", params.pans.map((p) => p.toFixed(2)).join(","));
+  formData.append("muted", params.muted.map((m) => (m ? "1" : "0")).join(","));
+  formData.append("solo", params.solo.map((s) => (s ? "1" : "0")).join(","));
+  formData.append("master_gain", String(params.masterGain));
+  formData.append("eq_gains", params.eqGains.join(","));
+
+  if (params.loopStart !== undefined) {
+    formData.append("loop_start", String(params.loopStart));
+  }
+  if (params.loopEnd !== undefined) {
+    formData.append("loop_end", String(params.loopEnd));
+  }
+
+  const res = await fetch(`${API_BASE}/render-audio-job`, {
+    method: "POST",
+    body: formData,
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Audio render failed: ${errorText}`);
+  }
+
+  return await res.json();
+}
+
+export async function downloadJobOutput(jobId: string): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/download/${jobId}`, { method: "GET" });
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Download failed: ${errorText}`);
+  }
   return await res.blob();
 }
 
@@ -98,6 +180,10 @@ export async function renderVideo(params: RenderVideoParams): Promise<Blob> {
 
 export interface RenderVideoFullParams extends RenderAudioParams {
   backgroundImage?: File;
+  showVisualizer?: boolean;
+  useGpuEncoding?: boolean;
+  loopStart?: number;   // seconds
+  loopEnd?: number;     // seconds
 }
 
 export interface RenderVideoFullResponse {
@@ -122,9 +208,17 @@ export async function renderVideoFull(
   formData.append("solo", params.solo.map((s) => (s ? "1" : "0")).join(","));
   formData.append("master_gain", String(params.masterGain));
   formData.append("eq_gains", params.eqGains.join(","));
+  formData.append("show_visualizer", params.showVisualizer ? "1" : "0");
+  formData.append("use_gpu_encoding", params.useGpuEncoding ? "1" : "0");
 
   if (params.backgroundImage) {
     formData.append("background_image", params.backgroundImage);
+  }
+  if (params.loopStart !== undefined) {
+    formData.append("loop_start", String(params.loopStart));
+  }
+  if (params.loopEnd !== undefined) {
+    formData.append("loop_end", String(params.loopEnd));
   }
 
   const res = await fetch(`${API_BASE}/render-video-full`, {
@@ -151,6 +245,11 @@ export interface JobProgressResponse {
   remaining_seconds: number | null;
   queue_position: number;
   error: string | null;
+  time_info?: {
+    status?: string;
+    log_message?: string;
+  };
+  logs?: string[];
 }
 
 export async function getJobProgress(

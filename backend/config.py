@@ -18,7 +18,7 @@ class Settings:
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", 3001))
     ALLOWED_ORIGINS: list[str] = os.getenv(
-        "ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001"
+        "ALLOWED_ORIGINS", "http://localhost:3002,http://localhost:3003"
     ).split(",")
 
     # ── Audio rendering ────────────────────────────────────────────────────
@@ -42,12 +42,26 @@ class Settings:
     VIDEO_WIDTH: int  = int(os.getenv("VIDEO_WIDTH",  1920))
     VIDEO_HEIGHT: int = int(os.getenv("VIDEO_HEIGHT", 1080))
     VIDEO_FPS: int    = int(os.getenv("VIDEO_FPS",    25))
-    VIDEO_CODEC: str  = os.getenv("VIDEO_CODEC",  "libx264")
     AUDIO_CODEC: str  = os.getenv("AUDIO_CODEC",  "aac")
-    PRESET: str       = os.getenv("FFMPEG_PRESET", "veryfast")
     CRF: int          = int(os.getenv("CRF", 23))
     ZOOM_START: float = 1.0
     ZOOM_END: float   = 1.2
+
+    # GPU acceleration: set VIDEO_CODEC=libx264 to force CPU encoding.
+    # Auto-detects NVENC (NVIDIA) on startup; falls back to libx264 if unavailable.
+    VIDEO_CODEC: str  = os.getenv("VIDEO_CODEC",  "h264_nvenc")
+    # NVENC uses a quality scale (0=best, 51=worst) instead of CRF
+    NVENC_QP: int     = int(os.getenv("NVENC_QP", 23))
+    # libx264 preset; NVENC uses its own preset names
+    PRESET: str       = os.getenv("FFMPEG_PRESET", "veryfast")
+    
+    # CUDA Visualizer: GPU-accelerated rendering (6× faster than FFmpeg showfreqs)
+    # Set to False to use legacy FFmpeg filter-based visualizer
+    USE_CUDA_VISUALIZER: bool = os.getenv("USE_CUDA_VISUALIZER", "true").lower() == "true"
+
+    # ── Debugging ───────────────────────────────────────────────────────────
+    # When enabled, logs detailed per-stage audio diagnostics.
+    AUDIO_DEBUG: bool = os.getenv("AUDIO_DEBUG", "true").lower() == "true"
 
 
 settings = Settings()

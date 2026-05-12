@@ -1,0 +1,32 @@
+{
+  "project_name": "ambient-studio",
+  "version": "1.0.0",
+  "monorepo": true,
+  "workspaces": {
+    "frontend": {
+      "path": "./frontend",
+      "framework": "Next.js",
+      "language": "TypeScript",
+      "state_management": "Zustand",
+      "audio_engine": "Web Audio API",
+      "port": 3000
+    },
+    "backend": {
+      "path": "./backend",
+      "framework": "FastAPI",
+      "language": "Python",
+      "renderer": "FFmpeg",
+      "port": 3001
+    }
+  },
+  "integration": {
+    "api_base_url": "http://localhost:3001",
+    "proxy_setup": "src/lib/api.ts",
+    "shared_concepts": ["JobManager", "7-band EQ", "Audio Rendering"]
+  },
+  "steering_rules": [
+    "WAV exports happen client-side in useAudioEngine.ts",
+    "MP4 exports happen server-side via JobManager and FFmpeg",
+    "Maintain state synchronization between Zustand store and FastAPI job progress"
+  ]
+}

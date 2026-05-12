@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { useStudioStore } from "@/store/studioStore";
 import { Trash2 } from "lucide-react";
 
@@ -14,6 +14,9 @@ function formatTimestamp(date: Date): string {
 export function LogConsole() {
   const { logs, clearLog } = useStudioStore();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(96); // Default 96px (h-24)
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeRef = useRef<{ startY: number; startHeight: number }>({ startY: 0, startHeight: 0 });
   
   // Auto-scroll to bottom on new logs
   useEffect(() => {
@@ -31,8 +34,51 @@ export function LogConsole() {
     }
   };
   
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    resizeRef.current = {
+      startY: e.clientY,
+      startHeight: height
+    };
+  };
+  
+  useEffect(() => {
+    if (!isResizing) return;
+    
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaY = resizeRef.current.startY - e.clientY;
+      const newHeight = Math.max(96, Math.min(600, resizeRef.current.startHeight + deltaY));
+      setHeight(newHeight);
+    };
+    
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
+  
   return (
-    <div className="relative z-10 border-t border-[var(--border)] bg-[var(--bg)]">
+    <div className="relative border-t border-[var(--border)] bg-[var(--bg)]">
+      {/* Resize handle - at the very top */}
+      <div
+        onMouseDown={handleMouseDown}
+        className="absolute top-0 left-0 right-0 h-3 -mt-1.5 cursor-ns-resize hover:bg-[var(--accent)]/20 transition-colors flex items-center justify-center group z-50"
+      >
+        <div className="w-16 h-1 bg-[var(--text-dim)]/30 rounded-full group-hover:bg-[var(--accent)] group-hover:h-1.5 transition-all" />
+      </div>
+      
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-[var(--surface)]">
         <span className="text-xs font-mono text-[var(--text-dim)]">CONSOLE</span>
@@ -48,7 +94,8 @@ export function LogConsole() {
       {/* Log entries */}
       <div
         ref={scrollRef}
-        className="h-24 overflow-y-auto p-2 font-mono text-xs space-y-0.5"
+        className="overflow-y-auto p-2 font-mono text-xs space-y-0.5"
+        style={{ height: `${height}px` }}
       >
         {logs.length === 0 ? (
           <div className="text-[var(--text-dim)] opacity-50 py-2 text-center">

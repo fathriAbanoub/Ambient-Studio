@@ -47,9 +47,9 @@ function VUMeter({ analyserData }: { analyserData: Uint8Array }) {
   );
 }
 
-export function Transport() {
-  const { tracks, masterGain, setMasterGain, setIsPlaying } = useStudioStore();
-  const { isPlaying, play, stop, getAnalyserData, initAudio } = useAudioEngine(tracks, masterGain, useStudioStore.getState().eqGains);
+export function Transport({ engine }: { engine: any }) {
+  const { masterGain, setMasterGain, setIsPlaying } = useStudioStore();
+  const { isPlaying, play, stop, getAnalyserData, initAudio } = engine;
   const [analyserData, setAnalyserData] = useState<Uint8Array>(new Uint8Array(128));
   const [time, setTime] = useState(0);
   const animationRef = useRef<number | null>(null);

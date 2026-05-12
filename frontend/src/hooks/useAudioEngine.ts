@@ -200,6 +200,91 @@ export function useAudioEngine(tracks: Track[], masterGain: number, eqGains: num
     setState(s => ({ ...s, isPlaying: false, currentTime: 0 }));
   }, []);
 
+  // Play Loop Seam Preview
+  const playLoopSeam = useCallback(async (loopStartMs: number, loopEndMs: number, crossfadeMs: number) => {
+    if (!audioContextRef.current) {
+      await initAudio();
+    }
+    
+    const ctx = audioContextRef.current!;
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
+    
+    // Stop any existing playback
+    stop();
+    
+    const loopStart = loopStartMs / 1000;
+    const loopEnd = loopEndMs / 1000;
+    const crossfade = crossfadeMs / 1000;
+    
+    startTimeRef.current = ctx.currentTime;
+    
+    const hasSolo = tracks.some(t => t.solo && t.loaded);
+    
+    tracks.forEach(track => {
+      if (!track.buffer || !track.loaded) return;
+      if (track.muted || (hasSolo && !track.solo)) return;
+      
+      const trackGain = ctx.createGain();
+      trackGain.gain.value = track.volume / 100;
+      trackGainsRef.current.set(track.id, trackGain);
+      
+      const panner = ctx.createStereoPanner();
+      panner.pan.value = track.pan / 100;
+      trackPannersRef.current.set(track.id, panner);
+      
+      trackGain.connect(panner);
+      panner.connect(masterGainRef.current!);
+
+      // We need two sources to crossfade for the seam
+      // 1. The "tail" ending at loopEnd
+      const tailSource = ctx.createBufferSource();
+      tailSource.buffer = track.buffer;
+      const tailGain = ctx.createGain();
+      tailSource.connect(tailGain);
+      tailGain.connect(trackGain);
+      
+      // 2. The "head" starting at loopStart
+      const headSource = ctx.createBufferSource();
+      headSource.buffer = track.buffer;
+      const headGain = ctx.createGain();
+      headSource.connect(headGain);
+      headGain.connect(trackGain);
+
+      const now = ctx.currentTime;
+      
+      // Tail starts at loopEnd - crossfade, plays for crossfade duration
+      // But we want to hear a bit BEFORE the crossfade too for context
+      const preRoll = 2.0;
+      const tailStartOffset = Math.max(0, loopEnd - crossfade - preRoll);
+      const tailDuration = crossfade + preRoll;
+      
+      tailSource.start(now, tailStartOffset, tailDuration);
+      
+      // Head starts at loopStart, plays for crossfade + some post-roll
+      const postRoll = 2.0;
+      const headStartOffset = loopStart;
+      const headDuration = crossfade + postRoll;
+      
+      // Crossfade logic
+      // Tail fades out starting at now + preRoll
+      tailGain.gain.setValueAtTime(1.0, now + preRoll);
+      tailGain.gain.linearRampToValueAtTime(0.0, now + preRoll + crossfade);
+      
+      // Head fades in starting at now + preRoll
+      headGain.gain.setValueAtTime(0.0, now + preRoll);
+      headSource.start(now + preRoll, headStartOffset, headDuration);
+      headGain.gain.linearRampToValueAtTime(1.0, now + preRoll + crossfade);
+      
+      const sources = sourcesRef.current.get(track.id) || [];
+      sources.push(tailSource, headSource);
+      sourcesRef.current.set(track.id, sources);
+    });
+    
+    setState(s => ({ ...s, isPlaying: true, currentTime: 0 }));
+  }, [tracks, initAudio, stop]);
+
   // Get analyser data for VU meter
   const getAnalyserData = useCallback(() => {
     if (!analyserRef.current) return new Uint8Array(128);
@@ -230,6 +315,7 @@ export function useAudioEngine(tracks: Track[], masterGain: number, eqGains: num
     ...state,
     initAudio,
     play,
+    playLoopSeam,
     stop,
     updateTrackGain,
     updateTrackPan,
