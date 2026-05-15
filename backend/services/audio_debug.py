@@ -10,13 +10,20 @@ logger = logging.getLogger(__name__)
 
 
 def _run(cmd: list[str], timeout: int = 60) -> tuple[int, str, str]:
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    return result.returncode, result.stdout.strip(), result.stderr.strip()
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return result.returncode, result.stdout.strip(), result.stderr.strip()
+    except subprocess.TimeoutExpired:
+        logger.warning(f"Command timed out after {timeout}s: {' '.join(cmd)}")
+        return 1, "", f"Command timed out after {timeout}s"
+    except FileNotFoundError as e:
+        logger.error(f"Command not found: {cmd[0]}")
+        return 1, "", f"Command not found: {e}"
 
 
 def ffprobe_audio_summary(path: Path) -> str:

@@ -9,18 +9,18 @@
       "language": "TypeScript",
       "state_management": "Zustand",
       "audio_engine": "Web Audio API",
-      "port": 3000
+      "port": 3002
     },
     "backend": {
       "path": "./backend",
       "framework": "FastAPI",
       "language": "Python",
       "renderer": "FFmpeg",
-      "port": 3001
+      "port": 3003
     }
   },
   "integration": {
-    "api_base_url": "http://localhost:3001",
+    "api_base_url": "http://localhost:3003",
     "proxy_setup": "src/lib/api.ts",
     "shared_concepts": ["JobManager", "7-band EQ", "Audio Rendering"]
   },

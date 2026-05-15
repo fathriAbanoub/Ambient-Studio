@@ -205,6 +205,7 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
         onClick={() => setOpen(true)}
         disabled={loadedTracks.length === 0}
         title={loadedTracks.length === 0 ? "Load tracks to preview" : "Preview video"}
+        aria-label="Open video preview"
         className="flex items-center gap-2 px-3 py-2 rounded border border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--accent2)] hover:text-[var(--accent2)] transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <Monitor className="w-4 h-4" />
@@ -226,6 +227,7 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
         </div>
         <button
           onClick={() => { stopAudio(); setOpen(false); }}
+          aria-label="Close video preview"
           className="text-[var(--text-dim)] hover:text-[var(--warn)] transition-colors"
         >
           <X className="w-4 h-4" />
@@ -248,6 +250,7 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
             <button
               onClick={startPreview}
               disabled={loadedTracks.length === 0}
+              aria-label="Play video preview"
               className="w-14 h-14 rounded-full bg-[var(--accent)]/80 hover:bg-[var(--accent)] flex items-center justify-center transition-all hover:scale-110 disabled:opacity-40"
             >
               <Play className="w-6 h-6 text-black ml-1" />

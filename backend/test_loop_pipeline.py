@@ -56,7 +56,11 @@ def test_loop_pipeline(input_file: str, target_duration: float = 60.0):
 
         final_duration = get_audio_duration(extended_path)
         logger.info(f"Step 4: Verification complete. Final duration: {final_duration:.3f}s")
-        
+
+        tolerance = 0.1
+        assert abs(final_duration - target_duration) <= tolerance, \
+            f"Duration mismatch: expected {target_duration}s, got {final_duration:.3f}s"
+
         logger.info("✅ Loop pipeline test PASSED")
 
     except Exception as e:

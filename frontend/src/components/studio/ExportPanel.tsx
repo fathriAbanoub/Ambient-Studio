@@ -65,7 +65,7 @@ export function ExportPanel({ engine }: { engine: any }) {
   } = useStudioStore();
 
   const [backgroundImage, setBackgroundImage] = useState<File | null>(null);
-  const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const exportKindRef = useRef<"audio" | "video">("video");
 
@@ -95,11 +95,12 @@ export function ExportPanel({ engine }: { engine: any }) {
   // Clear polling on unmount
   useEffect(() => {
     return () => {
-      if (pollInterval) {
-        clearInterval(pollInterval);
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
       }
     };
-  }, [pollInterval]);
+  }, []);
 
   // Poll for job progress
   const startPolling = useCallback(
@@ -198,7 +199,7 @@ export function ExportPanel({ engine }: { engine: any }) {
         }
       }, 2000); // Poll every 2 seconds
 
-      setPollInterval(interval);
+      pollIntervalRef.current = interval;
     },
     [
       updateJobProgress,
@@ -213,11 +214,11 @@ export function ExportPanel({ engine }: { engine: any }) {
   );
 
   const stopPolling = useCallback(() => {
-    if (pollInterval) {
-      clearInterval(pollInterval);
-      setPollInterval(null);
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
     }
-  }, [pollInterval]);
+  }, []);
 
   const handleExportWav = async () => {
     if (noTracksLoaded) {

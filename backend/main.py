@@ -95,6 +95,7 @@ class JobManager:
     def __init__(self):
         self.jobs: dict[str, dict] = {}
         self.job_processes: dict[str, asyncio.subprocess.Process] = {}
+        self.job_tasks: dict[str, asyncio.Task] = {}
         self.queue: list[str] = []
         self.active_count = 0
         self.max_concurrent = 2
@@ -199,7 +200,7 @@ class JobManager:
             if job_id in self.queue:
                 self.queue.remove(job_id)
 
-    def cancel_job(self, job_id: str) -> bool:
+    async def cancel_job(self, job_id: str) -> bool:
         """Cancel a running job."""
         if job_id not in self.jobs:
             return False
@@ -208,28 +209,34 @@ class JobManager:
         if job["status"] in ["completed", "failed", "cancelled"]:
             return False
 
+        # Cancel the asyncio task if it exists
+        if job_id in self.job_tasks:
+            task = self.job_tasks[job_id]
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                logger.info(f"Task for job {job_id} cancelled successfully")
+            except Exception as e:
+                logger.error(f"Error while cancelling task for job {job_id}: {e}")
+            finally:
+                if job_id in self.job_tasks:
+                    del self.job_tasks[job_id]
+
         # Kill the subprocess if it exists
         if job_id in self.job_processes:
             try:
                 process = self.job_processes[job_id]
-                # Try graceful termination first
                 try:
                     process.terminate()
                     logger.info(f"Sent SIGTERM to process for job {job_id}")
                 except Exception as e:
                     logger.warning(f"Failed to terminate process: {e}")
-                
-                # Wait briefly for graceful shutdown
+
                 try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        # If event loop is running, schedule the wait
-                        asyncio.create_task(self._wait_and_kill(job_id, process))
-                    else:
-                        # If not running, wait synchronously
-                        loop.run_until_complete(asyncio.wait_for(process.wait(), timeout=2.0))
+                    await asyncio.wait_for(process.wait(), timeout=2.0)
+                    logger.info(f"Process for job {job_id} terminated gracefully")
                 except asyncio.TimeoutError:
-                    # Force kill if it doesn't terminate
                     try:
                         process.kill()
                         logger.info(f"Sent SIGKILL to process for job {job_id}")
@@ -256,21 +263,6 @@ class JobManager:
             self.queue.remove(job_id)
 
         return True
-    
-    async def _wait_and_kill(self, job_id: str, process):
-        """Helper to wait for process termination and force kill if needed."""
-        try:
-            await asyncio.wait_for(process.wait(), timeout=2.0)
-            logger.info(f"Process for job {job_id} terminated gracefully")
-        except asyncio.TimeoutError:
-            try:
-                process.kill()
-                logger.info(f"Force killed process for job {job_id}")
-            except Exception as e:
-                logger.error(f"Failed to force kill: {e}")
-        finally:
-            if job_id in self.job_processes:
-                del self.job_processes[job_id]
 
     def get_job(self, job_id: str) -> Optional[dict]:
         """Get job by ID."""
@@ -304,6 +296,15 @@ class JobManager:
         """Unregister a subprocess."""
         if job_id in self.job_processes:
             del self.job_processes[job_id]
+
+    def register_task(self, job_id: str, task: asyncio.Task):
+        """Register an asyncio task for cancellation support."""
+        self.job_tasks[job_id] = task
+
+    def unregister_task(self, job_id: str):
+        """Unregister an asyncio task."""
+        if job_id in self.job_tasks:
+            del self.job_tasks[job_id]
 
 
 job_manager = JobManager()
@@ -886,7 +887,8 @@ async def render_video_full(
             render_time = time.time() - start_time
             log_render(duration, n, render_time, False, "Cancelled by user")
             job_manager.fail_job(job_id, "Cancelled by user")
-            job_manager.unregister_process(job_id)  # Clean up process reference
+            job_manager.unregister_process(job_id)
+            job_manager.unregister_task(job_id)
             log_with_time("❌ Render cancelled by user")
             shutil.rmtree(job_dir, ignore_errors=True)
             raise
@@ -897,12 +899,16 @@ async def render_video_full(
             logger.error(f"Render failed for job {job_id}: {error_msg}", exc_info=True)
             log_render(duration, n, render_time, False, error_msg)
             job_manager.fail_job(job_id, error_msg)
-            job_manager.unregister_process(job_id)  # Clean up process reference
+            job_manager.unregister_process(job_id)
+            job_manager.unregister_task(job_id)
             log_with_time(f"❌ Error: {error_msg}")
             shutil.rmtree(job_dir, ignore_errors=True)
+        finally:
+            job_manager.unregister_task(job_id)
 
-    # Start the background task
-    asyncio.create_task(render_task())
+    # Start the background task and register it
+    task = asyncio.create_task(render_task())
+    job_manager.register_task(job_id, task)
 
     # Return job_id immediately
     return {
@@ -1211,6 +1217,7 @@ async def render_audio_job(
             render_time = time.time() - start_time
             log_render(duration, n, render_time, False, "Cancelled by user")
             job_manager.fail_job(job_id, "Cancelled by user")
+            job_manager.unregister_task(job_id)
             log_with_time("❌ Audio render cancelled by user")
             raise
         except Exception as exc:
@@ -1219,11 +1226,14 @@ async def render_audio_job(
             logger.error(f"Audio render failed for job {job_id}: {error_msg}", exc_info=True)
             log_render(duration, n, render_time, False, error_msg)
             job_manager.fail_job(job_id, error_msg)
+            job_manager.unregister_task(job_id)
             log_with_time(f"❌ Error: {error_msg}")
         finally:
             shutil.rmtree(job_dir, ignore_errors=True)
+            job_manager.unregister_task(job_id)
 
-    asyncio.create_task(render_task())
+    task = asyncio.create_task(render_task())
+    job_manager.register_task(job_id, task)
 
     return {
         "status": "queued",
@@ -1325,7 +1335,7 @@ async def get_job_progress(job_id: str):
 
 
 @app.delete("/job/{job_id}")
-async def cancel_job(job_id: str):
+async def cancel_job_endpoint(job_id: str):
     """Cancel a running job."""
     job = job_manager.get_job(job_id)
     if not job:
@@ -1334,12 +1344,13 @@ async def cancel_job(job_id: str):
     if job["status"] not in ["queued", "processing"]:
         raise HTTPException(400, f"Cannot cancel job in '{job['status']}' state")
 
-    # Clean up temp files
+    success = await job_manager.cancel_job(job_id)
+
+    # Clean up temp files after task is cancelled
     job_dir = Path(settings.TMP_DIR) / job_id
     if job_dir.exists():
         shutil.rmtree(job_dir, ignore_errors=True)
 
-    success = job_manager.cancel_job(job_id)
     if success:
         return {"status": "cancelled", "job_id": job_id}
     else:
@@ -1487,7 +1498,7 @@ async def render_audio(
             await asyncio.sleep(30)
             shutil.rmtree(job_dir, ignore_errors=True)
 
-        asyncio.create_task(cleanup())
+        _cleanup_task = asyncio.create_task(cleanup())
 
         from fastapi.responses import FileResponse
 
@@ -1559,7 +1570,7 @@ async def render_video(
             await asyncio.sleep(30)
             shutil.rmtree(job_dir, ignore_errors=True)
 
-        asyncio.create_task(cleanup())
+        _cleanup_task = asyncio.create_task(cleanup())
 
         from fastapi.responses import FileResponse
 

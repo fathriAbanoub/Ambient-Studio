@@ -67,9 +67,9 @@ __pycache__/
 backend/jobs_history.json
 project_structure.txt
 
-# Generated Media (safety net)
-*.wav
-*.mp4
+# Generated Media (safety net - only ignore output directories)
+/backend/output/**/*.wav
+/backend/output/**/*.mp4
 
 # Testing & Coverage
 coverage/
@@ -105,9 +105,7 @@ ehthumbs.db
 Thumbs.db
 Desktop.ini
 
-# Markdown files – ignore all except README
-*.md
-!README.md
+# Markdown files – removed blanket ignore to allow project documentation
 
 # Miscellaneous
 mempalace.yaml

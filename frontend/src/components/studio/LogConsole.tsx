@@ -45,27 +45,30 @@ export function LogConsole() {
   
   useEffect(() => {
     if (!isResizing) return;
-    
+
+    const originalCursor = document.body.style.cursor;
+    const originalUserSelect = document.body.style.userSelect;
+
     const handleMouseMove = (e: MouseEvent) => {
       const deltaY = resizeRef.current.startY - e.clientY;
       const newHeight = Math.max(96, Math.min(600, resizeRef.current.startHeight + deltaY));
       setHeight(newHeight);
     };
-    
+
     const handleMouseUp = () => {
       setIsResizing(false);
     };
-    
+
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
     document.body.style.cursor = 'ns-resize';
     document.body.style.userSelect = 'none';
-    
+
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+      document.body.style.cursor = originalCursor;
+      document.body.style.userSelect = originalUserSelect;
     };
   }, [isResizing]);
   
