@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { useStudioStore } from "@/store/studioStore";
+import { useAudioEngine } from "@/hooks/useAudioEngine";
 import { checkHealth } from "@/lib/api";
 import { Header } from "@/components/studio/Header";
 import { Transport } from "@/components/studio/Transport";
@@ -12,8 +13,12 @@ import { PresetBar } from "@/components/studio/PresetBar";
 import { LogConsole } from "@/components/studio/LogConsole";
 
 export default function StudioPage() {
-  const { tracks, initTracks, setBackendOnline, addLog } = useStudioStore();
+  const { tracks, initTracks, setBackendOnline, addLog, masterGain, eqGains } = useStudioStore();
   const audioContextRef = useRef<AudioContext | null>(null);
+  const lastBackendStatusRef = useRef<boolean | null>(null);
+  
+  // Audio Engine
+  const engine = useAudioEngine(tracks, masterGain, eqGains);
   
   // Get or create audio context (used by TrackCard for decoding)
   const getAudioContext = useCallback(() => {
@@ -30,11 +35,17 @@ export default function StudioPage() {
     // Check backend health
     const checkBackend = async () => {
       const health = await checkHealth();
-      setBackendOnline(health !== null);
-      if (health) {
-        addLog(`Backend connected (v${health.version})`, "ok");
-      } else {
-        addLog("Backend offline - WAV export only", "err");
+      const isOnline = health !== null;
+      setBackendOnline(isOnline);
+      
+      // Only log when status changes
+      if (lastBackendStatusRef.current !== isOnline) {
+        if (health) {
+          addLog(`Backend connected (v${health.version})`, "ok");
+        } else {
+          addLog("Backend offline - WAV export only", "err");
+        }
+        lastBackendStatusRef.current = isOnline;
       }
     };
     
@@ -55,7 +66,7 @@ export default function StudioPage() {
     <div className="min-h-screen flex flex-col bg-[var(--bg)] text-[var(--text)]">
       <Header />
       
-      <Transport />
+      <Transport engine={engine} />
       
       {/* Preset Bar */}
       <div className="border-b border-[var(--border)] bg-[var(--surface)]/60 px-6 py-2">
@@ -82,7 +93,7 @@ export default function StudioPage() {
         </div>
       </div>
       
-      <ExportPanel />
+      <ExportPanel engine={engine} />
       
       <LogConsole />
     </div>

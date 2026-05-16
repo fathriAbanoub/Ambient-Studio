@@ -5,6 +5,8 @@ import {
   TRACK_COLORS,
   JobHistoryItem,
   JobProgress,
+  CustomPreset,
+  LoopAnalysis, // <-- import new type
 } from "@/types";
 
 interface StudioState {
@@ -34,6 +36,18 @@ interface StudioState {
   // Toast notifications
   toastMessage: string | null;
   toastType: "success" | "error" | "warning" | "info";
+
+  // Custom presets
+  customPresets: CustomPreset[];
+
+  // Video options
+  showVisualizer: boolean;
+  useGpuEncoding: boolean;
+
+  // Loop analysis state
+  loopAnalysis: LoopAnalysis | null;
+  isAnalyzingLoop: boolean;
+  loopAnalysisError: string | null;
 
   // Actions
   initTracks: (count: number) => void;
@@ -76,6 +90,20 @@ interface StudioState {
     type?: "success" | "error" | "warning" | "info",
   ) => void;
   hideToast: () => void;
+
+  // Custom preset actions
+  saveCustomPreset: (name: string) => void;
+  deleteCustomPreset: (name: string) => void;
+  loadCustomPresets: () => void;
+
+  // Video options actions
+  setShowVisualizer: (show: boolean) => void;
+  setUseGpuEncoding: (useGpu: boolean) => void;
+
+  // Loop analysis actions
+  setLoopAnalysis: (analysis: LoopAnalysis | null) => void;
+  setIsAnalyzingLoop: (analyzing: boolean) => void;
+  setLoopAnalysisError: (error: string | null) => void;
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 11);
@@ -89,22 +117,33 @@ const initialJobState = {
   jobError: null,
 };
 
-export const useStudioStore = create<StudioState>((set, get) => ({
-  tracks: [],
-  isPlaying: false,
-  masterGain: 1.0,
-  eqGains: [0, 0, 0, 0, 0, 0, 0],
-  exportDuration: 5,
-  exportName: "ambient_mix",
-  isExporting: false,
-  exportProgress: 0,
-  exportLabel: "",
-  logs: [],
-  backendOnline: false,
-  jobHistory: [],
-  toastMessage: null,
-  toastType: "info",
-  ...initialJobState,
+const initialLoopAnalysisState = {
+  loopAnalysis: null,
+  isAnalyzingLoop: false,
+  loopAnalysisError: null,
+};
+
+export const useStudioStore = create<StudioState>((set, get) => {
+  return {
+    tracks: [],
+    isPlaying: false,
+    masterGain: 1.0,
+    eqGains: [0, 0, 0, 0, 0, 0, 0],
+    exportDuration: 5,
+    exportName: "ambient_mix",
+    isExporting: false,
+    exportProgress: 0,
+    exportLabel: "",
+    logs: [],
+    backendOnline: false,
+    jobHistory: [],
+    toastMessage: null,
+    toastType: "info",
+    customPresets: [],
+    showVisualizer: false,
+    useGpuEncoding: true,
+    ...initialJobState,
+    ...initialLoopAnalysisState,
 
   initTracks: (count: number) => {
     const tracks: Track[] = Array.from({ length: count }, (_, i) => ({
@@ -286,4 +325,45 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   hideToast: () => set({ toastMessage: null }),
-}));
+
+  // Custom preset actions
+  loadCustomPresets: () => {
+    try {
+      const raw = localStorage.getItem("ambient_studio_presets");
+      const presets: CustomPreset[] = raw ? JSON.parse(raw) : [];
+      set({ customPresets: presets });
+    } catch {
+      set({ customPresets: [] });
+    }
+  },
+
+  saveCustomPreset: (name: string) => {
+    const { tracks, eqGains, customPresets } = get();
+    const volumes = tracks.map((t) => t.volume / 100);
+    const preset: CustomPreset = { name, volumes, eq: eqGains, createdAt: Date.now() };
+    const updated = [...customPresets.filter((p) => p.name !== name), preset];
+    localStorage.setItem("ambient_studio_presets", JSON.stringify(updated));
+    set({ customPresets: updated });
+  },
+
+  deleteCustomPreset: (name: string) => {
+    const { customPresets } = get();
+    const updated = customPresets.filter((p) => p.name !== name);
+    localStorage.setItem("ambient_studio_presets", JSON.stringify(updated));
+    set({ customPresets: updated });
+  },
+
+  // Video options actions
+  setShowVisualizer: (show: boolean) => set({ showVisualizer: show }),
+  setUseGpuEncoding: (useGpu: boolean) => set({ useGpuEncoding: useGpu }),
+
+  // Loop analysis actions
+  setLoopAnalysis: (analysis) => set({ loopAnalysis: analysis }),
+  setIsAnalyzingLoop: (analyzing) => set({ isAnalyzingLoop: analyzing }),
+  setLoopAnalysisError: (error) => set({ loopAnalysisError: error }),
+};
+});
+
+if (typeof window !== 'undefined') {
+  useStudioStore.getState().loadCustomPresets();
+}

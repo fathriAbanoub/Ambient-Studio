@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
 import ffmpeg
+from services.audio_debug import ffprobe_audio_summary
 
 if TYPE_CHECKING:
     from config import Settings
@@ -39,6 +40,7 @@ class AudioRenderer:
         master_gain: float,
         eq_gains: list[float],
         progress_callback: Optional[Callable[[int], None]] = None,
+        render_source_once: bool = False,
     ) -> None:
         """
         Render audio mix synchronously.
@@ -47,6 +49,8 @@ class AudioRenderer:
             track_paths: List of paths to audio track files
             output_path: Path for output WAV file
             duration_seconds: Output duration in seconds
+            render_source_once: If True, render each track once without looping.
+                                Used when building a loop unit for later extension.
             volumes: Per-track volume multipliers (0.0-1.5)
             pans: Per-track pan values (-1.0 left to 1.0 right)
             muted: Per-track mute flags
@@ -70,15 +74,39 @@ class AudioRenderer:
         if not active:
             raise ValueError("No active tracks to render")
 
+        if getattr(self.settings, "AUDIO_DEBUG", False):
+            logger.info(
+                "AUDIO_DEBUG render start | duration=%ss tracks=%s master_gain=%.3f eq=%s",
+                duration_seconds,
+                len(active),
+                master_gain,
+                ",".join(f"{x:.1f}" for x in eq_gains),
+            )
+            for idx, (path, vol, pan) in enumerate(active):
+                logger.info(
+                    "AUDIO_DEBUG track[%s] %s vol=%.3f pan=%.3f",
+                    idx,
+                    ffprobe_audio_summary(path),
+                    vol,
+                    pan,
+                )
+
         try:
-            # Build ffmpeg inputs — each track loops for the full duration
+            # Build ffmpeg inputs
+            # If render_source_once=True, we render each track once (no looping)
+            # This is used when building a loop unit for later extension
             inputs = []
             for path, vol, pan in active:
-                stream = ffmpeg.input(
-                    str(path),
-                    stream_loop=-1,  # loop indefinitely
-                    t=duration_seconds,
-                )
+                if render_source_once:
+                    # Render track once, no looping
+                    stream = ffmpeg.input(str(path))
+                else:
+                    # Loop track to fill duration
+                    stream = ffmpeg.input(
+                        str(path),
+                        stream_loop=-1,  # loop indefinitely
+                        t=duration_seconds,
+                    )
                 # Apply volume
                 stream = stream.filter("volume", vol)
                 # Apply pan (-1.0 to 1.0 → pan filter)
@@ -127,14 +155,17 @@ class AudioRenderer:
                 )
 
             # Build command
+            # When render_source_once=True, don't limit duration - let it render the natural length
+            output_kwargs = {
+                "ar": self.settings.SAMPLE_RATE,
+                "ac": self.settings.CHANNELS,
+                "acodec": "pcm_s16le",
+            }
+            if not render_source_once:
+                output_kwargs["t"] = duration_seconds
+            
             cmd = (
-                mixed.output(
-                    str(output_path),
-                    t=duration_seconds,
-                    ar=self.settings.SAMPLE_RATE,
-                    ac=self.settings.CHANNELS,
-                    acodec="pcm_s16le",
-                )
+                mixed.output(str(output_path), **output_kwargs)
                 .overwrite_output()
                 .compile()
             )
@@ -191,6 +222,8 @@ class AudioRenderer:
             raise RuntimeError(f"FFmpeg audio failed: {stderr[-500:]}") from exc
 
         logger.info("Audio rendered → %s", output_path)
+        if getattr(self.settings, "AUDIO_DEBUG", False):
+            logger.info("AUDIO_DEBUG mixed %s", ffprobe_audio_summary(output_path))
 
     async def render_async(
         self,
@@ -205,9 +238,14 @@ class AudioRenderer:
         master_gain: float,
         eq_gains: list[float],
         progress_callback: Optional[Callable[[int], None]] = None,
+        render_source_once: bool = False,
     ) -> Optional[asyncio.subprocess.Process]:
         """
         Render audio mix asynchronously with progress tracking.
+        
+        Args:
+            render_source_once: If True, render each track once without looping.
+                                Used when building a loop unit for later extension.
         
         Returns the subprocess for potential cancellation.
         """
@@ -229,11 +267,14 @@ class AudioRenderer:
         # Build ffmpeg command using ffmpeg-python
         inputs = []
         for path, vol, pan in active:
-            stream = ffmpeg.input(
-                str(path),
-                stream_loop=-1,
-                t=duration_seconds,
-            )
+            if render_source_once:
+                stream = ffmpeg.input(str(path))
+            else:
+                stream = ffmpeg.input(
+                    str(path),
+                    stream_loop=-1,
+                    t=duration_seconds,
+                )
             stream = stream.filter("volume", vol)
             if abs(pan) > 0.01:
                 import math
@@ -275,14 +316,16 @@ class AudioRenderer:
             )
 
         # Build command
+        output_kwargs = {
+            "ar": self.settings.SAMPLE_RATE,
+            "ac": self.settings.CHANNELS,
+            "acodec": "pcm_s16le",
+        }
+        if not render_source_once:
+            output_kwargs["t"] = duration_seconds
+        
         cmd = (
-            mixed.output(
-                str(output_path),
-                t=duration_seconds,
-                ar=self.settings.SAMPLE_RATE,
-                ac=self.settings.CHANNELS,
-                acodec="pcm_s16le",
-            )
+            mixed.output(str(output_path), **output_kwargs)
             .overwrite_output()
             .compile()
         )

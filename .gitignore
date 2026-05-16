@@ -1,42 +1,128 @@
-# Node.js
-node_modules/
-.next/
-*.log
-dev.log
-server.log
-.env.local
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-.Python
-venv/
+# Secrets & Environment
 .env
+.env.*
+!.env.example
+credentials.json
+*.pem
+*.key
+config.local.*
 
-# Backend specific
-backend/output/
-backend/logs/
-backend/tmp/
+# Dependencies
+node_modules
+**/node_modules
+.venv
+**/.venv
+venv
+env
+ENV
+pyvenv.cfg
+.python-version
+jspm_packages
+.pnp*
 
-# OS Generated Files
-.DS_Store
-.Trashes
-ehthumbs.db
-Thumbs.db
+# Build Output & Distribution
+dist
+build
+out
+.next
+**/.next
+backend/output/*
+backend/tmp/*
+backend/test_output/*
+backend/logs/*
+graphify-out/*
+*.so
+*.dylib
+*.dll
+*.exe
+*.o
+*.obj
+*.egg-info/
+*.egg
+*.tsbuildinfo
 
-# IDE / Editors
+# Preserve empty directory structure
+!backend/output/.gitkeep
+!backend/tmp/.gitkeep
+!backend/test_output/.gitkeep
+!backend/logs/.gitkeep
+
+# Caches & Temporary Files
+__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.nyc_output/
+.cache/
+.turbo/
+*.log
+*.tmp
+*.bak
+*.cache
+*.pid
+.brain/
+backend/jobs_history.json
+project_structure.txt
+
+# Generated Media (safety net - only ignore output directories)
+/backend/output/**/*.wav
+/backend/output/**/*.mp4
+
+# Testing & Coverage
+coverage/
+*.lcov
+htmlcov/
+.tox/
+.noserc
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+
+# IDE & Editor
 .vscode/
 .idea/
 *.swp
-.history/
+*.swo
+*~
+.project
+.classpath
+.settings/
+.kiro/
+.openclaude/
+.opencode/
 
-# Markdown files
-*.md
-!README.md
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
 
-# Test & benchmark files
-benchmark_truthjudge.py
-test_frontend_claims.js
-test_real_audio.py
-test_video_claims.py
+# Markdown files – removed blanket ignore to allow project documentation
+
+# Temporary auto-generated documentation
+AGENTS.md
+CLAUDE.md
+CLAUDE.*
+GEMINI.md
+backend/CUDA_IMPLEMENTATION_SUMMARY.md
+backend/CUDA_VISUALIZER.md
+backend/IMMEDIATE_FIX.md
+backend/IMPLEMENTATION_CHECKLIST.md
+backend/INSTALL_CUDA.md
+backend/PERFORMANCE_COMPARISON.md
+backend/QUICK_START_CUDA.md
+backend/SOLUTION_SUMMARY.md
+backend/WHY_STILL_SLOW.md
+
+# Miscellaneous
+mempalace.yaml
+entities.json
+.graphifyignore

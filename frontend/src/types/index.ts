@@ -26,6 +26,11 @@ export interface Preset {
   eq: number[];
 }
 
+export interface CustomPreset extends Preset {
+  name: string;
+  createdAt: number;
+}
+
 export const PRESETS: Record<string, Preset> = {
   Forest: {
     volumes: [1.0, 0.8, 0.6, 0.4, 0.3, 0.2, 0.1, 0.0],
@@ -110,4 +115,14 @@ export interface SystemInfo {
   output_folder_size: number;
   output_folder_files: number;
   renders_today: number;
+}
+
+// ── Loop Analysis types ───────────────────────────────────────────────────────
+
+export interface LoopAnalysis {
+  loopStartMs: number;
+  loopEndMs: number;
+  score: number;
+  crossfadeMs: number;
+  durationMs: number;
 }
