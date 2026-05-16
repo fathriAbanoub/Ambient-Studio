@@ -97,6 +97,7 @@ class JobManager:
         self.jobs: dict[str, dict] = {}
         self.job_processes: dict[str, asyncio.subprocess.Process] = {}
         self.job_tasks: dict[str, asyncio.Task] = {}
+        self.job_stop_events: dict[str, threading.Event] = {}
         self.queue: list[str] = []
         self.active_count = 0
         self.max_concurrent = 2
@@ -138,8 +139,8 @@ class JobManager:
             "file_size": None,
             "queue_position": len(self.queue) + 1,
             "logs": [],  # Initialize logs array
-            "stop_event": threading.Event(),
         }
+        self.job_stop_events[job_id] = threading.Event()
         self.queue.append(job_id)
         return job_id
 
@@ -212,15 +213,8 @@ class JobManager:
             return False
 
         # Set stop event to signal worker threads
-        job["stop_event"].set()
-
-        # Wait for the worker thread to finish naturally (shielded from cancellation)
-        if job_id in self.job_tasks:
-            task = self.job_tasks[job_id]
-            try:
-                await asyncio.shield(task)
-            except asyncio.CancelledError:
-                pass
+        if job_id in self.job_stop_events:
+            self.job_stop_events[job_id].set()
 
         # Kill the subprocess if it exists
         if job_id in self.job_processes:
@@ -252,6 +246,14 @@ class JobManager:
             finally:
                 if job_id in self.job_processes:
                     del self.job_processes[job_id]
+
+        # Wait for the worker thread to finish naturally (shielded from cancellation)
+        if job_id in self.job_tasks:
+            task = self.job_tasks[job_id]
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                pass
 
         # Update job status
         was_processing = job.get("status") == "processing"
@@ -577,7 +579,10 @@ async def render_video_full(
 
         def parse_bools(s, count):
             parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
-            result = [bool(int(p)) for p in parts]
+            invalid = [p for p in parts if p not in {"0", "1"}]
+            if invalid:
+                raise ValueError(f"Invalid boolean form values: {', '.join(invalid)}")
+            result = [p == "1" for p in parts]
             while len(result) < count:
                 result.append(False)
             return result[:count]
@@ -668,11 +673,19 @@ async def render_video_full(
         video_path = job_dir / "ambient_video.mp4"
 
         try:
+            # Check cancellation before acquiring a render slot
+            if job_manager.job_stop_events.get(job_id, threading.Event()).is_set():
+                raise asyncio.CancelledError()
+
             # Wait for semaphore
             log_with_time("⏳ Waiting for render slot...")
             job_manager.update_progress(job_id, 0, {"status": "waiting_for_slot"})
 
             async with render_semaphore:
+                # Check again after acquiring
+                if job_manager.job_stop_events.get(job_id, threading.Event()).is_set():
+                    raise asyncio.CancelledError()
+
                 # Mark as processing
                 job_manager.start_job(job_id)
                 log_with_time("🎬 Starting render job...")
@@ -711,7 +724,7 @@ async def render_video_full(
                 job_manager.update_progress(job_id, 35, {"status": "mix_complete"})
 
                 # Check for cancellation
-                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                if job_manager.job_stop_events.get(job_id, threading.Event()).is_set():
                     raise asyncio.CancelledError()
 
                 # Step 2: Determine loop points
@@ -758,7 +771,7 @@ async def render_video_full(
                 job_manager.update_progress(job_id, 40, {"status": "loop_analyzed"})
 
                 # Check for cancellation
-                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                if job_manager.job_stop_events.get(job_id, threading.Event()).is_set():
                     raise asyncio.CancelledError()
 
                 # Step 3: Build loop palette from candidates
@@ -860,7 +873,7 @@ async def render_video_full(
                 job_manager.update_progress(job_id, 48, {"status": "loop_complete"})
 
                 # Check for cancellation
-                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                if job_manager.job_stop_events.get(job_id, threading.Event()).is_set():
                     raise asyncio.CancelledError()
 
                 log_with_time("🌫️ Applying entropy layer...")
@@ -877,7 +890,7 @@ async def render_video_full(
                 job_manager.update_progress(job_id, 50, {"status": "audio_complete"})
 
                 # Check for cancellation
-                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                if job_manager.job_stop_events.get(job_id, threading.Event()).is_set():
                     raise asyncio.CancelledError()
 
                 # Step 5: render video with progress
@@ -906,9 +919,7 @@ async def render_video_full(
                         job_id, 55 + int(p * 0.45)
                     ),
                 )
-                if video_process:
-                    job_manager.register_process(job_id, video_process)
-                
+
                 video_time = time.time() - video_start
                 log_with_time(f"✓ Video render complete ({video_time:.2f}s)")
 
@@ -916,7 +927,7 @@ async def render_video_full(
                 job_manager.unregister_process(job_id)
 
                 # Check for cancellation
-                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                if job_manager.job_stop_events.get(job_id, threading.Event()).is_set():
                     raise asyncio.CancelledError()
 
                 # Step 6: Copy to output folder
@@ -964,6 +975,8 @@ async def render_video_full(
             shutil.rmtree(job_dir, ignore_errors=True)
         finally:
             job_manager.unregister_task(job_id)
+            if job_id in job_manager.job_stop_events:
+                del job_manager.job_stop_events[job_id]
 
     # Start the background task and register it
     task = asyncio.create_task(render_task())
@@ -1028,7 +1041,10 @@ async def render_audio_job(
 
         def parse_bools(s, count):
             parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
-            result = [bool(int(p)) for p in parts]
+            invalid = [p for p in parts if p not in {"0", "1"}]
+            if invalid:
+                raise ValueError(f"Invalid boolean form values: {', '.join(invalid)}")
+            result = [p == "1" for p in parts]
             while len(result) < count:
                 result.append(False)
             return result[:count]
@@ -1100,10 +1116,18 @@ async def render_audio_job(
         mix_path = job_dir / "mix.wav"
 
         try:
+            # Check cancellation before acquiring a render slot
+            if job_manager.job_stop_events.get(job_id, threading.Event()).is_set():
+                raise asyncio.CancelledError()
+
             log_with_time("⏳ Waiting for render slot...")
             job_manager.update_progress(job_id, 0, {"status": "waiting_for_slot"})
 
             async with render_semaphore:
+                # Check again after acquiring
+                if job_manager.job_stop_events.get(job_id, threading.Event()).is_set():
+                    raise asyncio.CancelledError()
+
                 job_manager.start_job(job_id)
                 log_with_time("🎵 Starting audio render...")
                 job_manager.update_progress(job_id, 5, {"status": "initializing"})
@@ -1137,7 +1161,7 @@ async def render_audio_job(
                 job_manager.update_progress(job_id, 40, {"status": "mix_complete"})
 
                 # Check for cancellation
-                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                if job_manager.job_stop_events.get(job_id, threading.Event()).is_set():
                     raise asyncio.CancelledError()
 
                 # Step 2: Determine loop points
@@ -1184,7 +1208,7 @@ async def render_audio_job(
                 job_manager.update_progress(job_id, 50, {"status": "loop_analyzed"})
 
                 # Check for cancellation
-                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                if job_manager.job_stop_events.get(job_id, threading.Event()).is_set():
                     raise asyncio.CancelledError()
 
                 analysis_candidates = list(analysis.get("candidates") or [])
@@ -1258,7 +1282,7 @@ async def render_audio_job(
                 job_manager.update_progress(job_id, 60, {"status": "loop_complete"})
 
                 # Check for cancellation
-                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                if job_manager.job_stop_events.get(job_id, threading.Event()).is_set():
                     raise asyncio.CancelledError()
 
                 if not loop_palette:
@@ -1290,7 +1314,7 @@ async def render_audio_job(
                     job_manager.update_progress(job_id, 82, {"status": "rotation_complete"})
 
                 # Check for cancellation
-                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                if job_manager.job_stop_events.get(job_id, threading.Event()).is_set():
                     raise asyncio.CancelledError()
 
                 log_with_time("🌫️ Applying entropy layer...")
@@ -1307,7 +1331,7 @@ async def render_audio_job(
                 job_manager.update_progress(job_id, 90, {"status": "finalizing"})
 
                 # Check for cancellation
-                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                if job_manager.job_stop_events.get(job_id, threading.Event()).is_set():
                     raise asyncio.CancelledError()
 
                 output_dir = Path("output")
@@ -1339,6 +1363,8 @@ async def render_audio_job(
         finally:
             shutil.rmtree(job_dir, ignore_errors=True)
             job_manager.unregister_task(job_id)
+            if job_id in job_manager.job_stop_events:
+                del job_manager.job_stop_events[job_id]
 
     task = asyncio.create_task(render_task())
     job_manager.register_task(job_id, task)
@@ -1533,7 +1559,10 @@ async def render_audio(
 
         def parse_bools(s: str, count: int) -> list[bool]:
             parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
-            result = [bool(int(p)) for p in parts]
+            invalid = [p for p in parts if p not in {"0", "1"}]
+            if invalid:
+                raise ValueError(f"Invalid boolean form values: {', '.join(invalid)}")
+            result = [p == "1" for p in parts]
             while len(result) < count:
                 result.append(False)
             return result[:count]

@@ -343,6 +343,10 @@ class VideoRenderer:
             stderr=asyncio.subprocess.PIPE,
         )
 
+        # Register process immediately for cancellation support
+        if job_manager and job_id:
+            job_manager.register_process(job_id, process)
+
         # Use communicate() to avoid buffer overflow from massive stderr output
         try:
             stdout, stderr_bytes = await asyncio.wait_for(
