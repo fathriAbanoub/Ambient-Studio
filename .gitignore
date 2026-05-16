@@ -26,11 +26,11 @@ build
 out
 .next
 **/.next
-backend/output
-backend/tmp
-backend/test_output
-backend/logs
-graphify-out
+backend/output/*
+backend/tmp/*
+backend/test_output/*
+backend/logs/*
+graphify-out/*
 *.so
 *.dylib
 *.dll

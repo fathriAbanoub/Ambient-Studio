@@ -29,7 +29,7 @@ echo "✓ Dependencies installed"
 echo ""
 echo "Step 2: Cloning OpenCV repositories..."
 cd ~
-if [ -d "opencv" ]; then
+if [ -d "opencv" ] || [ -d "opencv_contrib" ]; then
     echo "opencv directory exists, removing..."
     rm -rf opencv opencv_contrib
 fi
@@ -91,7 +91,15 @@ echo "✓ Installation complete"
 # Step 6: Verify
 echo ""
 echo "Step 6: Verifying CUDA support..."
-python3 -c "import cv2; print(f'OpenCV version: {cv2.__version__}'); print(f'CUDA devices: {cv2.cuda.getCudaEnabledDeviceCount()}')"
+python3 - <<'PY'
+import sys
+import cv2
+count = cv2.cuda.getCudaEnabledDeviceCount()
+print(f"OpenCV version: {cv2.__version__}")
+print(f"CUDA devices: {count}")
+if count < 1:
+    sys.exit("CUDA backend not available in cv2 build/runtime")
+PY
 
 echo ""
 echo "=========================================="

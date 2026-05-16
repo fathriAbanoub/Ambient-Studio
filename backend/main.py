@@ -255,9 +255,11 @@ class JobManager:
                     del self.job_processes[job_id]
 
         # Update job status
+        was_processing = job.get("status") == "processing"
         job["status"] = "cancelled"
         job["finished_at"] = datetime.now().isoformat()
-        self.active_count -= 1
+        if was_processing and self.active_count > 0:
+            self.active_count -= 1
 
         if job_id in self.queue:
             self.queue.remove(job_id)
@@ -578,11 +580,14 @@ async def render_video_full(
         return result[:count]
 
     n = len(track_paths)
-    vol_list = parse_floats(volumes, n, 1.0)
-    pan_list = parse_floats(pans, n, 0.0)
-    muted_list = parse_bools(muted, n)
-    solo_list = parse_bools(solo, n)
-    eq_list = parse_floats(eq_gains, 7, 0.0)
+    try:
+        vol_list = parse_floats(volumes, n, 1.0)
+        pan_list = parse_floats(pans, n, 0.0)
+        muted_list = parse_bools(muted, n)
+        solo_list = parse_bools(solo, n)
+        eq_list = parse_floats(eq_gains, 7, 0.0)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid numeric form values: {exc}") from exc
     show_viz = show_visualizer == "1"
     use_gpu = use_gpu_encoding == "1"
 
@@ -864,7 +869,7 @@ async def render_video_full(
                 output_dir.mkdir(exist_ok=True)
 
                 timestamp = int(time.time())
-                filename = f"ambient_video_{timestamp}.mp4"
+                filename = f"ambient_video_{timestamp}_{job_id}.mp4"
                 final_path = output_dir / filename
                 shutil.copy(video_path, final_path)
 
@@ -886,7 +891,6 @@ async def render_video_full(
         except asyncio.CancelledError:
             render_time = time.time() - start_time
             log_render(duration, n, render_time, False, "Cancelled by user")
-            job_manager.fail_job(job_id, "Cancelled by user")
             job_manager.unregister_process(job_id)
             log_with_time("❌ Render cancelled by user")
             shutil.rmtree(job_dir, ignore_errors=True)
@@ -971,11 +975,14 @@ async def render_audio_job(
         return result[:count]
 
     n = len(track_paths)
-    vol_list = parse_floats(volumes, n, 1.0)
-    pan_list = parse_floats(pans, n, 0.0)
-    muted_list = parse_bools(muted, n)
-    solo_list = parse_bools(solo, n)
-    eq_list = parse_floats(eq_gains, 7, 0.0)
+    try:
+        vol_list = parse_floats(volumes, n, 1.0)
+        pan_list = parse_floats(pans, n, 0.0)
+        muted_list = parse_bools(muted, n)
+        solo_list = parse_bools(solo, n)
+        eq_list = parse_floats(eq_gains, 7, 0.0)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid numeric form values: {exc}") from exc
 
     async def render_task():
         start_time = time.time()
@@ -1200,7 +1207,7 @@ async def render_audio_job(
                 output_dir = Path("output")
                 output_dir.mkdir(exist_ok=True)
                 timestamp = int(time.time())
-                filename = f"ambient_audio_{timestamp}.wav"
+                filename = f"ambient_audio_{timestamp}_{job_id}.wav"
                 final_path = output_dir / filename
                 shutil.copy(final_audio_path, final_path)
 
@@ -1214,7 +1221,6 @@ async def render_audio_job(
         except asyncio.CancelledError:
             render_time = time.time() - start_time
             log_render(duration, n, render_time, False, "Cancelled by user")
-            job_manager.fail_job(job_id, "Cancelled by user")
             log_with_time("❌ Audio render cancelled by user")
             raise
         except Exception as exc:
