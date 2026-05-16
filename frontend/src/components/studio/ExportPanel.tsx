@@ -65,7 +65,7 @@ export function ExportPanel({ engine }: { engine: any }) {
   } = useStudioStore();
 
   const [backgroundImage, setBackgroundImage] = useState<File | null>(null);
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pollIntervalRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const exportKindRef = useRef<"audio" | "video">("video");
 
@@ -109,8 +109,8 @@ export function ExportPanel({ engine }: { engine: any }) {
       let hasLoggedCompletion = false; // Track if we've logged completion
       let lastLogCount = 0; // Track how many logs we've already displayed
       let hasDownloadedOutput = false; // Prevent repeated downloads on "completed"
-      
-      const interval = setInterval(async () => {
+
+      pollIntervalRef.current = window.setInterval(async () => {
         try {
           const progress = await getJobProgress(jobId);
           updateJobProgress(progress);
@@ -198,8 +198,6 @@ export function ExportPanel({ engine }: { engine: any }) {
           resetJobState();
         }
       }, 2000); // Poll every 2 seconds
-
-      pollIntervalRef.current = interval;
     },
     [
       updateJobProgress,

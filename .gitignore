@@ -107,6 +107,21 @@ Desktop.ini
 
 # Markdown files – removed blanket ignore to allow project documentation
 
+# Temporary auto-generated documentation
+AGENTS.md
+CLAUDE.md
+CLAUDE.*
+GEMINI.md
+backend/CUDA_IMPLEMENTATION_SUMMARY.md
+backend/CUDA_VISUALIZER.md
+backend/IMMEDIATE_FIX.md
+backend/IMPLEMENTATION_CHECKLIST.md
+backend/INSTALL_CUDA.md
+backend/PERFORMANCE_COMPARISON.md
+backend/QUICK_START_CUDA.md
+backend/SOLUTION_SUMMARY.md
+backend/WHY_STILL_SLOW.md
+
 # Miscellaneous
 mempalace.yaml
 entities.json

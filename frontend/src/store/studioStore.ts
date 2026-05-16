@@ -124,31 +124,26 @@ const initialLoopAnalysisState = {
 };
 
 export const useStudioStore = create<StudioState>((set, get) => {
-  // Load custom presets on initialization
-  if (typeof window !== 'undefined') {
-    try {
-      const raw = localStorage.getItem("ambient_studio_presets");
-      const presets: CustomPreset[] = raw ? JSON.parse(raw) : [];
-      return {
-        tracks: [],
-        isPlaying: false,
-        masterGain: 1.0,
-        eqGains: [0, 0, 0, 0, 0, 0, 0],
-        exportDuration: 5,
-        exportName: "ambient_mix",
-        isExporting: false,
-        exportProgress: 0,
-        exportLabel: "",
-        logs: [],
-        backendOnline: false,
-        jobHistory: [],
-        toastMessage: null,
-        toastType: "info",
-        customPresets: presets,
-        showVisualizer: false,
-        useGpuEncoding: true,
-        ...initialJobState,
-        ...initialLoopAnalysisState,
+  return {
+    tracks: [],
+    isPlaying: false,
+    masterGain: 1.0,
+    eqGains: [0, 0, 0, 0, 0, 0, 0],
+    exportDuration: 5,
+    exportName: "ambient_mix",
+    isExporting: false,
+    exportProgress: 0,
+    exportLabel: "",
+    logs: [],
+    backendOnline: false,
+    jobHistory: [],
+    toastMessage: null,
+    toastType: "info",
+    customPresets: [],
+    showVisualizer: false,
+    useGpuEncoding: true,
+    ...initialJobState,
+    ...initialLoopAnalysisState,
 
   initTracks: (count: number) => {
     const tracks: Track[] = Array.from({ length: count }, (_, i) => ({
@@ -367,244 +362,8 @@ export const useStudioStore = create<StudioState>((set, get) => {
   setIsAnalyzingLoop: (analyzing) => set({ isAnalyzingLoop: analyzing }),
   setLoopAnalysisError: (error) => set({ loopAnalysisError: error }),
 };
-  } catch {
-    return {
-      tracks: [],
-      isPlaying: false,
-      masterGain: 1.0,
-      eqGains: [0, 0, 0, 0, 0, 0, 0],
-      exportDuration: 5,
-      exportName: "ambient_mix",
-      isExporting: false,
-      exportProgress: 0,
-      exportLabel: "",
-      logs: [],
-      backendOnline: false,
-      jobHistory: [],
-      toastMessage: null,
-      toastType: "info",
-      customPresets: [],
-      showVisualizer: false,
-      useGpuEncoding: true,
-      ...initialJobState,
-      ...initialLoopAnalysisState,
-
-  initTracks: (count: number) => {
-    const tracks: Track[] = Array.from({ length: count }, (_, i) => ({
-      id: generateId(),
-      name: "",
-      file: null,
-      buffer: null,
-      loaded: false,
-      volume: 100,
-      pan: 0,
-      muted: false,
-      solo: false,
-      color: TRACK_COLORS[i % TRACK_COLORS.length],
-      duration: 0,
-    }));
-    set({ tracks });
-  },
-
-  loadTrackFile: (trackIndex: number, file: File, buffer: AudioBuffer) => {
-    set((state) => {
-      const tracks = [...state.tracks];
-      if (tracks[trackIndex]) {
-        const name = file.name.replace(/\.[^/.]+$/, "");
-        tracks[trackIndex] = {
-          ...tracks[trackIndex],
-          name,
-          file,
-          buffer,
-          loaded: true,
-          duration: buffer.duration,
-        };
-      }
-      return { tracks };
-    });
-  },
-
-  unloadTrack: (trackIndex: number) => {
-    set((state) => {
-      const tracks = [...state.tracks];
-      if (tracks[trackIndex]) {
-        tracks[trackIndex] = {
-          ...tracks[trackIndex],
-          name: "",
-          file: null,
-          buffer: null,
-          loaded: false,
-          duration: 0,
-        };
-      }
-      return { tracks };
-    });
-  },
-
-  setVolume: (trackIndex: number, value: number) => {
-    set((state) => {
-      const tracks = [...state.tracks];
-      if (tracks[trackIndex]) {
-        tracks[trackIndex] = { ...tracks[trackIndex], volume: value };
-      }
-      return { tracks };
-    });
-  },
-
-  setPan: (trackIndex: number, value: number) => {
-    set((state) => {
-      const tracks = [...state.tracks];
-      if (tracks[trackIndex]) {
-        tracks[trackIndex] = { ...tracks[trackIndex], pan: value };
-      }
-      return { tracks };
-    });
-  },
-
-  toggleMute: (trackIndex: number) => {
-    set((state) => {
-      const tracks = [...state.tracks];
-      if (tracks[trackIndex]) {
-        tracks[trackIndex] = {
-          ...tracks[trackIndex],
-          muted: !tracks[trackIndex].muted,
-        };
-      }
-      return { tracks };
-    });
-  },
-
-  toggleSolo: (trackIndex: number) => {
-    set((state) => {
-      const tracks = [...state.tracks];
-      if (tracks[trackIndex]) {
-        tracks[trackIndex] = {
-          ...tracks[trackIndex],
-          solo: !tracks[trackIndex].solo,
-        };
-      }
-      return { tracks };
-    });
-  },
-
-  setMasterGain: (value: number) => set({ masterGain: value }),
-
-  setEqGain: (bandIndex: number, db: number) => {
-    set((state) => {
-      const eqGains = [...state.eqGains];
-      eqGains[bandIndex] = db;
-      return { eqGains };
-    });
-  },
-
-  resetEq: () => set({ eqGains: [0, 0, 0, 0, 0, 0, 0] }),
-
-  setExportDuration: (minutes: number) => set({ exportDuration: minutes }),
-
-  setExportName: (name: string) => set({ exportName: name }),
-
-  setIsPlaying: (playing: boolean) => set({ isPlaying: playing }),
-
-  setIsExporting: (exporting: boolean) => set({ isExporting: exporting }),
-
-  setExportProgress: (progress: number) => set({ exportProgress: progress }),
-
-  setExportLabel: (label: string) => set({ exportLabel: label }),
-
-  setBackendOnline: (online: boolean) => set({ backendOnline: online }),
-
-  applyPreset: (volumes: number[], eq: number[]) => {
-    set((state) => {
-      const tracks = state.tracks.map((track, i) => ({
-        ...track,
-        volume: Math.round(volumes[i] * 100),
-      }));
-      return { tracks, eqGains: eq };
-    });
-  },
-
-  addLog: (msg: string, type: "ok" | "err" | "info" | "" = "") => {
-    const entry: LogEntry = {
-      id: generateId(),
-      timestamp: new Date(),
-      message: msg,
-      type,
-    };
-    set((state) => ({ logs: [...state.logs, entry] }));
-  },
-
-  clearLog: () => set({ logs: [] }),
-
-  // Job management actions
-  setCurrentJobId: (jobId) => set({ currentJobId: jobId }),
-  setJobStatus: (status) => set({ jobStatus: status }),
-  setQueuePosition: (position) => set({ queuePosition: position }),
-  setElapsedSeconds: (seconds) => set({ elapsedSeconds: seconds }),
-  setRemainingSeconds: (seconds) => set({ remainingSeconds: seconds }),
-  setJobError: (error) => set({ jobError: error }),
-
-  updateJobProgress: (progress) => {
-    set({
-      jobStatus: progress.status,
-      exportProgress: progress.progress,
-      queuePosition: progress.queue_position,
-      elapsedSeconds: progress.elapsed_seconds,
-      remainingSeconds: progress.remaining_seconds,
-      jobError: progress.error,
-    });
-  },
-
-  resetJobState: () => set(initialJobState),
-
-  // Job history actions
-  setJobHistory: (history) => set({ jobHistory: history }),
-
-  // Toast actions
-  showToast: (message, type = "info") => {
-    set({ toastMessage: message, toastType: type });
-    // Auto-hide after 5 seconds
-    setTimeout(() => {
-      set({ toastMessage: null });
-    }, 5000);
-  },
-
-  hideToast: () => set({ toastMessage: null }),
-
-  // Custom preset actions
-  loadCustomPresets: () => {
-    try {
-      const raw = localStorage.getItem("ambient_studio_presets");
-      const presets: CustomPreset[] = raw ? JSON.parse(raw) : [];
-      set({ customPresets: presets });
-    } catch {
-      set({ customPresets: [] });
-    }
-  },
-
-  saveCustomPreset: (name: string) => {
-    const { tracks, eqGains, customPresets } = get();
-    const volumes = tracks.map((t) => t.volume / 100);
-    const preset: CustomPreset = { name, volumes, eq: eqGains, createdAt: Date.now() };
-    const updated = [...customPresets.filter((p) => p.name !== name), preset];
-    localStorage.setItem("ambient_studio_presets", JSON.stringify(updated));
-    set({ customPresets: updated });
-  },
-
-  deleteCustomPreset: (name: string) => {
-    const { customPresets } = get();
-    const updated = customPresets.filter((p) => p.name !== name);
-    localStorage.setItem("ambient_studio_presets", JSON.stringify(updated));
-    set({ customPresets: updated });
-  },
-
-  // Video options actions
-  setShowVisualizer: (show: boolean) => set({ showVisualizer: show }),
-  setUseGpuEncoding: (useGpu: boolean) => set({ useGpuEncoding: useGpu }),
-
-  // Loop analysis actions
-  setLoopAnalysis: (analysis) => set({ loopAnalysis: analysis }),
-  setIsAnalyzingLoop: (analyzing) => set({ isAnalyzingLoop: analyzing }),
-  setLoopAnalysisError: (error) => set({ loopAnalysisError: error }),
-};
-  }
 });
+
+if (typeof window !== 'undefined') {
+  useStudioStore.getState().loadCustomPresets();
+}

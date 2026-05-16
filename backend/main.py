@@ -888,7 +888,6 @@ async def render_video_full(
             log_render(duration, n, render_time, False, "Cancelled by user")
             job_manager.fail_job(job_id, "Cancelled by user")
             job_manager.unregister_process(job_id)
-            job_manager.unregister_task(job_id)
             log_with_time("❌ Render cancelled by user")
             shutil.rmtree(job_dir, ignore_errors=True)
             raise
@@ -900,7 +899,6 @@ async def render_video_full(
             log_render(duration, n, render_time, False, error_msg)
             job_manager.fail_job(job_id, error_msg)
             job_manager.unregister_process(job_id)
-            job_manager.unregister_task(job_id)
             log_with_time(f"❌ Error: {error_msg}")
             shutil.rmtree(job_dir, ignore_errors=True)
         finally:
@@ -1217,7 +1215,6 @@ async def render_audio_job(
             render_time = time.time() - start_time
             log_render(duration, n, render_time, False, "Cancelled by user")
             job_manager.fail_job(job_id, "Cancelled by user")
-            job_manager.unregister_task(job_id)
             log_with_time("❌ Audio render cancelled by user")
             raise
         except Exception as exc:
@@ -1226,7 +1223,6 @@ async def render_audio_job(
             logger.error(f"Audio render failed for job {job_id}: {error_msg}", exc_info=True)
             log_render(duration, n, render_time, False, error_msg)
             job_manager.fail_job(job_id, error_msg)
-            job_manager.unregister_task(job_id)
             log_with_time(f"❌ Error: {error_msg}")
         finally:
             shutil.rmtree(job_dir, ignore_errors=True)
