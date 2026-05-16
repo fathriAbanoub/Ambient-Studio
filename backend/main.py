@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -137,6 +138,7 @@ class JobManager:
             "file_size": None,
             "queue_position": len(self.queue) + 1,
             "logs": [],  # Initialize logs array
+            "stop_event": threading.Event(),
         }
         self.queue.append(job_id)
         return job_id
@@ -208,6 +210,9 @@ class JobManager:
         job = self.jobs[job_id]
         if job["status"] in ["completed", "failed", "cancelled"]:
             return False
+
+        # Set stop event to signal worker threads
+        job["stop_event"].set()
 
         # Cancel the asyncio task if it exists
         if job_id in self.job_tasks:
@@ -549,13 +554,12 @@ async def render_video_full(
         validate_audio_file(f)
         await validate_file_size(f)
 
-    # Create job
-    job_id = job_manager.create_job(duration)
-
-    # Save uploaded files to temp directory
-    job_dir = Path(settings.TMP_DIR) / job_id
+    # Generate temporary directory name before job creation
+    temp_id = str(uuid.uuid4())[:8]
+    job_dir = Path(settings.TMP_DIR) / temp_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
+    # Save uploaded files to temp directory
     track_paths: list[Path] = []
     for i, upload in enumerate(files):
         ext = Path(upload.filename).suffix or ".audio"
@@ -600,6 +604,36 @@ async def render_video_full(
             shutil.copyfileobj(background_image.file, f)
     else:
         bg_path = Path(settings.DEFAULT_BACKGROUND)
+        if not bg_path.is_file():
+            raise HTTPException(
+                status_code=404,
+                detail="Default background image not found. Please upload a background image or add assets/background.jpg.",
+            )
+
+    # Validate manual loop points before creating job
+    if (loop_start is not None) != (loop_end is not None):
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise HTTPException(status_code=422, detail="Both loop_start and loop_end must be provided together")
+    if loop_start is not None and loop_end is not None:
+        if loop_start < 0 or loop_end < 0:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise HTTPException(status_code=422, detail="Loop points must be non-negative")
+        if loop_end <= loop_start:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise HTTPException(status_code=422, detail="loop_end must be greater than loop_start")
+
+    # Create job after all validation and file operations succeed
+    job_id = job_manager.create_job(duration)
+
+    # Rename temp directory to match job_id
+    final_job_dir = Path(settings.TMP_DIR) / job_id
+    job_dir.rename(final_job_dir)
+    job_dir = final_job_dir
+
+    # Update track paths to reflect new directory
+    track_paths = [job_dir / path.name for path in track_paths]
+    if background_image:
+        bg_path = job_dir / bg_path.name
 
     # Start background render task
     async def render_task():
@@ -673,6 +707,10 @@ async def render_video_full(
                 await asyncio.to_thread(debug_audio_stage, "mix.wav", mix_path)
                 job_manager.update_progress(job_id, 35, {"status": "mix_complete"})
 
+                # Check for cancellation
+                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                    raise asyncio.CancelledError()
+
                 # Step 2: Determine loop points
                 # Use manual points if provided, otherwise auto-analyze
                 def manual_candidate(loop_start_seconds: float, loop_end_seconds: float) -> dict[str, object]:
@@ -715,6 +753,10 @@ async def render_video_full(
                         f"(score={analysis['score']:.3f}, crossfade={analysis['crossfade_ms'] / 1000.0:.3f}s)"
                     )
                 job_manager.update_progress(job_id, 40, {"status": "loop_analyzed"})
+
+                # Check for cancellation
+                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                    raise asyncio.CancelledError()
 
                 # Step 3: Build loop palette from candidates
                 analysis_candidates = list(analysis.get("candidates") or [])
@@ -814,6 +856,10 @@ async def render_video_full(
                     )
                 job_manager.update_progress(job_id, 48, {"status": "loop_complete"})
 
+                # Check for cancellation
+                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                    raise asyncio.CancelledError()
+
                 log_with_time("🌫️ Applying entropy layer...")
                 entropy_path = job_dir / "mix_entropy.wav"
                 await asyncio.to_thread(
@@ -826,6 +872,10 @@ async def render_video_full(
                 final_mix_path = entropy_path
                 await asyncio.to_thread(debug_audio_stage, final_mix_path.name, final_mix_path)
                 job_manager.update_progress(job_id, 50, {"status": "audio_complete"})
+
+                # Check for cancellation
+                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                    raise asyncio.CancelledError()
 
                 # Step 5: render video with progress
                 encoder_type = "🚀 GPU (NVENC)" if use_gpu else "🖥️  CPU (libx264)"
@@ -858,9 +908,13 @@ async def render_video_full(
                 
                 video_time = time.time() - video_start
                 log_with_time(f"✓ Video render complete ({video_time:.2f}s)")
-                
+
                 # Unregister process after completion
                 job_manager.unregister_process(job_id)
+
+                # Check for cancellation
+                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                    raise asyncio.CancelledError()
 
                 # Step 6: Copy to output folder
                 log_with_time("📦 Copying to output folder...")
@@ -948,8 +1002,9 @@ async def render_audio_job(
         validate_audio_file(f)
         await validate_file_size(f)
 
-    job_id = job_manager.create_job(duration)
-    job_dir = Path(settings.TMP_DIR) / job_id
+    # Generate temporary directory name before job creation
+    temp_id = str(uuid.uuid4())[:8]
+    job_dir = Path(settings.TMP_DIR) / temp_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
     track_paths: list[Path] = []
@@ -983,6 +1038,30 @@ async def render_audio_job(
         eq_list = parse_floats(eq_gains, 7, 0.0)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=f"Invalid numeric form values: {exc}") from exc
+
+
+    # Validate manual loop points before creating job
+    if (loop_start is not None) != (loop_end is not None):
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise HTTPException(status_code=422, detail="Both loop_start and loop_end must be provided together")
+    if loop_start is not None and loop_end is not None:
+        if loop_start < 0 or loop_end < 0:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise HTTPException(status_code=422, detail="Loop points must be non-negative")
+        if loop_end <= loop_start:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise HTTPException(status_code=422, detail="loop_end must be greater than loop_start")
+
+    # Create job after all validation and file operations succeed
+    job_id = job_manager.create_job(duration)
+
+    # Rename temp directory to match job_id
+    final_job_dir = Path(settings.TMP_DIR) / job_id
+    job_dir.rename(final_job_dir)
+    job_dir = final_job_dir
+
+    # Update track paths to reflect new directory
+    track_paths = [job_dir / path.name for path in track_paths]
 
     async def render_task():
         start_time = time.time()
@@ -1050,6 +1129,10 @@ async def render_audio_job(
                 await asyncio.to_thread(debug_audio_stage, "mix.wav", mix_path)
                 job_manager.update_progress(job_id, 40, {"status": "mix_complete"})
 
+                # Check for cancellation
+                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                    raise asyncio.CancelledError()
+
                 # Step 2: Determine loop points
                 # Use manual points if provided, otherwise auto-analyze
                 def manual_candidate(loop_start_seconds: float, loop_end_seconds: float) -> dict[str, object]:
@@ -1092,6 +1175,10 @@ async def render_audio_job(
                         f"(score={analysis['score']:.3f}, crossfade={analysis['crossfade_ms'] / 1000.0:.3f}s)"
                     )
                 job_manager.update_progress(job_id, 50, {"status": "loop_analyzed"})
+
+                # Check for cancellation
+                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                    raise asyncio.CancelledError()
 
                 analysis_candidates = list(analysis.get("candidates") or [])
                 if not analysis_candidates:
@@ -1163,6 +1250,10 @@ async def render_audio_job(
                     )
                 job_manager.update_progress(job_id, 60, {"status": "loop_complete"})
 
+                # Check for cancellation
+                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                    raise asyncio.CancelledError()
+
                 if not loop_palette:
                     raise RuntimeError("Unable to build any valid loop units from the analyzed candidates")
 
@@ -1191,6 +1282,10 @@ async def render_audio_job(
                     )
                     job_manager.update_progress(job_id, 82, {"status": "rotation_complete"})
 
+                # Check for cancellation
+                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                    raise asyncio.CancelledError()
+
                 log_with_time("🌫️ Applying entropy layer...")
                 entropy_path = job_dir / "mix_entropy.wav"
                 await asyncio.to_thread(
@@ -1203,6 +1298,10 @@ async def render_audio_job(
                 final_audio_path = entropy_path
                 await asyncio.to_thread(debug_audio_stage, final_audio_path.name, final_audio_path)
                 job_manager.update_progress(job_id, 90, {"status": "finalizing"})
+
+                # Check for cancellation
+                if job_manager.jobs[job_id].get("stop_event", threading.Event()).is_set():
+                    raise asyncio.CancelledError()
 
                 output_dir = Path("output")
                 output_dir.mkdir(exist_ok=True)
