@@ -214,19 +214,13 @@ class JobManager:
         # Set stop event to signal worker threads
         job["stop_event"].set()
 
-        # Cancel the asyncio task if it exists
+        # Wait for the worker thread to finish naturally (shielded from cancellation)
         if job_id in self.job_tasks:
             task = self.job_tasks[job_id]
-            task.cancel()
             try:
-                await task
+                await asyncio.shield(task)
             except asyncio.CancelledError:
-                logger.info(f"Task for job {job_id} cancelled successfully")
-            except Exception as e:
-                logger.error(f"Error while cancelling task for job {job_id}: {e}")
-            finally:
-                if job_id in self.job_tasks:
-                    del self.job_tasks[job_id]
+                pass
 
         # Kill the subprocess if it exists
         if job_id in self.job_processes:
@@ -439,6 +433,10 @@ def parse_ffmpeg_progress(stderr_line: str, total_duration: int) -> Optional[dic
     return None
 
 
+# ── Prevent garbage collection of cleanup tasks ───────────────────────────────
+_background_tasks: set[asyncio.Task] = set()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ROUTES
 # ─────────────────────────────────────────────────────────────────────────────
@@ -559,71 +557,76 @@ async def render_video_full(
     job_dir = Path(settings.TMP_DIR) / temp_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save uploaded files to temp directory
-    track_paths: list[Path] = []
-    for i, upload in enumerate(files):
-        ext = Path(upload.filename).suffix or ".audio"
-        dest = job_dir / f"track_{i:02d}{ext}"
-        with dest.open("wb") as f:
-            shutil.copyfileobj(upload.file, f)
-        track_paths.append(dest)
-
-    # Parse parameters
-    def parse_floats(s, count, default):
-        parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
-        result = [float(p) for p in parts]
-        while len(result) < count:
-            result.append(default)
-        return result[:count]
-
-    def parse_bools(s, count):
-        parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
-        result = [bool(int(p)) for p in parts]
-        while len(result) < count:
-            result.append(False)
-        return result[:count]
-
-    n = len(track_paths)
     try:
-        vol_list = parse_floats(volumes, n, 1.0)
-        pan_list = parse_floats(pans, n, 0.0)
-        muted_list = parse_bools(muted, n)
-        solo_list = parse_bools(solo, n)
-        eq_list = parse_floats(eq_gains, 7, 0.0)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid numeric form values: {exc}") from exc
-    show_viz = show_visualizer == "1"
-    use_gpu = use_gpu_encoding == "1"
+        # Save uploaded files to temp directory
+        track_paths: list[Path] = []
+        for i, upload in enumerate(files):
+            ext = Path(upload.filename).suffix or ".audio"
+            dest = job_dir / f"track_{i:02d}{ext}"
+            with dest.open("wb") as f:
+                shutil.copyfileobj(upload.file, f)
+            track_paths.append(dest)
 
-    # Resolve background
-    bg_path = None
-    if background_image:
-        img_ext = Path(background_image.filename).suffix or ".jpg"
-        bg_path = job_dir / f"background{img_ext}"
-        with bg_path.open("wb") as f:
-            shutil.copyfileobj(background_image.file, f)
-    else:
-        bg_path = Path(settings.DEFAULT_BACKGROUND)
-        if not bg_path.is_file():
-            raise HTTPException(
-                status_code=404,
-                detail="Default background image not found. Please upload a background image or add assets/background.jpg.",
-            )
+        # Parse parameters
+        def parse_floats(s, count, default):
+            parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
+            result = [float(p) for p in parts]
+            while len(result) < count:
+                result.append(default)
+            return result[:count]
 
-    # Validate manual loop points before creating job
-    if (loop_start is not None) != (loop_end is not None):
+        def parse_bools(s, count):
+            parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
+            result = [bool(int(p)) for p in parts]
+            while len(result) < count:
+                result.append(False)
+            return result[:count]
+
+        n = len(track_paths)
+        try:
+            vol_list = parse_floats(volumes, n, 1.0)
+            pan_list = parse_floats(pans, n, 0.0)
+            muted_list = parse_bools(muted, n)
+            solo_list = parse_bools(solo, n)
+            eq_list = parse_floats(eq_gains, 7, 0.0)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid numeric form values: {exc}") from exc
+        show_viz = show_visualizer == "1"
+        use_gpu = use_gpu_encoding == "1"
+
+        # Resolve background
+        bg_path = None
+        if background_image:
+            img_ext = Path(background_image.filename).suffix or ".jpg"
+            bg_path = job_dir / f"background{img_ext}"
+            with bg_path.open("wb") as f:
+                shutil.copyfileobj(background_image.file, f)
+        else:
+            bg_path = Path(settings.DEFAULT_BACKGROUND)
+            if not bg_path.is_file():
+                raise HTTPException(
+                    status_code=404,
+                    detail="Default background image not found. Please upload a background image or add assets/background.jpg.",
+                )
+
+        # Validate manual loop points before creating job
+        if (loop_start is not None) != (loop_end is not None):
+            raise HTTPException(status_code=422, detail="Both loop_start and loop_end must be provided together")
+        if loop_start is not None and loop_end is not None:
+            if loop_start < 0 or loop_end < 0:
+                raise HTTPException(status_code=422, detail="Loop points must be non-negative")
+            if loop_end <= loop_start:
+                raise HTTPException(status_code=422, detail="loop_end must be greater than loop_start")
+
+        # Create job after all validation and file operations succeed
+        job_id = job_manager.create_job(duration)
+
+    except HTTPException:
         shutil.rmtree(job_dir, ignore_errors=True)
-        raise HTTPException(status_code=422, detail="Both loop_start and loop_end must be provided together")
-    if loop_start is not None and loop_end is not None:
-        if loop_start < 0 or loop_end < 0:
-            shutil.rmtree(job_dir, ignore_errors=True)
-            raise HTTPException(status_code=422, detail="Loop points must be non-negative")
-        if loop_end <= loop_start:
-            shutil.rmtree(job_dir, ignore_errors=True)
-            raise HTTPException(status_code=422, detail="loop_end must be greater than loop_start")
-
-    # Create job after all validation and file operations succeed
-    job_id = job_manager.create_job(duration)
+        raise
+    except Exception:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise
 
     # Rename temp directory to match job_id
     final_job_dir = Path(settings.TMP_DIR) / job_id
@@ -1007,53 +1010,57 @@ async def render_audio_job(
     job_dir = Path(settings.TMP_DIR) / temp_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    track_paths: list[Path] = []
-    for i, upload in enumerate(files):
-        ext = Path(upload.filename).suffix or ".audio"
-        dest = job_dir / f"track_{i:02d}{ext}"
-        with dest.open("wb") as f:
-            shutil.copyfileobj(upload.file, f)
-        track_paths.append(dest)
-
-    def parse_floats(s, count, default):
-        parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
-        result = [float(p) for p in parts]
-        while len(result) < count:
-            result.append(default)
-        return result[:count]
-
-    def parse_bools(s, count):
-        parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
-        result = [bool(int(p)) for p in parts]
-        while len(result) < count:
-            result.append(False)
-        return result[:count]
-
-    n = len(track_paths)
     try:
-        vol_list = parse_floats(volumes, n, 1.0)
-        pan_list = parse_floats(pans, n, 0.0)
-        muted_list = parse_bools(muted, n)
-        solo_list = parse_bools(solo, n)
-        eq_list = parse_floats(eq_gains, 7, 0.0)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid numeric form values: {exc}") from exc
+        track_paths: list[Path] = []
+        for i, upload in enumerate(files):
+            ext = Path(upload.filename).suffix or ".audio"
+            dest = job_dir / f"track_{i:02d}{ext}"
+            with dest.open("wb") as f:
+                shutil.copyfileobj(upload.file, f)
+            track_paths.append(dest)
 
+        def parse_floats(s, count, default):
+            parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
+            result = [float(p) for p in parts]
+            while len(result) < count:
+                result.append(default)
+            return result[:count]
 
-    # Validate manual loop points before creating job
-    if (loop_start is not None) != (loop_end is not None):
+        def parse_bools(s, count):
+            parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
+            result = [bool(int(p)) for p in parts]
+            while len(result) < count:
+                result.append(False)
+            return result[:count]
+
+        n = len(track_paths)
+        try:
+            vol_list = parse_floats(volumes, n, 1.0)
+            pan_list = parse_floats(pans, n, 0.0)
+            muted_list = parse_bools(muted, n)
+            solo_list = parse_bools(solo, n)
+            eq_list = parse_floats(eq_gains, 7, 0.0)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid numeric form values: {exc}") from exc
+
+        # Validate manual loop points before creating job
+        if (loop_start is not None) != (loop_end is not None):
+            raise HTTPException(status_code=422, detail="Both loop_start and loop_end must be provided together")
+        if loop_start is not None and loop_end is not None:
+            if loop_start < 0 or loop_end < 0:
+                raise HTTPException(status_code=422, detail="Loop points must be non-negative")
+            if loop_end <= loop_start:
+                raise HTTPException(status_code=422, detail="loop_end must be greater than loop_start")
+
+        # Create job after all validation and file operations succeed
+        job_id = job_manager.create_job(duration)
+
+    except HTTPException:
         shutil.rmtree(job_dir, ignore_errors=True)
-        raise HTTPException(status_code=422, detail="Both loop_start and loop_end must be provided together")
-    if loop_start is not None and loop_end is not None:
-        if loop_start < 0 or loop_end < 0:
-            shutil.rmtree(job_dir, ignore_errors=True)
-            raise HTTPException(status_code=422, detail="Loop points must be non-negative")
-        if loop_end <= loop_start:
-            shutil.rmtree(job_dir, ignore_errors=True)
-            raise HTTPException(status_code=422, detail="loop_end must be greater than loop_start")
-
-    # Create job after all validation and file operations succeed
-    job_id = job_manager.create_job(duration)
+        raise
+    except Exception:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise
 
     # Rename temp directory to match job_id
     final_job_dir = Path(settings.TMP_DIR) / job_id
@@ -1599,7 +1606,9 @@ async def render_audio(
             await asyncio.sleep(30)
             shutil.rmtree(job_dir, ignore_errors=True)
 
-        _cleanup_task = asyncio.create_task(cleanup())
+        task = asyncio.create_task(cleanup())
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
 
         from fastapi.responses import FileResponse
 
@@ -1671,7 +1680,9 @@ async def render_video(
             await asyncio.sleep(30)
             shutil.rmtree(job_dir, ignore_errors=True)
 
-        _cleanup_task = asyncio.create_task(cleanup())
+        task = asyncio.create_task(cleanup())
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
 
         from fastapi.responses import FileResponse
 
