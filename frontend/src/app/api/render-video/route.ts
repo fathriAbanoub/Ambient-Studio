@@ -6,7 +6,8 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
 
-  const response = await fetch("http://localhost:3003/render-video-full", {
+  const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003";
+  const response = await fetch(`${backendUrl}/render-video-full`, {
     method: "POST",
     body: formData,
     signal: AbortSignal.timeout(1800000),

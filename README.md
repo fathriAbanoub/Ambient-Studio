@@ -148,7 +148,7 @@ All settings are in `backend/config.py`. Override with environment variables.
 
 ### Health Check
 
-```
+```http
 GET /health
 ```
 
@@ -158,7 +158,7 @@ Returns `{"status": "ok", "version": "3.0.0"}`.
 
 ### System Information
 
-```
+```http
 GET /system
 ```
 
@@ -168,7 +168,7 @@ Returns CPU %, RAM used/total/%, output folder size/file count, and renders toda
 
 ### Job History
 
-```
+```http
 GET /jobs
 ```
 
@@ -178,7 +178,7 @@ Returns the last 10 completed render jobs.
 
 ### Queue Status
 
-```
+```http
 GET /queue
 ```
 
@@ -188,7 +188,7 @@ Returns `queue_depth`, `active_jobs`, `max_concurrent`, and `queued_jobs` list.
 
 ### Job Status
 
-```
+```http
 GET /job/{job_id}
 ```
 
@@ -198,7 +198,7 @@ Returns full job dict: id, status, progress, duration, started_at, finished_at, 
 
 ### Job Progress
 
-```
+```http
 GET /job/{job_id}/progress
 ```
 
@@ -208,7 +208,7 @@ Returns `job_id`, `status`, `progress`, `elapsed_seconds`, `remaining_seconds`, 
 
 ### Cancel Job
 
-```
+```http
 DELETE /job/{job_id}
 ```
 
@@ -219,7 +219,7 @@ Returns 404 if not found, 400 if not cancellable.
 
 ### Render Audio (synchronous)
 
-```
+```http
 POST /render-audio
 ```
 
@@ -242,7 +242,7 @@ Returns: `FileResponse` — WAV file.
 
 ### Render Video (synchronous)
 
-```
+```http
 POST /render-video
 ```
 
@@ -260,7 +260,7 @@ Returns: `FileResponse` — MP4 file.
 
 ### Render Full Pipeline (async)
 
-```
+```http
 POST /render-video-full
 ```
 
@@ -289,7 +289,7 @@ Poll `GET /job/{job_id}/progress` for status. Download via `GET /download/{job_i
 
 ### Render Audio Job (async)
 
-```
+```http
 POST /render-audio-job
 ```
 
@@ -314,7 +314,7 @@ Returns: `{"status": "queued", "job_id": "...", "queue_position": N}`.
 
 ### Analyze Loop
 
-```
+```http
 POST /analyze-loop
 ```
 
@@ -330,7 +330,7 @@ Returns: `{"loop_start_ms", "loop_end_ms", "score", "crossfade_ms", ...}`.
 
 ### Download Job Output
 
-```
+```http
 GET /download/{job_id}
 ```
 
@@ -353,7 +353,7 @@ The full render pipeline (`POST /render-video-full`) processes jobs through thes
 
 ### Job Lifecycle
 
-```
+```text
 queued → processing → completed / failed / cancelled
 ```
 
@@ -398,7 +398,7 @@ source backend/set_cuda_env.sh
 
 ## Project Structure
 
-```
+```text
 ambient-studio/
 ├── start.sh                          # One-command startup script (frontend + backend)
 ├── config.json                       # Project configuration (ports, workspace paths)
