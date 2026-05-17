@@ -16,7 +16,7 @@ class Settings:
 
     # ── Server ─────────────────────────────────────────────────────────────
     HOST: str = os.getenv("HOST", "0.0.0.0")
-    PORT: int = int(os.getenv("PORT", 3001))
+    PORT: int = int(os.getenv("PORT", 3003))
     ALLOWED_ORIGINS: list[str] = os.getenv(
         "ALLOWED_ORIGINS", "http://localhost:3002,http://localhost:3003"
     ).split(",")
