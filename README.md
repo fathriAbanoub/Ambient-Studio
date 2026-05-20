@@ -1,8 +1,12 @@
 # AMBIENT.STUDIO
 
-![License](https://img.shields.io/badge/license-MIT-blue)
-![Version](https://img.shields.io/badge/version-3.0.0-brightgreen)
-![Stack](https://img.shields.io/badge/stack-Next.js%20%7C%20FastAPI%20%7C%20TypeScript%20%7C%20Python-orange)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Version](https://img.shields.io/badge/version-3.0.0-brightgreen.svg)](https://github.com/fathriAbanoub/Ambient-Studio/releases)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js&logoColor=white)](https://nextjs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5+-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![FFmpeg](https://img.shields.io/badge/FFmpeg-6.0+-007808?logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
 
 > Create ambient soundscapes in your browser. Mix up to 8 audio tracks with volume, pan, EQ, loop analysis, stochastic variation, and export to WAV or MP4 video — with optional GPU acceleration.
 
@@ -15,6 +19,10 @@
 - [Configuration](#configuration)
 - [API Reference](#api-reference)
 - [Architecture](#architecture)
+  - [Rendering Pipeline](#rendering-pipeline)
+  - [Full Render Sequence](#full-render-sequence)
+  - [Job Lifecycle](#job-lifecycle)
+  - [Frontend State](#frontend-state)
 - [GPU Acceleration](#gpu-acceleration)
 - [Project Structure](#project-structure)
 - [Roadmap](#roadmap)
@@ -361,6 +369,101 @@ queued → processing → completed / failed / cancelled
 - **Cancellation** — `threading.Event` (stop_events) + subprocess kill + `asyncio.shield()` for clean shutdown
 - **Progress** — Real-time progress percentage with elapsed/remaining time estimates
 - **Persistence** — Last 100 jobs saved to `jobs_history.json`
+
+### Full Render Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User
+    participant Frontend
+    participant Backend_API as Backend API
+    participant JobManager
+    participant AudioRenderer
+    participant LoopAnalyzer
+    participant LoopProcessor
+    participant VariationScheduler
+    participant EntropyLayer
+    participant Renderer as Renderer (3-tier)
+    participant FileSystem
+
+    User->>Frontend: Upload audio tracks
+    Frontend->>Frontend: decodeAudioData per track<br/>store AudioBuffer in zustand
+    Frontend->>Frontend: initAudioEngine()<br/>AnalyserNode + 7-band EQ + masterGain
+    
+    Note over Frontend: /analyze-loop API exists but<br/>is never called from UI.<br/>loopAnalysis stays null.
+    
+    User->>Frontend: Submit export<br/>(showVisualizer, useGpuEncoding)
+    
+    alt Audio-only export
+        Frontend->>Backend_API: POST /render-audio-job<br/>(files, duration, volumes, pans,<br/>muted, solo, master_gain, eq_gains,<br/>loop_start?, loop_end?)
+    else Video export
+        Frontend->>Backend_API: POST /render-video-full<br/>(files, duration, volumes, pans,<br/>muted, solo, master_gain, eq_gains,<br/>loop_start?, loop_end?,<br/>show_visualizer, use_gpu_encoding,<br/>background_image?)
+    end
+    
+    Backend_API->>JobManager: create_job(duration)
+    JobManager-->>Backend_API: job_id
+    Backend_API-->>Frontend: {status: "queued", job_id, queue_position}
+    
+    Backend_API->>JobManager: start_job(job_id)
+    Backend_API->>AudioRenderer: render_async(track_paths, ...)<br/>Single-pass FFmpeg: loop input,<br/>volume, pan, amix, master_gain, EQ
+    AudioRenderer-->>Backend_API: Mixed WAV
+    Backend_API->>JobManager: update_progress(10-35%)
+    
+    alt loop_start/loop_end not provided
+        Backend_API->>LoopAnalyzer: analyze_loop(mixed_audio)
+        LoopAnalyzer->>LoopAnalyzer: PyMusicLooper + validate +<br/>repetition_salience
+        LoopAnalyzer-->>Backend_API: {loop_start_ms, loop_end_ms,<br/>score, crossfade_ms, duration_ms,<br/>candidates[], alternatives[]}
+        Backend_API->>JobManager: update_progress(40%)
+    end
+    
+    Backend_API->>LoopProcessor: make_loop() → canonical unit
+    LoopProcessor->>FileSystem: Write canonical loop WAV
+    Backend_API->>LoopProcessor: extend_loop_seamless()<br/>or assemble_with_rotation()
+    LoopProcessor->>FileSystem: Write extended loop WAV
+    LoopProcessor-->>Backend_API: Extended loop path
+    Backend_API->>JobManager: update_progress(48%)
+    
+    Backend_API->>VariationScheduler: schedule(segments, target_duration)<br/>StochasticVariationScheduler:<br/>max_consecutive=2, salience_budget=0.55
+    VariationScheduler->>VariationScheduler: Stratify by salience,<br/>filter repeats, weighted choice,<br/>temporal jitter 0.60-1.00
+    VariationScheduler-->>Backend_API: AssemblyPlan{segments,<br/>transitions, total_duration}
+    
+    Backend_API->>EntropyLayer: process(audio, params)<br/>gain_drift (pink noise ±1.5dB),<br/>stereo_drift (anti-correlated ±0.06),<br/>hf_drift (above 4kHz ±1.25dB),<br/>then Limiter(-1dB)
+    Backend_API->>JobManager: update_progress(50%)
+    
+    alt Video export with visualizer
+        Backend_API->>Renderer: render_async(audio, bg, output)
+        alt CUDA available
+            Renderer->>Renderer: CudaVisualizerRenderer<br/>librosa mel-spectro 64 bars,<br/>GPU bg zoom + CPU bar draw,<br/>FFmpeg NVENC pipe
+        else CPU fallback
+            Renderer->>Renderer: CPUVisualizerRenderer<br/>PIL/NumPy mel-spectro 64 bars,<br/>FFmpeg libx264 pipe
+        else No optimized viz
+            Renderer->>Renderer: FFmpeg showfreqs filter<br/>+ hwupload_cuda overlay
+        end
+        Renderer->>FileSystem: Write MP4
+        Renderer-->>Backend_API: Video complete
+    else Audio-only export
+        Note over Backend_API: Skip video rendering
+    end
+    
+    Backend_API->>JobManager: complete_job(job_id,<br/>output_path, filename, file_size)
+    
+    Frontend->>Frontend: Poll GET /job/{job_id}/progress<br/>every 2s
+    Backend_API->>JobManager: get_job_progress(job_id)
+    JobManager-->>Backend_API: {status, progress, elapsed,<br/>remaining, queue_position, logs[]}
+    Backend_API-->>Frontend: Progress + logs
+    Frontend->>Frontend: Append incremental logs,<br/>update progress bar
+    
+    Frontend->>Backend_API: GET /download/{job_id}
+    Backend_API->>FileSystem: Read output file
+    Backend_API-->>Frontend: FileResponse (WAV or MP4)
+    
+    alt Audio export
+        Frontend->>User: Auto-download WAV<br/>via downloadBlob()
+    else Video export
+        Note over Frontend: No auto-download for video.<br/>No download button exists.<br/>Video output unreachable from UI.
+    end
+```
 
 ### Frontend State
 
