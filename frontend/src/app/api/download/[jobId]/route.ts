@@ -4,7 +4,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: { jobId: string } },
 ) {
-  const backendUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3003";
+  const backendUrl = process.env.BACKEND_API_URL ?? "http://localhost:3003";
   const jobId = params.jobId;
   const encodedJobId = encodeURIComponent(jobId);
   const safeJobId = jobId.replace(/[^\w.-]/g, "_");
