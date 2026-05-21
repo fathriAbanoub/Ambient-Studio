@@ -409,6 +409,15 @@ export function downloadBlob(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
+export function triggerVideoDownload(jobId: string, filename?: string): void {
+  const a = document.createElement("a");
+  a.href = `/api/download/${jobId}`;
+  a.download = filename ?? `ambient_video_${jobId}.mp4`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 /**
  * Format bytes to human-readable file size
  */
