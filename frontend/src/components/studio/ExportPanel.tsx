@@ -7,7 +7,9 @@ import {
   downloadJobOutput,
   renderVideoFull,
   downloadBlob,
+  triggerVideoDownload,
   getJobProgress,
+  getJobStatus,
   cancelJob,
   getJobHistory,
   formatFileSize,
@@ -170,6 +172,22 @@ export function ExportPanel({ engine }: { engine: any }) {
                 downloadBlob(blob, `${exportName}.wav`);
               } catch (e) {
                 addLog(`✗ Failed to download audio: ${e}`, "err");
+                showToast(`Download failed: ${e}`, "error");
+              }
+            } else if (
+              exportKindRef.current === "video" &&
+              !hasDownloadedOutput
+            ) {
+              hasDownloadedOutput = true;
+              showToast("Render finished — download starting…", "success");
+              try {
+                const status = await getJobStatus(jobId);
+                triggerVideoDownload(
+                  progress.job_id,
+                  status.filename ?? undefined,
+                );
+              } catch (e) {
+                addLog(`✗ Failed to download video: ${e}`, "err");
                 showToast(`Download failed: ${e}`, "error");
               }
             }
