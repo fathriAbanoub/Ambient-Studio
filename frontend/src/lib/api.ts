@@ -411,7 +411,7 @@ export function downloadBlob(blob: Blob, filename: string): void {
 
 export function triggerVideoDownload(jobId: string, filename?: string): void {
   const a = document.createElement("a");
-  a.href = `/api/download/${jobId}`;
+  a.href = `/api/download/${encodeURIComponent(jobId)}`;
   a.download = filename ?? `ambient_video_${jobId}.mp4`;
   document.body.appendChild(a);
   a.click();

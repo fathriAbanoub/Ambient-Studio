@@ -5,10 +5,16 @@ export async function GET(
   { params }: { params: { jobId: string } },
 ) {
   const backendUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3003";
-  const upstream = await fetch(`${backendUrl}/download/${params.jobId}`);
 
-  if (!upstream.ok) {
-    return new NextResponse("Download failed", { status: upstream.status });
+  let upstream: Response;
+  try {
+    upstream = await fetch(`${backendUrl}/download/${params.jobId}`);
+    if (!upstream.ok) {
+      return new NextResponse("Download failed", { status: upstream.status });
+    }
+  } catch (error) {
+    console.error("Upstream fetch failed:", error);
+    return new NextResponse("Upstream fetch failed", { status: 502 });
   }
 
   const contentDisposition =
