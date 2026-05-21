@@ -5,10 +5,13 @@ export async function GET(
   { params }: { params: { jobId: string } },
 ) {
   const backendUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3003";
+  const jobId = params.jobId;
+  const encodedJobId = encodeURIComponent(jobId);
+  const safeJobId = jobId.replace(/[^\w.-]/g, "_");
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${backendUrl}/download/${params.jobId}`);
+    upstream = await fetch(`${backendUrl}/download/${encodedJobId}`);
     if (!upstream.ok) {
       return new NextResponse("Download failed", { status: upstream.status });
     }
@@ -19,7 +22,7 @@ export async function GET(
 
   const contentDisposition =
     upstream.headers.get("content-disposition") ??
-    `attachment; filename="ambient_video_${params.jobId}.mp4"`;
+    `attachment; filename="ambient_video_${safeJobId}.mp4"`;
   const contentType = upstream.headers.get("content-type") ?? "video/mp4";
 
   return new NextResponse(upstream.body, {
