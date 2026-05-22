@@ -1,5 +1,7 @@
 // Track and studio types for AMBIENT STUDIO
 
+import type { LoopAlternative, LoopCandidate } from "@/lib/api";
+
 export interface Track {
   id: string;
   name: string;
@@ -125,4 +127,6 @@ export interface LoopAnalysis {
   score: number;
   crossfadeMs: number;
   durationMs: number;
+  candidates: LoopCandidate[];
+  alternatives: LoopAlternative[];
 }
