@@ -125,6 +125,7 @@ export interface LoopAnalysis {
   loopStartMs: number;
   loopEndMs: number;
   score: number;
+  rawAnalyzerScore: number;
   crossfadeMs: number;
   durationMs: number;
   candidates: LoopCandidate[];

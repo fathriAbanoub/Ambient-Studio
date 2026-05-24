@@ -91,6 +91,7 @@ export function ExportPanel({ engine }: { engine: any }) {
 
     setIsAnalyzingLoop(true);
     setLoopAnalysisError(null);
+    setLoopAnalysis(null);
 
     try {
       // NOTE: Temporary simplification — first active track file only.
@@ -103,6 +104,7 @@ export function ExportPanel({ engine }: { engine: any }) {
         loopStartMs: result.loop_start_ms,
         loopEndMs: result.loop_end_ms,
         score: result.score,
+        rawAnalyzerScore: result.raw_analyzer_score,
         crossfadeMs: result.crossfade_ms,
         durationMs: result.duration_ms,
         candidates: result.candidates ?? [],
@@ -114,6 +116,7 @@ export function ExportPanel({ engine }: { engine: any }) {
       const message =
         err instanceof Error ? err.message : "Loop analysis failed";
       setLoopAnalysisError(message);
+      setLoopAnalysis(null);
       addLog(`✗ ${message}`, "err");
       showToast(message, "error");
     } finally {
@@ -666,13 +669,14 @@ export function ExportPanel({ engine }: { engine: any }) {
                     </p>
                   )}
 
-                  {loopAnalysis.candidates?.length > 0 && (
+                  {(loopAnalysis.candidates?.length ?? 0) > 0 ||
+                  (loopAnalysis.alternatives?.length ?? 0) > 0 ? (
                     <p className="text-[var(--text-dim)] text-xs mt-1">
-                      {loopAnalysis.candidates.length} candidate(s) ·{" "}
+                      {loopAnalysis.candidates?.length ?? 0} candidate(s) ·{" "}
                       {loopAnalysis.alternatives?.length ?? 0} alternative(s)
                       detected
                     </p>
-                  )}
+                  ) : null}
                 </div>
               )}
             </div>
