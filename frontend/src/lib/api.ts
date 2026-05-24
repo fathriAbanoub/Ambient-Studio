@@ -24,12 +24,35 @@ export async function checkHealth(): Promise<HealthResponse | null> {
 
 // ── Loop Analysis ─────────────────────────────────────────────────────────────
 
+export interface LoopCandidate {
+  segment_id: string;
+  loop_start_ms: number;
+  loop_end_ms: number;
+  crossfade_duration_ms: number;
+  validator_score: number;
+  repetition_salience_score: number;
+}
+
+export interface LoopAlternative {
+  segment_id: string;
+  loop_start_ms: number;
+  loop_end_ms: number;
+  crossfade_ms: number;
+  raw_analyzer_score: number;
+  validator_score: number;
+  repetition_salience_score: number;
+  validation_metrics: Record<string, number>;
+}
+
 export interface LoopAnalysisResult {
   loop_start_ms: number;
   loop_end_ms: number;
   score: number;
   crossfade_ms: number;
   duration_ms: number;
+  raw_analyzer_score: number;
+  candidates: LoopCandidate[];
+  alternatives: LoopAlternative[];
 }
 
 export async function analyzeLoop(file: File): Promise<LoopAnalysisResult> {

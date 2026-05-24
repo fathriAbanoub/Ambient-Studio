@@ -8,6 +8,7 @@ import {
   renderVideoFull,
   downloadBlob,
   triggerVideoDownload,
+  analyzeLoop,
   getJobProgress,
   getJobStatus,
   cancelJob,
@@ -63,6 +64,11 @@ export function ExportPanel({ engine }: { engine: any }) {
     useGpuEncoding,
     setUseGpuEncoding,
     loopAnalysis,
+    setLoopAnalysis,
+    isAnalyzingLoop,
+    setIsAnalyzingLoop,
+    loopAnalysisError,
+    setLoopAnalysisError,
     setIsPlaying,
   } = useStudioStore();
 
@@ -77,6 +83,46 @@ export function ExportPanel({ engine }: { engine: any }) {
   const noTracksLoaded = loadedTracks.length === 0;
   const invalidDuration = exportDuration <= 0;
   const noBackgroundImage = !backgroundImage;
+
+  const activeTracksForAnalysis = tracks.filter((t) => !t.muted && t.file);
+
+  const handleAnalyzeLoop = async () => {
+    if (activeTracksForAnalysis.length === 0) return;
+
+    setIsAnalyzingLoop(true);
+    setLoopAnalysisError(null);
+    setLoopAnalysis(null);
+
+    try {
+      // NOTE: Temporary simplification — first active track file only.
+      // Future task: client-side mixdown blob to match backend mix.wav.
+      const fileToAnalyze = activeTracksForAnalysis[0].file!;
+
+      const result = await analyzeLoop(fileToAnalyze);
+
+      setLoopAnalysis({
+        loopStartMs: result.loop_start_ms,
+        loopEndMs: result.loop_end_ms,
+        score: result.score,
+        rawAnalyzerScore: result.raw_analyzer_score,
+        crossfadeMs: result.crossfade_ms,
+        durationMs: result.duration_ms,
+        candidates: result.candidates ?? [],
+        alternatives: result.alternatives ?? [],
+      });
+      addLog("Loop analysis complete", "ok");
+      showToast("Loop analysis complete", "success");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Loop analysis failed";
+      setLoopAnalysisError(message);
+      setLoopAnalysis(null);
+      addLog(`✗ ${message}`, "err");
+      showToast(message, "error");
+    } finally {
+      setIsAnalyzingLoop(false);
+    }
+  };
 
   const handlePreviewSeam = () => {
     if (!loopAnalysis) {
@@ -544,8 +590,98 @@ export function ExportPanel({ engine }: { engine: any }) {
             </button>
           </div>
 
-          {/* Export Buttons */}
-          <div className="flex gap-3 ml-auto">
+          {/* Loop analysis + export buttons */}
+          <div className="flex flex-col gap-2 ml-auto items-end">
+            <div className="flex flex-col items-end gap-1 min-w-[220px]">
+              <button
+                onClick={handleAnalyzeLoop}
+                disabled={
+                  isAnalyzingLoop || activeTracksForAnalysis.length === 0
+                }
+                className={`
+                  flex items-center gap-2 px-4 py-2 rounded font-medium transition-all text-sm border
+                  ${
+                    isAnalyzingLoop || activeTracksForAnalysis.length === 0
+                      ? "bg-[var(--surface2)] text-[var(--text-dim)] cursor-not-allowed border-[var(--border)]"
+                      : "bg-[var(--surface2)] text-[var(--text-dim)] hover:border-[var(--accent)] border-[var(--border)]"
+                  }
+                `}
+              >
+                {isAnalyzingLoop ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Analyzing…
+                  </>
+                ) : (
+                  "Analyze Loop"
+                )}
+              </button>
+
+              {loopAnalysisError && (
+                <p className="text-sm text-[var(--warn)] mt-1">
+                  {loopAnalysisError}
+                </p>
+              )}
+
+              {loopAnalysis && (
+                <div className="rounded-md border border-[var(--border)] p-3 mt-2 space-y-1 text-sm w-full">
+                  <p className="font-medium text-[var(--text)]">
+                    Loop Analysis Result
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[var(--text-dim)]">
+                    <span>Loop start</span>
+                    <span>
+                      {(loopAnalysis.loopStartMs / 1000).toFixed(3)}s
+                    </span>
+
+                    <span>Loop end</span>
+                    <span>{(loopAnalysis.loopEndMs / 1000).toFixed(3)}s</span>
+
+                    <span>Duration</span>
+                    <span>
+                      {(
+                        (loopAnalysis.loopEndMs - loopAnalysis.loopStartMs) /
+                        1000
+                      ).toFixed(2)}
+                      s
+                    </span>
+
+                    <span>Crossfade</span>
+                    <span>{loopAnalysis.crossfadeMs}ms</span>
+
+                    <span>Score</span>
+                    <span
+                      className={
+                        loopAnalysis.score < 0.7
+                          ? "text-[var(--warn)] font-medium"
+                          : "text-[var(--accent3)] font-medium"
+                      }
+                    >
+                      {(loopAnalysis.score * 100).toFixed(1)}%
+                    </span>
+                  </div>
+
+                  {loopAnalysis.score < 0.7 && (
+                    <p className="text-[var(--warn)] text-xs mt-1">
+                      ⚠ Loop seam may be audible. Consider using an alternative
+                      candidate.
+                    </p>
+                  )}
+
+                  {(loopAnalysis.candidates?.length ?? 0) > 0 ||
+                  (loopAnalysis.alternatives?.length ?? 0) > 0 ? (
+                    <p className="text-[var(--text-dim)] text-xs mt-1">
+                      {loopAnalysis.candidates?.length ?? 0} candidate(s) ·{" "}
+                      {loopAnalysis.alternatives?.length ?? 0} alternative(s)
+                      detected
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3">
             {loopAnalysis && (
               <button
                 onClick={handlePreviewSeam}
@@ -617,6 +753,7 @@ export function ExportPanel({ engine }: { engine: any }) {
                 Cancel
               </button>
             )}
+            </div>
           </div>
         </div>
 
