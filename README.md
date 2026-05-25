@@ -39,15 +39,17 @@
 - **Live VU Meter** — Real-time level visualizer driven by the Web Audio API analyser node.
 - **Waveform Display** — Per-track canvas waveform rendered on file load.
 - **Presets** — Built-in presets (Forest, Ocean, Space, Café) plus save/delete custom presets.
-- **Loop Analysis** — Automatic detection of optimal loop points with crossfade and seamlessness scoring. Manual override via `loop_start` / `loop_end` parameters.
+- **Loop Analysis** — Pre-render loop point detection via the "Analyze Loop" button. Detects optimal loop start/end with crossfade and seamlessness scoring, displays candidates and alternatives, warns on low-confidence seams (<70%), and feeds the result directly into the export as a manual override. Analysis can be re-run at any time; stale results are cleared automatically.
 - **Stochastic Variation** — Per-loop randomization of volume, pan, and EQ micro-shifts via an entropy layer with slow drift — keeps long ambient tracks evolving.
-- **WAV Export** — Rendered client-side via `OfflineAudioContext` (works offline) or server-side via the job system.
+- **WAV Export** — Server-side via the async job system with full loop processing and entropy layer.
 - **MP4 Video Export** — Server-side rendering via FFmpeg with three rendering paths:
   - CUDA GPU visualizer (6× faster than FFmpeg)
   - CPU-optimized visualizer (3–4× faster than FFmpeg)
   - FFmpeg `showfreqs` fallback
+- **Video Download** — On job completion, a toast notification appears and the browser automatically downloads the MP4 via a Next.js proxy route (`/api/download/[jobId]`).
 - **Frequency Visualizer** — Bar-style spectrum overlay on video output with configurable FPS and bar count.
 - **Job Management** — Queue system with real-time progress tracking, cancellation, and concurrent render limiting (2 slots).
+- **Job Cancellation** — Cancel queued or in-progress jobs at any time via `DELETE /job/{job_id}`. Uses cooperative `threading.Event` signalling + subprocess termination for clean shutdown.
 - **GPU Encoding** — Auto-detects NVIDIA NVENC for hardware-accelerated H.264 encoding; falls back to libx264.
 - **System Monitoring** — View CPU, RAM, disk usage, and render statistics.
 - **Responsive Design** — Optimized for various screen sizes.
@@ -116,6 +118,18 @@ Open `http://localhost:3002` in your browser, drag audio files onto track cards,
 >
 > **Rendered files** are saved to `backend/output/` and auto-deleted after 24 hours. Copy files before then.
 
+### Loop Analysis Workflow
+
+Before exporting, click **Analyze Loop** in the Export panel to detect the optimal loop region in your current mix:
+
+1. Click **Analyze Loop** — the backend runs PyMusicLooper on the first active track and returns loop start, end, crossfade duration, and a confidence score.
+2. Review the result — scores ≥ 70% are shown in green; scores below 70% show a warning that the seam may be audible.
+3. The detected candidate count and alternative count are displayed. Future versions will allow picking between candidates interactively.
+4. Click **Preview Seam** to audition the loop boundary using the Web Audio API.
+5. Export — the detected `loop_start`/`loop_end` values are automatically sent to the backend as a manual override, skipping backend re-analysis.
+
+If you skip loop analysis entirely, the backend auto-detects loop points from the mixed audio after rendering.
+
 ## Configuration
 
 ### Frontend
@@ -124,7 +138,8 @@ Create `frontend/.env.local`:
 
 | Variable | Default | Description |
 |---|---|---|
-| `NEXT_PUBLIC_API_URL` | `http://localhost:3003` | URL of the FastAPI backend |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:3003` | Public URL of the FastAPI backend (used by browser-side fetch) |
+| `BACKEND_API_URL` | `http://localhost:3003` | Server-only URL used by Next.js API proxy routes (e.g. `/api/download/[jobId]`) |
 
 > **Note:** `next.config.ts` sets `typescript: { ignoreBuildErrors: true }`. Resolve type errors before deploying.
 
@@ -220,7 +235,7 @@ Returns `job_id`, `status`, `progress`, `elapsed_seconds`, `remaining_seconds`, 
 DELETE /job/{job_id}
 ```
 
-Cancels a queued or processing job. Returns `{"status": "cancelled", "job_id": "..."}`.
+Cancels a queued or processing job. Signals the render thread via `threading.Event`, terminates any active FFmpeg subprocess, and cleans up temporary files. Returns `{"status": "cancelled", "job_id": "..."}`.
 Returns 404 if not found, 400 if not cancellable.
 
 ---
@@ -287,11 +302,11 @@ Asynchronous pipeline: audio mix → loop analysis → stochastic rotation → e
 | `background_image` | UploadFile | `None` | Optional custom background image |
 | `show_visualizer` | str | `"0"` | `"0"` or `"1"` — show frequency spectrum overlay |
 | `use_gpu_encoding` | str | `"1"` | `"0"` or `"1"` — use NVENC if available |
-| `loop_start` | float | `None` | Manual loop start point in seconds |
-| `loop_end` | float | `None` | Manual loop end point in seconds (must pair with `loop_start`) |
+| `loop_start` | float | `None` | Manual loop start in seconds — skips backend auto-analysis when provided with `loop_end` |
+| `loop_end` | float | `None` | Manual loop end in seconds — must be greater than `loop_start` and within track bounds; returns 422 if invalid |
 
 Returns: `{"status": "queued", "job_id": "...", "queue_position": N}`.
-Poll `GET /job/{job_id}/progress` for status. Download via `GET /download/{job_id}`.
+Poll `GET /job/{job_id}/progress` for status. Download via `GET /download/{job_id}` or via the frontend proxy at `/api/download/{job_id}`.
 
 ---
 
@@ -313,8 +328,8 @@ Asynchronous audio-only pipeline: mix → loop analysis → stochastic rotation 
 | `solo` | str | `""` | Comma-separated "0"/"1" per track |
 | `master_gain` | float | `1.0` | Master gain multiplier |
 | `eq_gains` | str | `""` | Comma-separated EQ band gains in dB (7 bands) |
-| `loop_start` | float | `None` | Manual loop start point in seconds |
-| `loop_end` | float | `None` | Manual loop end point in seconds |
+| `loop_start` | float | `None` | Manual loop start in seconds |
+| `loop_end` | float | `None` | Manual loop end in seconds |
 
 Returns: `{"status": "queued", "job_id": "...", "queue_position": N}`.
 
@@ -326,13 +341,37 @@ Returns: `{"status": "queued", "job_id": "...", "queue_position": N}`.
 POST /analyze-loop
 ```
 
-Analyzes a single audio file for optimal loop points.
+Analyzes a single audio file for optimal loop points using PyMusicLooper. Returns the best candidate plus scored alternatives. Called by the frontend "Analyze Loop" button before export.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `file` | UploadFile | *required* | Audio file to analyze |
+| `file` | UploadFile | *required* | Audio file to analyze (WAV, MP3, OGG, FLAC) |
 
-Returns: `{"loop_start_ms", "loop_end_ms", "score", "crossfade_ms", ...}`.
+Returns:
+
+```json
+{
+  "loop_start_ms": 4200,
+  "loop_end_ms": 32800,
+  "score": 0.91,
+  "crossfade_ms": 120,
+  "duration_ms": 28600,
+  "raw_analyzer_score": 0.87,
+  "candidates": [
+    {
+      "segment_id": "...",
+      "loop_start_ms": 4200,
+      "loop_end_ms": 32800,
+      "crossfade_duration_ms": 120,
+      "validator_score": 0.91,
+      "repetition_salience_score": 0.78
+    }
+  ],
+  "alternatives": [ ... ]
+}
+```
+
+Scores below 0.70 indicate the loop seam may be audible. The frontend displays a warning in this case.
 
 ---
 
@@ -342,9 +381,11 @@ Returns: `{"loop_start_ms", "loop_end_ms", "score", "crossfade_ms", ...}`.
 GET /download/{job_id}
 ```
 
-Downloads the completed output file (WAV or MP4) for a finished job.
+Downloads the completed output file (WAV or MP4) for a finished job. Output filenames include the `job_id` to prevent collisions between concurrent renders.
 
 Returns: `FileResponse`. Returns 404 if job/file not found, 400 if not completed.
+
+> **Frontend proxy:** The Next.js frontend accesses this via `/api/download/[jobId]`, which proxies the request server-side using `BACKEND_API_URL`. The `job_id` is sanitized and URL-encoded before proxying. On job completion, the frontend automatically triggers the download via an anchor click and shows a toast notification.
 
 ## Architecture
 
@@ -353,7 +394,7 @@ Returns: `FileResponse`. Returns 404 if job/file not found, 400 if not completed
 The full render pipeline (`POST /render-video-full`) processes jobs through these stages:
 
 1. **Audio Mix** — Mixes all tracks with volume, pan, and 7-band EQ via `pedalboard`
-2. **Loop Analysis** — Detects optimal loop points automatically (or uses manual override)
+2. **Loop Analysis** — Uses manual `loop_start`/`loop_end` override if provided by the frontend pre-render analysis; otherwise auto-detects from the mixed audio using PyMusicLooper
 3. **Seamless Extension** — Extends short audio to target duration using crossfaded loops
 4. **Stochastic Rotation** — Applies per-loop randomization of volume/pan/EQ micro-shifts via `StochasticVariationScheduler`
 5. **Entropy Layer** — Adds slow drift (volume, pan, EQ) across the full duration for evolving texture
@@ -365,10 +406,11 @@ The full render pipeline (`POST /render-video-full`) processes jobs through thes
 queued → processing → completed / failed / cancelled
 ```
 
-- **Concurrency** — Semaphore limits to 2 concurrent render slots
-- **Cancellation** — `threading.Event` (stop_events) + subprocess kill + `asyncio.shield()` for clean shutdown
+- **Concurrency** — Semaphore limits to 2 concurrent render slots. Jobs check the stop signal before acquiring a slot and between each render stage.
+- **Cancellation** — Cooperative `threading.Event` (stop_events map, separate from the job dict to keep it JSON-serializable) + asyncio task cancellation + FFmpeg subprocess termination. The subprocess is registered before `communicate()` is awaited so cancellation can reach it immediately.
 - **Progress** — Real-time progress percentage with elapsed/remaining time estimates
 - **Persistence** — Last 100 jobs saved to `jobs_history.json`
+- **Cleanup** — Temp directories are cleaned on job completion, cancellation, or pre-job validation failure. Output filenames include the `job_id` to prevent collisions.
 
 ### Full Render Sequence
 
@@ -390,47 +432,60 @@ sequenceDiagram
     User->>Frontend: Upload audio tracks
     Frontend->>Frontend: decodeAudioData per track<br/>store AudioBuffer in zustand
     Frontend->>Frontend: initAudioEngine()<br/>AnalyserNode + 7-band EQ + masterGain
-    
-    Note over Frontend: /analyze-loop API exists but<br/>is never called from UI.<br/>loopAnalysis stays null.
-    
+
+    opt User clicks "Analyze Loop" before export
+        Frontend->>Backend_API: POST /analyze-loop<br/>(first non-muted track file)
+        Backend_API->>LoopAnalyzer: analyze_loop(file)<br/>PyMusicLooper + validate +<br/>repetition_salience
+        LoopAnalyzer-->>Backend_API: {loop_start_ms, loop_end_ms,<br/>score, crossfade_ms, duration_ms,<br/>raw_analyzer_score,<br/>candidates[], alternatives[]}
+        Backend_API-->>Frontend: LoopAnalysisResult
+        Frontend->>Frontend: Display score + warning if score < 0.70<br/>Show candidate + alternative counts<br/>Store loopStartMs / loopEndMs for export
+        Note over Frontend: User may click "Preview Seam"<br/>to audition via useAudioEngine
+    end
+
     User->>Frontend: Submit export<br/>(showVisualizer, useGpuEncoding)
-    
+
     alt Audio-only export
         Frontend->>Backend_API: POST /render-audio-job<br/>(files, duration, volumes, pans,<br/>muted, solo, master_gain, eq_gains,<br/>loop_start?, loop_end?)
     else Video export
         Frontend->>Backend_API: POST /render-video-full<br/>(files, duration, volumes, pans,<br/>muted, solo, master_gain, eq_gains,<br/>loop_start?, loop_end?,<br/>show_visualizer, use_gpu_encoding,<br/>background_image?)
     end
-    
+
+    Note over Backend_API: Validate manual loop bounds (422 on invalid).<br/>Create temp directory. Create job only after<br/>file I/O and parsing succeed.
+
     Backend_API->>JobManager: create_job(duration)
     JobManager-->>Backend_API: job_id
     Backend_API-->>Frontend: {status: "queued", job_id, queue_position}
-    
+
     Backend_API->>JobManager: start_job(job_id)
+    Note over Backend_API: Check stop_event before acquiring render semaphore
     Backend_API->>AudioRenderer: render_async(track_paths, ...)<br/>Single-pass FFmpeg: loop input,<br/>volume, pan, amix, master_gain, EQ
     AudioRenderer-->>Backend_API: Mixed WAV
     Backend_API->>JobManager: update_progress(10-35%)
-    
-    alt loop_start/loop_end not provided
+
+    alt loop_start/loop_end not provided by frontend
+        Note over Backend_API: Check stop_event before heavy analysis
         Backend_API->>LoopAnalyzer: analyze_loop(mixed_audio)
         LoopAnalyzer->>LoopAnalyzer: PyMusicLooper + validate +<br/>repetition_salience
         LoopAnalyzer-->>Backend_API: {loop_start_ms, loop_end_ms,<br/>score, crossfade_ms, duration_ms,<br/>candidates[], alternatives[]}
         Backend_API->>JobManager: update_progress(40%)
+    else loop_start/loop_end provided (frontend pre-analysis override)
+        Note over Backend_API: Skip auto-analysis, use provided values directly
     end
-    
+
     Backend_API->>LoopProcessor: make_loop() → canonical unit
     LoopProcessor->>FileSystem: Write canonical loop WAV
     Backend_API->>LoopProcessor: extend_loop_seamless()<br/>or assemble_with_rotation()
     LoopProcessor->>FileSystem: Write extended loop WAV
     LoopProcessor-->>Backend_API: Extended loop path
     Backend_API->>JobManager: update_progress(48%)
-    
+
     Backend_API->>VariationScheduler: schedule(segments, target_duration)<br/>StochasticVariationScheduler:<br/>max_consecutive=2, salience_budget=0.55
     VariationScheduler->>VariationScheduler: Stratify by salience,<br/>filter repeats, weighted choice,<br/>temporal jitter 0.60-1.00
     VariationScheduler-->>Backend_API: AssemblyPlan{segments,<br/>transitions, total_duration}
-    
+
     Backend_API->>EntropyLayer: process(audio, params)<br/>gain_drift (pink noise ±1.5dB),<br/>stereo_drift (anti-correlated ±0.06),<br/>hf_drift (above 4kHz ±1.25dB),<br/>then Limiter(-1dB)
     Backend_API->>JobManager: update_progress(50%)
-    
+
     alt Video export with visualizer
         Backend_API->>Renderer: render_async(audio, bg, output)
         alt CUDA available
@@ -440,34 +495,44 @@ sequenceDiagram
         else No optimized viz
             Renderer->>Renderer: FFmpeg showfreqs filter<br/>+ hwupload_cuda overlay
         end
-        Renderer->>FileSystem: Write MP4
+        Renderer->>FileSystem: Write MP4 (filename includes job_id)
         Renderer-->>Backend_API: Video complete
     else Audio-only export
         Note over Backend_API: Skip video rendering
+        FileSystem->>FileSystem: Write WAV (filename includes job_id)
     end
-    
+
     Backend_API->>JobManager: complete_job(job_id,<br/>output_path, filename, file_size)
-    
-    Frontend->>Frontend: Poll GET /job/{job_id}/progress<br/>every 2s
+    Backend_API->>FileSystem: Clean up temp directory
+
+    Frontend->>Frontend: Poll GET /job/{job_id}/progress every 2s<br/>(via ref to avoid stale closure)
     Backend_API->>JobManager: get_job_progress(job_id)
     JobManager-->>Backend_API: {status, progress, elapsed,<br/>remaining, queue_position, logs[]}
     Backend_API-->>Frontend: Progress + logs
     Frontend->>Frontend: Append incremental logs,<br/>update progress bar
-    
-    Frontend->>Backend_API: GET /download/{job_id}
-    Backend_API->>FileSystem: Read output file
-    Backend_API-->>Frontend: FileResponse (WAV or MP4)
-    
-    alt Audio export
-        Frontend->>User: Auto-download WAV<br/>via downloadBlob()
-    else Video export
-        Note over Frontend: No auto-download for video.<br/>No download button exists.<br/>Video output unreachable from UI.
+
+    alt Job completed — Audio export
+        Frontend->>Backend_API: GET /download/{job_id}
+        Backend_API->>FileSystem: Read WAV output
+        Backend_API-->>Frontend: FileResponse (WAV)
+        Frontend->>User: Auto-download WAV via downloadBlob()
+    else Job completed — Video export
+        Frontend->>Frontend: Show toast "Render finished — download starting…"
+        Frontend->>Frontend: Trigger anchor click → /api/download/{job_id}
+        Frontend->>Backend_API: GET /download/{job_id}<br/>(via Next.js proxy, job_id sanitized + encoded)
+        Backend_API->>FileSystem: Read MP4 output
+        Backend_API-->>Frontend: FileResponse (MP4)
+        Frontend->>User: Browser downloads MP4
     end
 ```
 
 ### Frontend State
 
 Single-page app with Zustand store (`studioStore.ts`) managing tracks, playback, EQ, export state, presets, loop analysis, and backend health. The `useAudioEngine` hook bridges Web Audio API to React.
+
+**Loop analysis state** is cleared before each new analysis run and on failure, ensuring stale results from a previous track are never sent to the export endpoints.
+
+**Job polling** uses a `ref`-based interval (not state) to eliminate stale closure bugs where the polling callback captured an outdated job ID or status.
 
 ## GPU Acceleration
 
@@ -511,39 +576,40 @@ ambient-studio/
 │   │   │   ├── page.tsx              # Single-page studio app
 │   │   │   ├── layout.tsx            # Root layout (fonts, providers)
 │   │   │   ├── globals.css           # Tailwind + custom styles
-│   │   │   └── api/render-video/     # API route proxying to backend
+│   │   │   ├── api/render-video/     # API route proxying to backend
+│   │   │   └── api/download/[jobId]/ # Video/audio download proxy route
 │   │   ├── components/studio/        # Core UI components
 │   │   │   ├── TrackCard.tsx         # Track mixer card (volume, pan, mute, solo)
 │   │   │   ├── Transport.tsx         # Play/stop, master volume, time display
 │   │   │   ├── EQPanel.tsx           # 7-band EQ with frequency response canvas
-│   │   │   ├── ExportPanel.tsx        # Export dialog with job progress tracking
+│   │   │   ├── ExportPanel.tsx       # Export dialog: loop analysis, job progress, download
 │   │   │   ├── VideoPreview.tsx      # Video preview canvas
 │   │   │   ├── PresetBar.tsx         # Preset selector (built-in + custom)
 │   │   │   ├── Header.tsx            # Top bar with backend health indicator
 │   │   │   └── LogConsole.tsx        # Timestamped render event log
 │   │   ├── hooks/
-│   │   │   └── useAudioEngine.ts     # Web Audio API bridge (playback, analyser)
+│   │   │   └── useAudioEngine.ts     # Web Audio API bridge (playback, analyser, seam preview)
 │   │   ├── store/
-│   │   │   └── studioStore.ts        # Zustand store (tracks, EQ, presets, export)
+│   │   │   └── studioStore.ts        # Zustand store (tracks, EQ, presets, export, loopAnalysis)
 │   │   ├── types/
 │   │   │   └── index.ts              # Shared TypeScript types and constants
 │   │   └── lib/
-│   │       ├── api.ts                # Backend API client
+│   │       ├── api.ts                # Backend API client (analyzeLoop, renderJob, download)
 │   │       ├── audioRenderer.ts      # Client-side OfflineAudioContext renderer
-│   │       └── utils.ts             # Tailwind utility (cn)
+│   │       └── utils.ts              # Tailwind utility (cn)
 │   ├── public/                       # Static assets
 │   └── package.json
 ├── backend/                          # FastAPI backend (Python 3.9+)
 │   ├── main.py                       # App entry: endpoints, JobManager, job lifecycle
 │   ├── config.py                     # Settings class (all env var overrides)
-│   ├── requirements.txt              # Python dependencies
+│   ├── requirements.txt              # Python dependencies (includes pymusiclooper==3.6.0)
 │   ├── services/
 │   │   ├── audio_renderer.py         # Multi-track mixing with pedalboard EQ
 │   │   ├── video_renderer.py         # FFmpeg-based video encoding (NVENC/libx264)
 │   │   ├── cuda_visualizer.py        # GPU-accelerated spectrum visualizer (OpenCV CUDA)
 │   │   ├── cpu_visualizer.py         # CPU-optimized spectrum visualizer (3–4× faster)
 │   │   ├── loop_processor.py         # Loop creation, seamless extension, rotation assembly
-│   │   ├── loop_analyzer.py          # Automatic loop point detection
+│   │   ├── loop_analyzer.py          # Automatic loop point detection (PyMusicLooper)
 │   │   ├── variation_scheduler.py    # Stochastic per-loop variation scheduling
 │   │   ├── entropy_layer.py          # Slow-drift volume/pan/EQ across full duration
 │   │   ├── audio_debug.py            # Per-stage audio diagnostics logger
@@ -559,13 +625,19 @@ ambient-studio/
 
 ## Roadmap
 
+- [ ] Client-side mixdown for loop analysis (analyze the blended mix, not just the first track)
+- [ ] Interactive loop candidate picker (choose between detected alternatives before export)
+- [ ] Waveform canvas with draggable loop point markers
+- [ ] Expose EntropyLayer params as user controls (gain drift, stereo drift, HF drift sliders)
+- [ ] Expose VariationScheduler params (max consecutive, salience budget, temporal jitter)
+- [ ] Mood/evolution curve over time (tension arc presets: Flat, Build, Arc)
+- [ ] 30-second preview render for fast parameter iteration
 - [ ] More audio effects (reverb, delay, chorus)
 - [ ] Additional video animation options (zoom, particle effects)
 - [ ] User authentication and project saving
-- [ ] Improve real-time audio playback performance
 - [ ] Expand preset library
 - [ ] Drag-and-drop track reordering
-- [ ] Real-time collaborative mixing
+- [ ] Server-Sent Events (SSE) for real-time progress instead of polling
 
 ## Contributing
 
