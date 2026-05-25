@@ -46,7 +46,7 @@
   - CUDA GPU visualizer (6× faster than FFmpeg)
   - CPU-optimized visualizer (3–4× faster than FFmpeg)
   - FFmpeg `showfreqs` fallback
-- **Video Download** — On job completion, a toast notification appears and the browser automatically downloads the MP4 via a Next.js proxy route (`/api/download/[jobId]`).
+- **Video Download** — On job completion, a toast notification appears and the browser automatically downloads the MP4 via a Next.js proxy route (`GET /api/download/[jobId]`, e.g. `/api/download/abc123`).
 - **Frequency Visualizer** — Bar-style spectrum overlay on video output with configurable FPS and bar count.
 - **Job Management** — Queue system with real-time progress tracking, cancellation, and concurrent render limiting (2 slots).
 - **Job Cancellation** — Cancel queued or in-progress jobs at any time via `DELETE /job/{job_id}`. Uses cooperative `threading.Event` signalling + subprocess termination for clean shutdown.
@@ -139,7 +139,7 @@ Create `frontend/.env.local`:
 | Variable | Default | Description |
 |---|---|---|
 | `NEXT_PUBLIC_API_URL` | `http://localhost:3003` | Public URL of the FastAPI backend (used by browser-side fetch) |
-| `BACKEND_API_URL` | `http://localhost:3003` | Server-only URL used by Next.js API proxy routes (e.g. `/api/download/[jobId]`) |
+| `BACKEND_API_URL` | `http://localhost:3003` | Server-only URL used by Next.js API proxy routes (e.g. `GET /api/download/[jobId]`) |
 
 > **Note:** `next.config.ts` sets `typescript: { ignoreBuildErrors: true }`. Resolve type errors before deploying.
 
@@ -306,7 +306,7 @@ Asynchronous pipeline: audio mix → loop analysis → stochastic rotation → e
 | `loop_end` | float | `None` | Manual loop end in seconds — must be greater than `loop_start` and within track bounds; returns 422 if invalid |
 
 Returns: `{"status": "queued", "job_id": "...", "queue_position": N}`.
-Poll `GET /job/{job_id}/progress` for status. Download via `GET /download/{job_id}` or via the frontend proxy at `/api/download/{job_id}`.
+Poll `GET /job/{job_id}/progress` for status. Download via `GET /download/{job_id}` (backend direct) or `GET /api/download/[jobId]` (frontend proxy, e.g. `/api/download/abc123`).
 
 ---
 
@@ -385,7 +385,7 @@ Downloads the completed output file (WAV or MP4) for a finished job. Output file
 
 Returns: `FileResponse`. Returns 404 if job/file not found, 400 if not completed.
 
-> **Frontend proxy:** The Next.js frontend accesses this via `/api/download/[jobId]`, which proxies the request server-side using `BACKEND_API_URL`. The `job_id` is sanitized and URL-encoded before proxying. On job completion, the frontend automatically triggers the download via an anchor click and shows a toast notification.
+> **Frontend proxy:** The Next.js frontend accesses this via `GET /api/download/[jobId]` (e.g. `/api/download/abc123`), which proxies the request server-side using `BACKEND_API_URL`. The `job_id` is sanitized and URL-encoded before proxying. On job completion, the frontend automatically triggers the download via an anchor click and shows a toast notification.
 
 ## Architecture
 
@@ -518,8 +518,8 @@ sequenceDiagram
         Frontend->>User: Auto-download WAV via downloadBlob()
     else Job completed — Video export
         Frontend->>Frontend: Show toast "Render finished — download starting…"
-        Frontend->>Frontend: Trigger anchor click → /api/download/{job_id}
-        Frontend->>Backend_API: GET /download/{job_id}<br/>(via Next.js proxy, job_id sanitized + encoded)
+        Frontend->>Frontend: Trigger anchor click → GET /api/download/[jobId]
+        Frontend->>Backend_API: GET /download/{job_id}<br/>(via Next.js proxy /api/download/[jobId],<br/>job_id sanitized + URL-encoded)
         Backend_API->>FileSystem: Read MP4 output
         Backend_API-->>Frontend: FileResponse (MP4)
         Frontend->>User: Browser downloads MP4
