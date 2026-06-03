@@ -6,7 +6,8 @@ import {
   JobHistoryItem,
   JobProgress,
   CustomPreset,
-  LoopAnalysis, // <-- import new type
+  LoopAnalysis,
+  GeneratorState,
 } from "@/types";
 
 interface StudioState {
@@ -48,6 +49,10 @@ interface StudioState {
   loopAnalysis: LoopAnalysis | null;
   isAnalyzingLoop: boolean;
   loopAnalysisError: string | null;
+
+  // Procedural generator state
+  generator: GeneratorState;
+  generatorExportDuration: number;
 
   // Actions
   initTracks: (count: number) => void;
@@ -104,6 +109,18 @@ interface StudioState {
   setLoopAnalysis: (analysis: LoopAnalysis | null) => void;
   setIsAnalyzingLoop: (analyzing: boolean) => void;
   setLoopAnalysisError: (error: string | null) => void;
+
+  // Procedural generator actions
+  setGeneratorRunning: (running: boolean) => void;
+  setGeneratorSeed: (seed: number) => void;
+  setGeneratorEnableScenes: (enabled: boolean) => void;
+  setGeneratorSceneDuration: (bars: number) => void;
+  setGeneratorTempo: (bpm: number) => void;
+  setGeneratorComplexity: (c: number) => void;
+  setGeneratorSpace: (s: number) => void;
+  setGeneratorDrumLevel: (d: number) => void;
+  setGeneratorScene: (scene: string) => void;
+  setGeneratorExportDuration: (minutes: number) => void;
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 11);
@@ -142,6 +159,18 @@ export const useStudioStore = create<StudioState>((set, get) => {
     customPresets: [],
     showVisualizer: false,
     useGpuEncoding: true,
+    generator: {
+      isRunning: false,
+      seed: 42,
+      enableScenes: true,
+      sceneDuration: 32,
+      tempo: 72,
+      complexity: 0.35,
+      space: 0.4,
+      drumLevel: 0.5,
+      currentScene: "Calm",
+    },
+    generatorExportDuration: 5,
     ...initialJobState,
     ...initialLoopAnalysisState,
 
@@ -361,6 +390,18 @@ export const useStudioStore = create<StudioState>((set, get) => {
   setLoopAnalysis: (analysis) => set({ loopAnalysis: analysis }),
   setIsAnalyzingLoop: (analyzing) => set({ isAnalyzingLoop: analyzing }),
   setLoopAnalysisError: (error) => set({ loopAnalysisError: error }),
+
+  // Procedural generator actions
+  setGeneratorRunning: (running) => set((state) => ({ generator: { ...state.generator, isRunning: running } })),
+  setGeneratorSeed: (seed) => set((state) => ({ generator: { ...state.generator, seed } })),
+  setGeneratorEnableScenes: (enabled) => set((state) => ({ generator: { ...state.generator, enableScenes: enabled } })),
+  setGeneratorSceneDuration: (bars) => set((state) => ({ generator: { ...state.generator, sceneDuration: bars } })),
+  setGeneratorTempo: (bpm) => set((state) => ({ generator: { ...state.generator, tempo: bpm } })),
+  setGeneratorComplexity: (c) => set((state) => ({ generator: { ...state.generator, complexity: c } })),
+  setGeneratorSpace: (s) => set((state) => ({ generator: { ...state.generator, space: s } })),
+  setGeneratorDrumLevel: (d) => set((state) => ({ generator: { ...state.generator, drumLevel: d } })),
+  setGeneratorScene: (scene) => set((state) => ({ generator: { ...state.generator, currentScene: scene } })),
+  setGeneratorExportDuration: (minutes) => set({ generatorExportDuration: minutes }),
 };
 });
 

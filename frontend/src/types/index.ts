@@ -131,3 +131,15 @@ export interface LoopAnalysis {
   candidates: LoopCandidate[];
   alternatives: LoopAlternative[];
 }
+
+export interface GeneratorState {
+  isRunning: boolean;
+  seed: number;
+  enableScenes: boolean;
+  sceneDuration: number; // bars: 16, 32, 64
+  tempo: number; // 40-120 BPM
+  complexity: number; // 0-1
+  space: number; // 0-1 (mix/delay)
+  drumLevel: number; // 0-1
+  currentScene: string;
+}
