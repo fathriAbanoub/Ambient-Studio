@@ -147,8 +147,10 @@ export function useProceduralEngine() {
       if (animFrameRef.current)  cancelAnimationFrame(animFrameRef.current);
       if (analyserRef.current)   { try { analyserRef.current.disconnect(); } catch {} }
       if (engineRef.current)     engineRef.current.stop();
+      setGeneratorRunning(false);
+      setIsPlaying(false);
     };
-  }, []);
+  }, [setGeneratorRunning, setIsPlaying]);
 
   return { isRunning, currentScene, start, stop, updateParams, exportWav, analyserData, exportProgress, isExporting };
 }

@@ -392,7 +392,6 @@ function scheduleTonal(
     filterNode.type = "lowpass";
     filterNode.frequency.value = 3200;
     filterNode.Q.value = 0.7;
-    g.gain.value = 0.3;
   }
 
   if (vibratoAmount) {

@@ -126,3 +126,6 @@ backend/WHY_STILL_SLOW.md
 mempalace.yaml
 entities.json
 .graphifyignore
+
+# Next.js auto-generated type references
+next-env.d.ts

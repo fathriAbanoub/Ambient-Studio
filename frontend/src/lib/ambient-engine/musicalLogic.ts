@@ -546,7 +546,8 @@ export function getEffectiveSceneParams(
   for (let i = 0; match && i < r1.length; i++) {
     const a = r1[i], b = r2[i];
     if (a.type !== b.type || a.hz !== b.hz || a.amp !== b.amp ||
-        a.subBeatIndex !== b.subBeatIndex || a.isGhost !== b.isGhost || a.isClosed !== b.isClosed) {
+        a.subBeatIndex !== b.subBeatIndex || a.isGhost !== b.isGhost || a.isClosed !== b.isClosed ||
+        a.durationSec !== b.durationSec || a.pan !== b.pan || a.timbre !== b.timbre || a.beatIndex !== b.beatIndex) {
       match = false;
     }
   }
