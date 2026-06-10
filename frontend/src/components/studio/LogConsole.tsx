@@ -73,7 +73,7 @@ export function LogConsole() {
   }, [isResizing]);
   
   return (
-    <div className="relative border-t border-[var(--border)] bg-[var(--bg)]">
+    <div className="relative border-t border-[var(--border)] bg-[var(--surface)]">
       {/* Resize handle - at the very top */}
       <div
         onMouseDown={handleMouseDown}

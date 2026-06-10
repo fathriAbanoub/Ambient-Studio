@@ -53,6 +53,8 @@ interface StudioState {
   // Procedural generator state
   generator: GeneratorState;
   generatorExportDuration: number;
+  activePlaybackSource: "manual" | "generator" | null;
+  setActivePlaybackSource: (source: "manual" | "generator" | null) => void;
 
   // Actions
   initTracks: (count: number) => void;
@@ -171,6 +173,7 @@ export const useStudioStore = create<StudioState>((set, get) => {
       currentScene: "Calm",
     },
     generatorExportDuration: 5,
+    activePlaybackSource: null,
     ...initialJobState,
     ...initialLoopAnalysisState,
 
@@ -402,6 +405,7 @@ export const useStudioStore = create<StudioState>((set, get) => {
   setGeneratorDrumLevel: (d) => set((state) => ({ generator: { ...state.generator, drumLevel: d } })),
   setGeneratorScene: (scene) => set((state) => ({ generator: { ...state.generator, currentScene: scene } })),
   setGeneratorExportDuration: (minutes) => set({ generatorExportDuration: minutes }),
+  setActivePlaybackSource: (source) => set({ activePlaybackSource: source }),
 };
 });
 
