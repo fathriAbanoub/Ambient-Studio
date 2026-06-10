@@ -7,7 +7,9 @@ import { RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 function getCSSVar(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
 }
 
 function FrequencyResponse({ eqGains }: { eqGains: number[] }) {
@@ -78,7 +80,12 @@ interface VerticalSliderProps {
   frequency: number;
 }
 
-function VerticalSlider({ value, onChange, label, frequency }: VerticalSliderProps) {
+function VerticalSlider({
+  value,
+  onChange,
+  label,
+  frequency,
+}: VerticalSliderProps) {
   const sliderRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
 
@@ -91,7 +98,7 @@ function VerticalSlider({ value, onChange, label, frequency }: VerticalSliderPro
       const db = Math.round((percentage * 24 - 12) * 2) / 2;
       onChange(Math.max(-12, Math.min(12, db)));
     },
-    [onChange]
+    [onChange],
   );
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -128,8 +135,14 @@ function VerticalSlider({ value, onChange, label, frequency }: VerticalSliderPro
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowUp") onChange(Math.min(12, value + 1));
-    if (e.key === "ArrowDown") onChange(Math.max(-12, value - 1));
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      onChange(Math.min(12, value + 1));
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      onChange(Math.max(-12, value - 1));
+    }
   };
 
   const percentage = (value + 12) / 24;
@@ -139,8 +152,15 @@ function VerticalSlider({ value, onChange, label, frequency }: VerticalSliderPro
   const fillHeight = Math.abs(thumbPercent - centerPercent);
 
   return (
-    <div className="flex flex-col items-center gap-2" role="group" aria-label={`EQ band ${label}`}>
-      <div className="text-xs font-mono text-[var(--text)] w-8 text-center" aria-live="polite">
+    <div
+      className="flex flex-col items-center gap-2"
+      role="group"
+      aria-label={`EQ band ${label}`}
+    >
+      <div
+        className="text-xs font-mono text-[var(--text)] w-8 text-center"
+        aria-live="polite"
+      >
         {value > 0 ? `+${value}` : value}
       </div>
       <div
@@ -163,7 +183,10 @@ function VerticalSlider({ value, onChange, label, frequency }: VerticalSliderPro
         />
         <div
           className="absolute left-1/2 w-4 h-2 rounded-md bg-[var(--accent2)] shadow-md -translate-x-1/2"
-          style={{ top: `${thumbPercent}%`, transform: "translate(-50%, -50%)" }}
+          style={{
+            top: `${thumbPercent}%`,
+            transform: "translate(-50%, -50%)",
+          }}
         />
       </div>
       <div className="text-xs text-[var(--text-dim)] font-mono">{label}</div>
@@ -179,7 +202,9 @@ export function EQPanel() {
   return (
     <div className="flex flex-col h-full p-4">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-bold text-[var(--text-bright)] tracking-wider">MASTER EQ</h2>
+        <h2 className="text-sm font-bold text-[var(--text-bright)] tracking-wider">
+          MASTER EQ
+        </h2>
         <Button
           variant="outline"
           size="sm"

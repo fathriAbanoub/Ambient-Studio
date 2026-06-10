@@ -1,9 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useStudioStore } from "@/store/studioStore";
 import { Play, Square, Volume2 } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 function formatTime(seconds: number): string {
   const hrs = Math.floor(seconds / 3600);
@@ -32,7 +37,11 @@ function VUMeter({ analyserData }: { analyserData: Uint8Array }) {
             className="w-1.5 rounded-sm transition-all duration-75"
             style={{
               height: `${Math.max(4, height * 0.4)}px`,
-              backgroundColor: isHigh ? "var(--warning)" : isMid ? "#ffd740" : "var(--accent3)",
+              backgroundColor: isHigh
+                ? "var(--warning)"
+                : isMid
+                  ? "#ffd740"
+                  : "var(--accent3)",
               opacity: height > 10 ? 1 : 0.3,
             }}
           />
@@ -42,17 +51,34 @@ function VUMeter({ analyserData }: { analyserData: Uint8Array }) {
   );
 }
 
-export function Transport({ engine }: { engine: any }) {
-  const { masterGain, setMasterGain, setIsPlaying, setActivePlaybackSource, activePlaybackSource } = useStudioStore();
+interface TransportEngine {
+  isPlaying: boolean;
+  play: () => void;
+  stop: () => void;
+  getAnalyserData: () => Uint8Array;
+  initAudio: () => Promise<void>;
+  audioContextRef?: React.RefObject<AudioContext | null>;
+}
+
+export function Transport({ engine }: { engine: TransportEngine }) {
+  const {
+    masterGain,
+    setMasterGain,
+    setIsPlaying,
+    setActivePlaybackSource,
+    activePlaybackSource,
+  } = useStudioStore();
   const { isPlaying, play, stop, getAnalyserData, initAudio } = engine;
-  const [analyserData, setAnalyserData] = useState<Uint8Array>(new Uint8Array(128));
+  const [analyserData, setAnalyserData] = useState<Uint8Array>(
+    new Uint8Array(128),
+  );
   const [time, setTime] = useState(0);
   const animationRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const startTimeRef = useRef<number>(0);
 
   useEffect(() => {
-    if (engine.audioContextRef) {
+    if (engine.audioContextRef?.current) {
       audioContextRef.current = engine.audioContextRef.current;
     }
   }, [engine]);
@@ -62,7 +88,11 @@ export function Transport({ engine }: { engine: any }) {
       const update = () => {
         const ctx = audioContextRef.current;
         if (ctx && ctx.state !== "closed") {
-          setTime(Math.max(0, ctx.currentTime - startTimeRef.current));
+          if (ctx.state === "suspended") {
+            ctx.resume().catch(() => {});
+          } else {
+            setTime(Math.max(0, ctx.currentTime - startTimeRef.current));
+          }
         }
         const data = getAnalyserData();
         setAnalyserData(data);
@@ -80,9 +110,18 @@ export function Transport({ engine }: { engine: any }) {
   }, [isPlaying, getAnalyserData]);
 
   const handlePlay = async () => {
-    await initAudio();
+    try {
+      await initAudio();
+    } catch (err) {
+      console.error("initAudio failed:", err);
+      return;
+    }
     const ctx = audioContextRef.current;
-    if (ctx) startTimeRef.current = ctx.currentTime;
+    if (!ctx) {
+      console.error("AudioContext unavailable after initAudio");
+      return;
+    }
+    startTimeRef.current = ctx.currentTime;
     play();
     setIsPlaying(true);
     setActivePlaybackSource("manual");

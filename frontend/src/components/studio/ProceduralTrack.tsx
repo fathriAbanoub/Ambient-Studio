@@ -2,16 +2,29 @@
 
 import { useStudioStore } from "@/store/studioStore";
 import { useProceduralEngine } from "@/hooks/useProceduralEngine";
-import { Play, Square, Download, Sparkles, Disc, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  Play,
+  Square,
+  Download,
+  Sparkles,
+  Disc,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const GENERATOR_COLOR = "#00bcd4";
 
-export function ProceduralTrack({ engine }: { engine: any }) {
+export function ProceduralTrack() {
   const {
     generator,
     setGeneratorSeed,
@@ -27,10 +40,20 @@ export function ProceduralTrack({ engine }: { engine: any }) {
     setActivePlaybackSource,
   } = useStudioStore();
 
-  const { isRunning, currentScene, start, stop, exportWav, exportProgress, isExporting } = useProceduralEngine();
+  const {
+    isRunning,
+    currentScene,
+    start,
+    stop,
+    exportWav,
+    exportProgress,
+    isExporting,
+  } = useProceduralEngine();
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const hasManualSolo = useStudioStore((s) => s.tracks.some((t) => t.solo && t.loaded));
+  const hasManualSolo = useStudioStore((s) =>
+    s.tracks.some((t) => t.solo && t.loaded),
+  );
   const isDimmed = hasManualSolo;
   const isActive = isRunning && activePlaybackSource === "generator";
 
@@ -39,8 +62,14 @@ export function ProceduralTrack({ engine }: { engine: any }) {
       stop();
       setActivePlaybackSource(null);
     } else {
-      await start();
-      setActivePlaybackSource("generator");
+      try {
+        await start();
+        setActivePlaybackSource("generator");
+      } catch (err) {
+        stop();
+        setActivePlaybackSource(null);
+        console.error("Generator start failed:", err);
+      }
     }
   };
 
@@ -59,12 +88,17 @@ export function ProceduralTrack({ engine }: { engine: any }) {
       <div className="flex items-center gap-3">
         <div
           className="w-8 h-8 rounded-md flex items-center justify-center shrink-0"
-          style={{ backgroundColor: `${GENERATOR_COLOR}20`, color: GENERATOR_COLOR }}
+          style={{
+            backgroundColor: `${GENERATOR_COLOR}20`,
+            color: GENERATOR_COLOR,
+          }}
         >
           <Sparkles className="w-4 h-4" />
         </div>
         <div className="flex-1 min-w-0 flex items-center gap-2">
-          <span className="font-mono text-xs tracking-wider text-[var(--text-dim)]">PROCEDURAL</span>
+          <span className="font-mono text-xs tracking-wider text-[var(--text-dim)]">
+            PROCEDURAL
+          </span>
           {isRunning && (
             <span className="text-xs font-mono px-1.5 py-0.5 rounded-md bg-[var(--accent)]/20 text-[var(--accent)]">
               {currentScene}
@@ -79,28 +113,42 @@ export function ProceduralTrack({ engine }: { engine: any }) {
                 size="sm"
                 onClick={handlePlayStop}
                 className={`h-8 text-xs font-mono ${
-                  isRunning ? "bg-[var(--accent3)]/10 text-[var(--accent3)] border-[var(--accent3)] hover:bg-[var(--accent3)]/20" : ""
+                  isRunning
+                    ? "bg-[var(--accent3)]/10 text-[var(--accent3)] border-[var(--accent3)] hover:bg-[var(--accent3)]/20"
+                    : ""
                 }`}
               >
-                {isRunning ? <Square className="w-3 h-3 mr-1" /> : <Play className="w-3 h-3 mr-1" />}
+                {isRunning ? (
+                  <Square className="w-3 h-3 mr-1" />
+                ) : (
+                  <Play className="w-3 h-3 mr-1" />
+                )}
                 {isRunning ? "STOP" : "PLAY"}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{isRunning ? "Stop generator" : "Start generator"}</TooltipContent>
+            <TooltipContent>
+              {isRunning ? "Stop generator" : "Start generator"}
+            </TooltipContent>
           </Tooltip>
         </TooltipProvider>
         <button
           onClick={() => setShowAdvanced(!showAdvanced)}
           className="text-[var(--text-dim)] hover:text-[var(--accent)] transition-colors"
         >
-          {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          {showAdvanced ? (
+            <ChevronUp className="w-4 h-4" />
+          ) : (
+            <ChevronDown className="w-4 h-4" />
+          )}
         </button>
       </div>
 
       {showAdvanced && (
         <div className="flex flex-wrap items-center gap-4 mt-2 pt-2 border-t border-[var(--border)]">
           <div className="flex items-center gap-1.5">
-            <label className="text-[10px] text-[var(--text-dim)] font-mono">Seed</label>
+            <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              Seed
+            </label>
             <input
               type="number"
               min={0}
@@ -112,7 +160,9 @@ export function ProceduralTrack({ engine }: { engine: any }) {
           </div>
 
           <div className="flex items-center gap-1.5">
-            <label className="text-[10px] text-[var(--text-dim)] font-mono">Scenes</label>
+            <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              Scenes
+            </label>
             <Switch
               checked={generator.enableScenes}
               onCheckedChange={setGeneratorEnableScenes}
@@ -121,13 +171,16 @@ export function ProceduralTrack({ engine }: { engine: any }) {
           </div>
 
           <div className="flex items-center gap-1.5">
-            <label className="text-[10px] text-[var(--text-dim)] font-mono">Tempo</label>
+            <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              Tempo
+            </label>
             <input
               type="range"
               min={40}
               max={120}
               step={1}
               value={generator.tempo}
+              aria-label="Tempo"
               onChange={(e) => setGeneratorTempo(parseInt(e.target.value))}
               className="w-20"
               style={{ accentColor: GENERATOR_COLOR }}
@@ -136,33 +189,47 @@ export function ProceduralTrack({ engine }: { engine: any }) {
           </div>
 
           <div className="flex items-center gap-1.5">
-            <label className="text-[10px] text-[var(--text-dim)] font-mono">Cmplx</label>
+            <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              Cmplx
+            </label>
             <input
               type="range"
               min={0}
               max={100}
               step={1}
               value={Math.round(generator.complexity * 100)}
-              onChange={(e) => setGeneratorComplexity(parseInt(e.target.value) / 100)}
+              onChange={(e) =>
+                setGeneratorComplexity(parseInt(e.target.value) / 100)
+              }
+              aria-label="Complexity"
               className="w-20"
               style={{ accentColor: GENERATOR_COLOR }}
             />
-            <span className="text-xs font-mono w-7">{Math.round(generator.complexity * 100)}%</span>
+            <span className="text-xs font-mono w-7">
+              {Math.round(generator.complexity * 100)}%
+            </span>
           </div>
 
           <div className="flex items-center gap-1.5">
-            <label className="text-[10px] text-[var(--text-dim)] font-mono">Space</label>
+            <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              Space
+            </label>
             <input
               type="range"
               min={0}
               max={100}
               step={1}
               value={Math.round(generator.space * 100)}
-              onChange={(e) => setGeneratorSpace(parseInt(e.target.value) / 100)}
+              onChange={(e) =>
+                setGeneratorSpace(parseInt(e.target.value) / 100)
+              }
+              aria-label="Space"
               className="w-20"
               style={{ accentColor: GENERATOR_COLOR }}
             />
-            <span className="text-xs font-mono w-7">{Math.round(generator.space * 100)}%</span>
+            <span className="text-xs font-mono w-7">
+              {Math.round(generator.space * 100)}%
+            </span>
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -173,18 +240,27 @@ export function ProceduralTrack({ engine }: { engine: any }) {
               max={100}
               step={1}
               value={Math.round(generator.drumLevel * 100)}
-              onChange={(e) => setGeneratorDrumLevel(parseInt(e.target.value) / 100)}
+              onChange={(e) =>
+                setGeneratorDrumLevel(parseInt(e.target.value) / 100)
+              }
+              aria-label="Drum Level"
               className="w-20"
               style={{ accentColor: GENERATOR_COLOR }}
             />
-            <span className="text-xs font-mono w-7">{Math.round(generator.drumLevel * 100)}%</span>
+            <span className="text-xs font-mono w-7">
+              {Math.round(generator.drumLevel * 100)}%
+            </span>
           </div>
 
           <div className="flex items-center gap-1.5">
-            <label className="text-[10px] text-[var(--text-dim)] font-mono">Scene Bars</label>
+            <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              Scene Bars
+            </label>
             <select
               value={generator.sceneDuration}
-              onChange={(e) => setGeneratorSceneDuration(parseInt(e.target.value))}
+              onChange={(e) =>
+                setGeneratorSceneDuration(parseInt(e.target.value))
+              }
               className="px-1.5 py-1 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-md text-xs font-mono"
             >
               <option value={16}>16</option>
@@ -210,13 +286,19 @@ export function ProceduralTrack({ engine }: { engine: any }) {
               )}
             </Button>
             <div className="flex items-center gap-1">
-              <label className="text-[10px] text-[var(--text-dim)] font-mono">Min</label>
+              <label className="text-[10px] text-[var(--text-dim)] font-mono">
+                Min
+              </label>
               <input
                 type="number"
                 min={1}
                 max={60}
                 value={generatorExportDuration}
-                onChange={(e) => setGeneratorExportDuration(Math.max(1, Math.min(60, parseInt(e.target.value) || 1)))}
+                onChange={(e) =>
+                  setGeneratorExportDuration(
+                    Math.max(1, Math.min(60, parseInt(e.target.value) || 1)),
+                  )
+                }
                 className="w-12 px-1 py-1 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-md text-xs font-mono"
               />
             </div>

@@ -12,7 +12,8 @@ import { EQPanel } from "@/components/studio/EQPanel";
 import { BottomDrawer } from "@/components/studio/BottomDrawer";
 
 export default function StudioPage() {
-  const { tracks, initTracks, setBackendOnline, addLog, masterGain, eqGains } = useStudioStore();
+  const { tracks, initTracks, setBackendOnline, addLog, masterGain, eqGains } =
+    useStudioStore();
   const audioContextRef = useRef<AudioContext | null>(null);
   const lastBackendStatusRef = useRef<boolean | null>(null);
 
@@ -41,7 +42,14 @@ export default function StudioPage() {
     const interval = setInterval(checkBackend, 30000);
     return () => {
       clearInterval(interval);
-      if (audioContextRef.current) audioContextRef.current.close();
+      const ctx = audioContextRef.current;
+      if (ctx && ctx.state !== "closed") {
+        try {
+          ctx.close();
+        } catch {
+          /* already closed */
+        }
+      }
     };
   }, [initTracks, setBackendOnline, addLog]);
 
@@ -52,9 +60,14 @@ export default function StudioPage() {
 
       <div className="flex-1 flex gap-4 p-4 min-h-0">
         <div className="flex-1 flex flex-col gap-2 overflow-y-auto">
-          <ProceduralTrack engine={engine} />
+          <ProceduralTrack />
           {tracks.map((track, index) => (
-            <TrackCard key={track.id} track={track} index={index} getAudioContext={getAudioContext} />
+            <TrackCard
+              key={track.id}
+              track={track}
+              index={index}
+              getAudioContext={getAudioContext}
+            />
           ))}
         </div>
 

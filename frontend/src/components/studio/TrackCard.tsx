@@ -5,7 +5,12 @@ import { Track } from "@/types";
 import { useStudioStore } from "@/store/studioStore";
 import { Volume2, Headphones, Mic, MicOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface TrackCardProps {
   track: Track;
@@ -13,7 +18,13 @@ interface TrackCardProps {
   getAudioContext: () => AudioContext;
 }
 
-function MiniWaveform({ buffer, color }: { buffer: AudioBuffer | null; color: string }) {
+function MiniWaveform({
+  buffer,
+  color,
+}: {
+  buffer: AudioBuffer | null;
+  color: string;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -70,8 +81,18 @@ function formatDuration(seconds: number): string {
 }
 
 export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
-  const { loadTrackFile, unloadTrack, setVolume, setPan, toggleMute, toggleSolo, addLog } = useStudioStore();
-  const hasSolo = useStudioStore((s) => s.tracks.some((t) => t.solo && t.loaded));
+  const {
+    loadTrackFile,
+    unloadTrack,
+    setVolume,
+    setPan,
+    toggleMute,
+    toggleSolo,
+    addLog,
+  } = useStudioStore();
+  const hasSolo = useStudioStore((s) =>
+    s.tracks.some((t) => t.solo && t.loaded),
+  );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
@@ -92,7 +113,7 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
         addLog(`Failed to load ${file.name}: ${error}`, "err");
       }
     },
-    [getAudioContext, index, loadTrackFile, addLog]
+    [getAudioContext, index, loadTrackFile, addLog],
   );
 
   const handleDrop = useCallback(
@@ -101,10 +122,13 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
       const file = e.dataTransfer.files[0];
       if (file) handleFileSelect(file);
     },
-    [handleFileSelect]
+    [handleFileSelect],
   );
 
-  const handleDragOver = useCallback((e: React.DragEvent) => e.preventDefault(), []);
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => e.preventDefault(),
+    [],
+  );
   const handleClick = () => {
     if (!track.loaded) fileInputRef.current?.click();
   };
@@ -118,84 +142,90 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
   const isDimmed = track.muted || (hasSolo && !track.solo);
 
   return (
-    <div
-      ref={dropRef}
-      onDrop={handleDrop}
-      onDragOver={handleDragOver}
-      onClick={handleClick}
-      className={`group relative flex items-center gap-3 p-3 rounded-md border transition-all duration-200 ${
-        track.loaded
-          ? "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--accent)]/30"
-          : "border-dashed border-[var(--border)] bg-[var(--surface)]/50 hover:border-[var(--accent)]/50 cursor-pointer"
-      } ${isDimmed ? "opacity-50" : ""}`}
-      style={{ boxShadow: track.loaded ? `inset 0 0 0 1px ${track.color}15` : "none" }}
-    >
+    <TooltipProvider>
       <div
-        className="w-8 h-8 rounded-md flex items-center justify-center text-sm font-bold shrink-0"
-        style={{ backgroundColor: `${track.color}20`, color: track.color }}
+        ref={dropRef}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onClick={handleClick}
+        className={`group relative flex items-center gap-3 p-3 rounded-md border transition-all duration-200 ${
+          track.loaded
+            ? "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--accent)]/30"
+            : "border-dashed border-[var(--border)] bg-[var(--surface)]/50 hover:border-[var(--accent)]/50 cursor-pointer"
+        } ${isDimmed ? "opacity-50" : ""}`}
+        style={{
+          boxShadow: track.loaded ? `inset 0 0 0 1px ${track.color}15` : "none",
+        }}
       >
-        {index + 1}
-      </div>
+        <div
+          className="w-8 h-8 rounded-md flex items-center justify-center text-sm font-bold shrink-0"
+          style={{ backgroundColor: `${track.color}20`, color: track.color }}
+        >
+          {index + 1}
+        </div>
 
-      <div className="flex-1 min-w-0">
-        {track.loaded ? (
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-[var(--text)] truncate">{track.name}</span>
-            <span className="text-xs font-mono bg-[var(--surface-elevated)] px-1.5 py-0.5 rounded-md">
-              {formatDuration(track.duration)}
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleRemove}
-              className="h-6 text-xs opacity-0 group-hover:opacity-100 text-[var(--text-dim)] hover:text-[var(--warning)] transition-opacity px-2"
-            >
-              remove
-            </Button>
-          </div>
-        ) : (
-          <div className="flex items-center justify-center py-2 text-[var(--text-dim)] text-sm">
-            <span className="border border-dashed border-[var(--border)] px-4 py-1 rounded-md">
-              DROP AUDIO
-            </span>
-          </div>
-        )}
-      </div>
+        <div className="flex-1 min-w-0">
+          {track.loaded ? (
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-[var(--text)] truncate">
+                {track.name}
+              </span>
+              <span className="text-xs font-mono bg-[var(--surface-elevated)] px-1.5 py-0.5 rounded-md">
+                {formatDuration(track.duration)}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleRemove}
+                className="h-6 text-xs opacity-0 group-hover:opacity-100 text-[var(--text-dim)] hover:text-[var(--warning)] transition-opacity px-2"
+              >
+                remove
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-2 text-[var(--text-dim)] text-sm">
+              <span className="border border-dashed border-[var(--border)] px-4 py-1 rounded-md">
+                DROP AUDIO
+              </span>
+            </div>
+          )}
+        </div>
 
-      {track.loaded && (
-        <div className="flex items-center gap-4 shrink-0">
-          <div className="flex items-center gap-2">
-            <Volume2 className="w-3.5 h-3.5 text-[var(--text-dim)]" />
-            <input
-              type="range"
-              min="0"
-              max="150"
-              value={track.volume}
-              onChange={(e) => setVolume(index, parseInt(e.target.value))}
-              className="w-20"
-              style={{ accentColor: track.color }}
-            />
-            <span className="text-xs font-mono text-[var(--text-dim)] w-6">{track.volume}</span>
-          </div>
+        {track.loaded && (
+          <div className="flex items-center gap-4 shrink-0">
+            <div className="flex items-center gap-2">
+              <Volume2 className="w-3.5 h-3.5 text-[var(--text-dim)]" />
+              <input
+                type="range"
+                min="0"
+                max="150"
+                value={track.volume}
+                onChange={(e) => setVolume(index, parseInt(e.target.value))}
+                className="w-20"
+                style={{ accentColor: track.color }}
+              />
+              <span className="text-xs font-mono text-[var(--text-dim)] w-6">
+                {track.volume}
+              </span>
+            </div>
 
-          <div className="flex items-center gap-1">
-            <span className="text-xs text-[var(--text-dim)]">L</span>
-            <input
-              type="range"
-              min="-100"
-              max="100"
-              value={track.pan}
-              onChange={(e) => setPan(index, parseInt(e.target.value))}
-              className="w-16"
-              style={{ accentColor: "var(--accent2)" }}
-            />
-            <span className="text-xs text-[var(--text-dim)]">R</span>
-            <span className="text-xs font-mono text-[var(--text-dim)] w-8">
-              {track.pan > 0 ? `+${track.pan}` : track.pan}
-            </span>
-          </div>
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-[var(--text-dim)]">L</span>
+              <input
+                type="range"
+                min="-100"
+                max="100"
+                value={track.pan}
+                onChange={(e) => setPan(index, parseInt(e.target.value))}
+                className="w-16"
+                style={{ accentColor: "var(--accent2)" }}
+              />
+              <span className="text-xs text-[var(--text-dim)]">R</span>
+              <span className="text-xs font-mono text-[var(--text-dim)] w-8">
+                {track.pan > 0 ? `+${track.pan}` : track.pan}
+              </span>
+            </div>
 
-          <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -209,14 +239,16 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
                       : "text-[var(--text-dim)] hover:bg-[var(--surface-elevated)]"
                   }`}
                 >
-                  {track.muted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  {track.muted ? (
+                    <MicOff className="w-4 h-4" />
+                  ) : (
+                    <Mic className="w-4 h-4" />
+                  )}
                 </button>
               </TooltipTrigger>
               <TooltipContent>{track.muted ? "Unmute" : "Mute"}</TooltipContent>
             </Tooltip>
-          </TooltipProvider>
 
-          <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -235,22 +267,22 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
               </TooltipTrigger>
               <TooltipContent>{track.solo ? "Unsolo" : "Solo"}</TooltipContent>
             </Tooltip>
-          </TooltipProvider>
 
-          <MiniWaveform buffer={track.buffer} color={track.color} />
-        </div>
-      )}
+            <MiniWaveform buffer={track.buffer} color={track.color} />
+          </div>
+        )}
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="audio/*"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFileSelect(file);
-        }}
-        className="hidden"
-      />
-    </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="audio/*"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleFileSelect(file);
+          }}
+          className="hidden"
+        />
+      </div>
+    </TooltipProvider>
   );
 }

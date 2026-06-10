@@ -5,8 +5,16 @@ import { LogConsole } from "./LogConsole";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Download, Terminal } from "lucide-react";
 
+export interface AudioEngineLike {
+  playLoopSeam: (
+    loopStartMs: number,
+    loopEndMs: number,
+    crossfadeMs: number,
+  ) => Promise<void>;
+}
+
 interface BottomDrawerProps {
-  engine: any;
+  engine: AudioEngineLike;
 }
 
 export function BottomDrawer({ engine }: BottomDrawerProps) {
@@ -27,10 +35,16 @@ export function BottomDrawer({ engine }: BottomDrawerProps) {
             <Terminal className="w-3.5 h-3.5" /> CONSOLE
           </TabsTrigger>
         </TabsList>
-        <TabsContent value="export" className="mt-0 border-t border-[var(--border)] p-4">
+        <TabsContent
+          value="export"
+          className="mt-0 border-t border-[var(--border)] p-4"
+        >
           <ExportPanel engine={engine} />
         </TabsContent>
-        <TabsContent value="console" className="mt-0 border-t border-[var(--border)]">
+        <TabsContent
+          value="console"
+          className="mt-0 border-t border-[var(--border)]"
+        >
           <LogConsole />
         </TabsContent>
       </Tabs>
