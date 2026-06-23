@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import { useStudioStore } from "@/store/studioStore";
 import { useAudioEngine } from "@/hooks/useAudioEngine";
 import { checkHealth } from "@/lib/api";
@@ -14,42 +14,27 @@ import { BottomDrawer } from "@/components/studio/BottomDrawer";
 export default function StudioPage() {
   const { tracks, initTracks, setBackendOnline, addLog, masterGain, eqGains } =
     useStudioStore();
-  const audioContextRef = useRef<AudioContext | null>(null);
   const lastBackendStatusRef = useRef<boolean | null>(null);
 
   const engine = useAudioEngine(tracks, masterGain, eqGains);
-
-  const getAudioContext = useCallback(() => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext();
-    }
-    return audioContextRef.current;
-  }, []);
 
   useEffect(() => {
     initTracks(8);
     const checkBackend = async () => {
       const health = await checkHealth();
       const isOnline = health !== null;
+      const wasOnline = lastBackendStatusRef.current;
       setBackendOnline(isOnline);
-      if (lastBackendStatusRef.current !== isOnline) {
+      if (wasOnline !== null && wasOnline !== isOnline) {
         if (health) addLog(`Backend connected (v${health.version})`, "ok");
         else addLog("Backend offline - WAV export only", "err");
-        lastBackendStatusRef.current = isOnline;
       }
+      lastBackendStatusRef.current = isOnline;
     };
     checkBackend();
     const interval = setInterval(checkBackend, 30000);
     return () => {
       clearInterval(interval);
-      const ctx = audioContextRef.current;
-      if (ctx && ctx.state !== "closed") {
-        try {
-          ctx.close();
-        } catch {
-          /* already closed */
-        }
-      }
     };
   }, [initTracks, setBackendOnline, addLog]);
 
@@ -62,12 +47,7 @@ export default function StudioPage() {
         <div className="flex-1 flex flex-col gap-2 overflow-y-auto">
           <ProceduralTrack />
           {tracks.map((track, index) => (
-            <TrackCard
-              key={track.id}
-              track={track}
-              index={index}
-              getAudioContext={getAudioContext}
-            />
+            <TrackCard key={track.id} track={track} index={index} />
           ))}
         </div>
 

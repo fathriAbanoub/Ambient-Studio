@@ -1,7 +1,6 @@
-// frontend/src/components/studio/Transport.tsx
-
 "use client";
-import React, { useEffect, useRef, useState, useMemo } from "react";
+
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useStudioStore } from "@/store/studioStore";
 import { Play, Square, Volume2 } from "lucide-react";
 import {
@@ -10,6 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { getSharedAudioContext } from "@/lib/audioContext";
 
 function formatTime(seconds: number): string {
   const hrs = Math.floor(seconds / 3600);
@@ -18,48 +18,12 @@ function formatTime(seconds: number): string {
   return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
-function VUMeter({ analyserData }: { analyserData: Uint8Array }) {
-  const bars = 16;
-  const barHeights = Array.from({ length: bars }, (_, i) => {
-    const start = Math.floor((i / bars) * analyserData.length);
-    const end = Math.floor(((i + 1) / bars) * analyserData.length);
-    const slice = analyserData.slice(start, end);
-    const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
-    return Math.min(100, (avg / 255) * 100);
-  });
-  return (
-    <div className="flex items-end gap-0.5 h-8">
-      {barHeights.map((height, i) => {
-        const isHigh = i >= 12;
-        const isMid = i >= 8 && i < 12;
-        return (
-          <div
-            key={i}
-            className="w-1.5 rounded-sm transition-all duration-75"
-            style={{
-              height: `${Math.max(4, height * 0.4)}px`,
-              backgroundColor: isHigh
-                ? "var(--warning)"
-                : isMid
-                ? "#ffd740"
-                : "var(--accent3)",
-              opacity: height > 10 ? 1 : 0.3,
-            }}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-// ✅ FIX: audioContextRef is now required, play is async
 interface TransportEngine {
   isPlaying: boolean;
   play: () => Promise<void>;
   stop: () => void;
   getAnalyserData: () => Uint8Array;
   initAudio: () => Promise<void>;
-  audioContextRef: React.RefObject<AudioContext | null>; // required
 }
 
 export function Transport({ engine }: { engine: TransportEngine }) {
@@ -71,69 +35,91 @@ export function Transport({ engine }: { engine: TransportEngine }) {
     activePlaybackSource,
   } = useStudioStore();
 
-  const { isPlaying, play, stop, getAnalyserData, initAudio, audioContextRef } = engine;
+  const { isPlaying, play, stop, getAnalyserData, initAudio } = engine;
 
-  const [analyserData, setAnalyserData] = useState<Uint8Array>(
-    new Uint8Array(128)
-  );
-  const [time, setTime] = useState(0);
+  const timerRef = useRef<HTMLDivElement>(null);
+  const vuBarsRef = useRef<(HTMLDivElement | null)[]>([]);
+
   const animationRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
 
-  // Stable empty array
-  const emptyAnalyserData = useMemo(() => new Uint8Array(128), []);
-
-  // Ref to hold getAnalyserData so we don't depend on it in effect
   const getAnalyserDataRef = useRef(getAnalyserData);
   useEffect(() => {
     getAnalyserDataRef.current = getAnalyserData;
   }, [getAnalyserData]);
 
-  // Animation loop
+  const update = useCallback(() => {
+    const ctx = getSharedAudioContext();
+    if (ctx && ctx.state !== "closed") {
+      if (ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      } else {
+        const elapsed = ctx.currentTime - startTimeRef.current;
+        if (timerRef.current) {
+          timerRef.current.textContent = formatTime(Math.max(0, elapsed));
+        }
+      }
+    }
+
+    const data = getAnalyserDataRef.current();
+    const bars = 16;
+    for (let i = 0; i < bars; i++) {
+      const start = Math.floor((i / bars) * data.length);
+      const end = Math.floor(((i + 1) / bars) * data.length);
+      const slice = data.slice(start, end);
+      const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
+      const height = Math.min(100, (avg / 255) * 100);
+
+      const bar = vuBarsRef.current[i];
+      if (bar) {
+        bar.style.height = `${Math.max(4, height * 0.4)}px`;
+        const isHigh = i >= 12;
+        const isMid = i >= 8 && i < 12;
+        bar.style.backgroundColor = isHigh ? "var(--warning)" : isMid ? "#ffd740" : "var(--accent3)";
+        bar.style.opacity = height > 10 ? "1" : "0.3";
+      }
+    }
+
+    animationRef.current = requestAnimationFrame(update);
+  }, []);
+
   useEffect(() => {
     if (isPlaying) {
-      const update = () => {
-        const ctx = audioContextRef.current;
-        if (ctx && ctx.state !== "closed") {
-          if (ctx.state === "suspended") {
-            ctx.resume().catch(() => {});
-          } else {
-            setTime(Math.max(0, ctx.currentTime - startTimeRef.current));
-          }
-        }
-        const data = getAnalyserDataRef.current();
-        setAnalyserData(data);
-        animationRef.current = requestAnimationFrame(update);
-      };
       update();
     } else {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
-      setTime(0);
-      setAnalyserData(emptyAnalyserData);
+      animationRef.current = null;
+      if (timerRef.current) {
+        timerRef.current.textContent = "00:00:00";
+      }
+      vuBarsRef.current.forEach((bar) => {
+        if (bar) {
+          bar.style.height = "4px";
+          bar.style.opacity = "0.3";
+        }
+      });
     }
     return () => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [isPlaying, emptyAnalyserData, audioContextRef]);
+  }, [isPlaying, update]);
 
-  // ✅ FIX: handlePlay now awaits initAudio() and play() in order
   const handlePlay = async () => {
     try {
-      await initAudio(); // ensure context is ready
+      await initAudio();
     } catch (err) {
       console.error("initAudio failed:", err);
       return;
     }
 
-    const ctx = audioContextRef.current;
+    const ctx = getSharedAudioContext();
     if (ctx) {
       startTimeRef.current = ctx.currentTime;
     } else {
-      console.warn("AudioContext ref not available after initAudio, using fallback start time");
+      console.warn("AudioContext not available");
       startTimeRef.current = 0;
     }
 
-    // Now start playback (play() is async)
     try {
       await play();
       setIsPlaying(true);
@@ -193,14 +179,17 @@ export function Transport({ engine }: { engine: TransportEngine }) {
             </TooltipProvider>
           )}
         </div>
+
         <div className="flex-1 flex justify-center">
           <div
+            ref={timerRef}
             data-testid="timer"
             className="font-mono text-2xl tracking-wider text-[var(--text-bright)] bg-[var(--surface-elevated)] px-4 py-1 rounded-md border border-[var(--border)]"
           >
-            {formatTime(time)}
+            00:00:00
           </div>
         </div>
+
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3">
             <Volume2 className="w-4 h-4 text-[var(--text-dim)]" />
@@ -222,7 +211,21 @@ export function Transport({ engine }: { engine: TransportEngine }) {
             </span>
           </div>
           <div className="w-px h-6 bg-[var(--border)]" />
-          <VUMeter analyserData={analyserData} />
+
+          <div className="flex items-end gap-0.5 h-8">
+            {Array.from({ length: 16 }).map((_, i) => (
+              <div
+                key={i}
+                ref={(el) => { vuBarsRef.current[i] = el; }}
+                className="w-1.5 rounded-sm"
+                style={{
+                  height: "4px",
+                  backgroundColor: "var(--accent3)",
+                  opacity: 0.3,
+                }}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </div>
