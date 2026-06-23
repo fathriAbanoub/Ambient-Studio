@@ -50,6 +50,12 @@ export function useProceduralEngine() {
       engineRef.current = engine;
       await engine.start();
 
+      // ✅ Guard: ensure we weren't stopped/disposed during the async start
+      if (engineRef.current !== engine || !engine.running) {
+        // Engine was torn down while we were starting; do not proceed
+        return;
+      }
+
       const analyser = engine.ctx.createAnalyser();
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.8;

@@ -11,6 +11,8 @@
  *   W1: Persistent StereoPannerNodes for pad/bell with smooth setValueAtTime drift
  *   W2: Melody events routed through melodyBuses[i % 3] for visual analysis
  *   D1: Added dispose() method to disconnect all audio nodes and prevent leakage
+ *   G1: Added guard in start() after ctx.resume() to prevent execution on disposed instance
+ *   T1: Removed null assignments to audio node fields to maintain type safety
  */
 
 import {
@@ -138,6 +140,10 @@ export class LiveEngine {
   async start(): Promise<void> {
     if (this.running || this.disposed) return;
     await this.ctx.resume();
+
+    // ✅ Guard: re-check disposed status after async resume
+    if (this.disposed) return;
+
     this.running = true;
     this.tick();
   }
@@ -160,7 +166,7 @@ export class LiveEngine {
     // Stop any ongoing playback and clear scheduler
     this.stop();
 
-    // Disconnect all audio nodes from the graph
+    // Disconnect all audio nodes from the graph (this is sufficient for cleanup)
     const nodes: AudioNode[] = [
       this.out,
       this.gain,
@@ -183,18 +189,8 @@ export class LiveEngine {
       }
     }
 
-    // Clear references to help garbage collection
-    (this.out as any) = null;
-    (this.gain as any) = null;
-    (this.delay as any) = null;
-    (this.fb as any) = null;
-    (this.filter as any) = null;
-    (this.drumBus as any) = null;
-    (this.drumCompressor as any) = null;
-    (this.padPanL as any) = null;
-    (this.padPanR as any) = null;
-    (this.bellPan as any) = null;
-    this.melodyBuses = [];
+    // Note: we do NOT set fields to null to maintain type safety.
+    // The engine instance will be garbage collected when references are dropped.
   }
 
   setMix(mix: number): void {
@@ -217,7 +213,7 @@ export class LiveEngine {
   getCurrentState(): EngineState { return { ...this.state }; }
   getParams(): EngineParams { return { ...this.params }; }
 
-  // ✅ Reverted to AudioNode (never null) – safe because it's never called after dispose()
+  // ✅ Returns AudioNode (never null) – safe because it's never called after dispose()
   getMasterNode(): AudioNode {
     return this.out;
   }
