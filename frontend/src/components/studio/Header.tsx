@@ -1,3 +1,5 @@
+// frontend/src/components/studio/Header.tsx
+
 "use client";
 
 import { useStudioStore } from "@/store/studioStore";
@@ -8,13 +10,21 @@ import { Button } from "@/components/ui/button";
 type BackendStatus = "idle" | "playing" | "exporting" | "offline";
 
 export function Header() {
-  const { isPlaying, isExporting, backendOnline, applyPreset, addLog } =
-    useStudioStore();
+  // Destructure the `generator` object to access its `isRunning` property
+  const {
+    isPlaying,
+    isExporting,
+    backendOnline,
+    applyPreset,
+    addLog,
+    generator,
+  } = useStudioStore();
 
   const getStatus = (): BackendStatus => {
     if (!backendOnline) return "offline";
     if (isExporting) return "exporting";
-    if (isPlaying) return "playing";
+    // Check both manual and generator playback states
+    if (isPlaying || generator.isRunning) return "playing";
     return "idle";
   };
 
@@ -71,6 +81,7 @@ export function Header() {
                 variant="outline"
                 size="sm"
                 onClick={() => handlePreset(name)}
+                data-testid={`preset-${name.toLowerCase()}`}
                 className="h-7 text-xs font-mono"
               >
                 {name}
@@ -81,14 +92,19 @@ export function Header() {
             <span
               className={`w-2 h-2 rounded-full ${config.color} ${config.pulseClass}`}
             />
-            <span className="font-mono text-xs text-[var(--text)] tracking-wide">
+            <span
+              data-testid="status-indicator"
+              className="font-mono text-xs text-[var(--text)] tracking-wide"
+            >
               {config.text}
             </span>
           </div>
+          {/* ✅ Added aria-label for accessibility */}
           <a
             href="https://github.com/fathriAbanoub/Ambient-Studio"
             target="_blank"
             rel="noopener noreferrer"
+            aria-label="GitHub repository"
             className="p-2 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] hover:bg-[var(--border)] transition-colors"
           >
             <Github className="w-4 h-4 text-[var(--text-dim)]" />

@@ -89,6 +89,19 @@ function VerticalSlider({
   const sliderRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
 
+  // Refs to store currently attached event listeners for cleanup on unmount
+  const listenerRefs = useRef<{
+    mouseMove: ((e: MouseEvent) => void) | null;
+    mouseUp: ((e: MouseEvent) => void) | null;
+    touchMove: ((e: TouchEvent) => void) | null;
+    touchEnd: ((e: TouchEvent) => void) | null;
+  }>({
+    mouseMove: null,
+    mouseUp: null,
+    touchMove: null,
+    touchEnd: null,
+  });
+
   const updateValue = useCallback(
     (clientY: number) => {
       if (!sliderRef.current) return;
@@ -105,6 +118,7 @@ function VerticalSlider({
     e.preventDefault();
     isDragging.current = true;
     updateValue(e.clientY);
+
     const handleMove = (e: MouseEvent) => {
       if (isDragging.current) updateValue(e.clientY);
     };
@@ -112,7 +126,15 @@ function VerticalSlider({
       isDragging.current = false;
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
+      // Clear refs so cleanup doesn't try to remove them again
+      listenerRefs.current.mouseMove = null;
+      listenerRefs.current.mouseUp = null;
     };
+
+    // Store the handlers for unmount cleanup
+    listenerRefs.current.mouseMove = handleMove;
+    listenerRefs.current.mouseUp = handleUp;
+
     window.addEventListener("mousemove", handleMove);
     window.addEventListener("mouseup", handleUp);
   };
@@ -122,6 +144,7 @@ function VerticalSlider({
     isDragging.current = true;
     const touch = e.touches[0];
     updateValue(touch.clientY);
+
     const handleMove = (e: TouchEvent) => {
       if (isDragging.current && e.touches[0]) updateValue(e.touches[0].clientY);
     };
@@ -129,10 +152,27 @@ function VerticalSlider({
       isDragging.current = false;
       window.removeEventListener("touchmove", handleMove);
       window.removeEventListener("touchend", handleEnd);
+      listenerRefs.current.touchMove = null;
+      listenerRefs.current.touchEnd = null;
     };
+
+    listenerRefs.current.touchMove = handleMove;
+    listenerRefs.current.touchEnd = handleEnd;
+
     window.addEventListener("touchmove", handleMove);
     window.addEventListener("touchend", handleEnd);
   };
+
+  // Cleanup any lingering listeners if the component unmounts while dragging
+  useEffect(() => {
+    return () => {
+      const { mouseMove, mouseUp, touchMove, touchEnd } = listenerRefs.current;
+      if (mouseMove) window.removeEventListener("mousemove", mouseMove);
+      if (mouseUp) window.removeEventListener("mouseup", mouseUp);
+      if (touchMove) window.removeEventListener("touchmove", touchMove);
+      if (touchEnd) window.removeEventListener("touchend", touchEnd);
+    };
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowUp") {
@@ -165,7 +205,9 @@ function VerticalSlider({
       </div>
       <div
         ref={sliderRef}
+        data-testid="eq-slider"
         role="slider"
+        aria-orientation="vertical"
         aria-valuemin={-12}
         aria-valuemax={12}
         aria-valuenow={value}
@@ -189,7 +231,12 @@ function VerticalSlider({
           }}
         />
       </div>
-      <div className="text-xs text-[var(--text-dim)] font-mono">{label}</div>
+      <div
+        data-testid={`eq-label-${label}`}
+        className="text-xs text-[var(--text-dim)] font-mono"
+      >
+        {label}
+      </div>
       <div className="text-xs text-[var(--text-dim)]/50">
         {frequency >= 1000 ? `${frequency / 1000}k` : frequency}Hz
       </div>
@@ -209,6 +256,7 @@ export function EQPanel() {
           variant="outline"
           size="sm"
           onClick={resetEq}
+          data-testid="eq-reset"
           className="h-7 text-xs font-mono text-[var(--text-dim)] hover:text-[var(--accent2)] border-[var(--border)] hover:border-[var(--accent2)]"
         >
           <RotateCcw className="w-3 h-3 mr-1" /> RESET

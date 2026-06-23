@@ -5,8 +5,6 @@ import { Track, EQ_BANDS } from "@/types";
 interface AudioEngineState {
   isInitialized: boolean;
   isPlaying: boolean;
-  currentTime: number;
-  analyserData: Uint8Array;
 }
 
 export function useAudioEngine(
@@ -22,13 +20,11 @@ export function useAudioEngine(
   const trackGainsRef = useRef<Map<string, GainNode>>(new Map());
   const trackPannersRef = useRef<Map<string, StereoPannerNode>>(new Map());
   const startTimeRef = useRef<number>(0);
-  const animationFrameRef = useRef<number | null>(null);
+  const isPlayingRef = useRef<boolean>(false); // synchronous flag for async callbacks
 
   const [state, setState] = useState<AudioEngineState>({
     isInitialized: false,
     isPlaying: false,
-    currentTime: 0,
-    analyserData: new Uint8Array(128),
   });
 
   // Initialize audio context
@@ -127,6 +123,7 @@ export function useAudioEngine(
     sourcesRef.current.clear();
 
     startTimeRef.current = ctx.currentTime;
+    isPlayingRef.current = true;
 
     // Check for solo tracks
     const hasSolo = tracks.some((t) => t.solo && t.loaded);
@@ -163,7 +160,7 @@ export function useAudioEngine(
         // Schedule next loop
         const nextStartTime = actualStart + remainingDuration;
         source.onended = () => {
-          if (state.isPlaying && audioContextRef.current) {
+          if (isPlayingRef.current && audioContextRef.current) {
             scheduleNextBuffer(nextStartTime, 0);
           }
         };
@@ -176,25 +173,12 @@ export function useAudioEngine(
       sourcesRef.current.set(track.id, sources);
     });
 
-    setState((s) => ({ ...s, isPlaying: true, currentTime: 0 }));
-
-    // Start time update loop
-    const updateTime = () => {
-      if (audioContextRef.current && state.isPlaying) {
-        const elapsed =
-          audioContextRef.current.currentTime - startTimeRef.current;
-        setState((s) => ({ ...s, currentTime: elapsed }));
-      }
-      animationFrameRef.current = requestAnimationFrame(updateTime);
-    };
-    updateTime();
-  }, [tracks, initAudio, state.isPlaying]);
+    setState((s) => ({ ...s, isPlaying: true }));
+  }, [tracks, initAudio]);
 
   // Stop
   const stop = useCallback(() => {
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
+    isPlayingRef.current = false;
 
     sourcesRef.current.forEach((sources) => {
       sources.forEach((s) => {
@@ -205,7 +189,7 @@ export function useAudioEngine(
     });
     sourcesRef.current.clear();
 
-    setState((s) => ({ ...s, isPlaying: false, currentTime: 0 }));
+    setState((s) => ({ ...s, isPlaying: false }));
   }, []);
 
   // Play Loop Seam Preview
@@ -228,6 +212,7 @@ export function useAudioEngine(
       const crossfade = crossfadeMs / 1000;
 
       startTimeRef.current = ctx.currentTime;
+      isPlayingRef.current = true;
 
       const hasSolo = tracks.some((t) => t.solo && t.loaded);
 
@@ -246,15 +231,14 @@ export function useAudioEngine(
         trackGain.connect(panner);
         panner.connect(masterGainRef.current!);
 
-        // We need two sources to crossfade for the seam
-        // 1. The "tail" ending at loopEnd
+        // Tail (ending at loopEnd)
         const tailSource = ctx.createBufferSource();
         tailSource.buffer = track.buffer;
         const tailGain = ctx.createGain();
         tailSource.connect(tailGain);
         tailGain.connect(trackGain);
 
-        // 2. The "head" starting at loopStart
+        // Head (starting at loopStart)
         const headSource = ctx.createBufferSource();
         headSource.buffer = track.buffer;
         const headGain = ctx.createGain();
@@ -262,26 +246,21 @@ export function useAudioEngine(
         headGain.connect(trackGain);
 
         const now = ctx.currentTime;
-
-        // Tail starts at loopEnd - crossfade, plays for crossfade duration
-        // But we want to hear a bit BEFORE the crossfade too for context
         const preRoll = 2.0;
         const tailStartOffset = Math.max(0, loopEnd - crossfade - preRoll);
         const tailDuration = crossfade + preRoll;
 
         tailSource.start(now, tailStartOffset, tailDuration);
 
-        // Head starts at loopStart, plays for crossfade + some post-roll
         const postRoll = 2.0;
         const headStartOffset = loopStart;
         const headDuration = crossfade + postRoll;
 
-        // Crossfade logic
-        // Tail fades out starting at now + preRoll
+        // Tail fades out
         tailGain.gain.setValueAtTime(1.0, now + preRoll);
         tailGain.gain.linearRampToValueAtTime(0.0, now + preRoll + crossfade);
 
-        // Head fades in starting at now + preRoll
+        // Head fades in
         headGain.gain.setValueAtTime(0.0, now + preRoll);
         headSource.start(now + preRoll, headStartOffset, headDuration);
         headGain.gain.linearRampToValueAtTime(1.0, now + preRoll + crossfade);
@@ -291,7 +270,7 @@ export function useAudioEngine(
         sourcesRef.current.set(track.id, sources);
       });
 
-      setState((s) => ({ ...s, isPlaying: true, currentTime: 0 }));
+      setState((s) => ({ ...s, isPlaying: true }));
     },
     [tracks, initAudio, stop],
   );
@@ -308,9 +287,6 @@ export function useAudioEngine(
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
       sourcesRef.current.forEach((sources) => {
         sources.forEach((s) => {
           try {
@@ -336,5 +312,6 @@ export function useAudioEngine(
     updateTrackGain,
     updateTrackPan,
     getAnalyserData,
+    audioContextRef,
   };
 }

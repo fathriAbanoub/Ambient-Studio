@@ -145,6 +145,7 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
     <TooltipProvider>
       <div
         ref={dropRef}
+        data-testid={`track-${index + 1}`}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onClick={handleClick}
@@ -167,16 +168,23 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
         <div className="flex-1 min-w-0">
           {track.loaded ? (
             <div className="flex items-center gap-2">
-              <span className="font-medium text-[var(--text)] truncate">
+              <span
+                data-testid="track-name"
+                className="font-medium text-[var(--text)] truncate"
+              >
                 {track.name}
               </span>
-              <span className="text-xs font-mono bg-[var(--surface-elevated)] px-1.5 py-0.5 rounded-md">
+              <span
+                data-testid="track-duration"
+                className="text-xs font-mono bg-[var(--surface-elevated)] px-1.5 py-0.5 rounded-md"
+              >
                 {formatDuration(track.duration)}
               </span>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={handleRemove}
+                data-testid="remove-track"
                 className="h-6 text-xs opacity-0 group-hover:opacity-100 text-[var(--text-dim)] hover:text-[var(--warning)] transition-opacity px-2"
               >
                 remove
@@ -184,7 +192,10 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
             </div>
           ) : (
             <div className="flex items-center justify-center py-2 text-[var(--text-dim)] text-sm">
-              <span className="border border-dashed border-[var(--border)] px-4 py-1 rounded-md">
+              <span
+                data-testid="drop-zone"
+                className="border border-dashed border-[var(--border)] px-4 py-1 rounded-md"
+              >
                 DROP AUDIO
               </span>
             </div>
@@ -196,6 +207,7 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
             <div className="flex items-center gap-2">
               <Volume2 className="w-3.5 h-3.5 text-[var(--text-dim)]" />
               <input
+                data-testid="volume-slider"
                 type="range"
                 min="0"
                 max="150"
@@ -204,7 +216,10 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
                 className="w-20"
                 style={{ accentColor: track.color }}
               />
-              <span className="text-xs font-mono text-[var(--text-dim)] w-6">
+              <span
+                data-testid="volume-value"
+                className="text-xs font-mono text-[var(--text-dim)] w-6"
+              >
                 {track.volume}
               </span>
             </div>
@@ -212,6 +227,7 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
             <div className="flex items-center gap-1">
               <span className="text-xs text-[var(--text-dim)]">L</span>
               <input
+                data-testid="pan-slider"
                 type="range"
                 min="-100"
                 max="100"
@@ -221,7 +237,10 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
                 style={{ accentColor: "var(--accent2)" }}
               />
               <span className="text-xs text-[var(--text-dim)]">R</span>
-              <span className="text-xs font-mono text-[var(--text-dim)] w-8">
+              <span
+                data-testid="pan-value"
+                className="text-xs font-mono text-[var(--text-dim)] w-8"
+              >
                 {track.pan > 0 ? `+${track.pan}` : track.pan}
               </span>
             </div>
@@ -233,6 +252,7 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
                     e.stopPropagation();
                     toggleMute(index);
                   }}
+                  aria-label={track.muted ? "Unmute" : "Mute"}
                   className={`w-8 h-8 rounded-md flex items-center justify-center transition-all ${
                     track.muted
                       ? "bg-[var(--warning)]/20 text-[var(--warning)]"
@@ -256,6 +276,7 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
                     e.stopPropagation();
                     toggleSolo(index);
                   }}
+                  aria-label={track.solo ? "Unsolo" : "Solo"}
                   className={`w-8 h-8 rounded-md flex items-center justify-center transition-all ${
                     track.solo
                       ? "bg-[var(--accent)]/20 text-[var(--accent)]"
@@ -274,11 +295,16 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
 
         <input
           ref={fileInputRef}
+          data-testid="file-input"
           type="file"
           accept="audio/*"
           onChange={(e) => {
             const file = e.target.files?.[0];
-            if (file) handleFileSelect(file);
+            if (file) {
+              handleFileSelect(file);
+              // Reset the input value so that selecting the same file again triggers onChange
+              e.target.value = '';
+            }
           }}
           className="hidden"
         />

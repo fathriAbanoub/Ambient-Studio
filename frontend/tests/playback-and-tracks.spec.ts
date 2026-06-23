@@ -137,7 +137,7 @@ test.describe("Procedural Generator", () => {
     await expect(procTrack).toHaveClass(/opacity-50/, { timeout: 5000 });
   });
 
-  // NEW: Generator export WAV with progress (Test 5)
+  // NEW: Generator export WAV with progress (Test 5) – unused variable removed
   test("clicking EXPORT WAV shows progress updates and completes", async ({ page }) => {
     await page.addInitScript(() => {
       const OriginalOfflineCtx = window.OfflineAudioContext;
@@ -165,8 +165,8 @@ test.describe("Procedural Generator", () => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     await page.getByTestId("generator-expand").click();
-    const procTrack = page.getByTestId("procedural-track");
-    const exportDurationInput = procTrack.locator('input[type="number"]').nth(1);
+    // ✅ No unused `procTrack` – we use the global `page` directly
+    const exportDurationInput = page.getByTestId("generator-export-duration");
     await exportDurationInput.fill("1");
     const exportBtn = page.getByTestId("generator-export-wav");
     await expect(exportBtn).toBeVisible();

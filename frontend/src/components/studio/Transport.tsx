@@ -1,6 +1,7 @@
-"use client";
+// frontend/src/components/studio/Transport.tsx
 
-import React, { useEffect, useRef, useState } from "react";
+"use client";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import { useStudioStore } from "@/store/studioStore";
 import { Play, Square, Volume2 } from "lucide-react";
 import {
@@ -40,8 +41,8 @@ function VUMeter({ analyserData }: { analyserData: Uint8Array }) {
               backgroundColor: isHigh
                 ? "var(--warning)"
                 : isMid
-                  ? "#ffd740"
-                  : "var(--accent3)",
+                ? "#ffd740"
+                : "var(--accent3)",
               opacity: height > 10 ? 1 : 0.3,
             }}
           />
@@ -51,13 +52,14 @@ function VUMeter({ analyserData }: { analyserData: Uint8Array }) {
   );
 }
 
+// ✅ FIX: audioContextRef is now required, play is async
 interface TransportEngine {
   isPlaying: boolean;
-  play: () => void;
+  play: () => Promise<void>;
   stop: () => void;
   getAnalyserData: () => Uint8Array;
   initAudio: () => Promise<void>;
-  audioContextRef?: React.RefObject<AudioContext | null>;
+  audioContextRef: React.RefObject<AudioContext | null>; // required
 }
 
 export function Transport({ engine }: { engine: TransportEngine }) {
@@ -68,21 +70,26 @@ export function Transport({ engine }: { engine: TransportEngine }) {
     setActivePlaybackSource,
     activePlaybackSource,
   } = useStudioStore();
-  const { isPlaying, play, stop, getAnalyserData, initAudio } = engine;
+
+  const { isPlaying, play, stop, getAnalyserData, initAudio, audioContextRef } = engine;
+
   const [analyserData, setAnalyserData] = useState<Uint8Array>(
-    new Uint8Array(128),
+    new Uint8Array(128)
   );
   const [time, setTime] = useState(0);
   const animationRef = useRef<number | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
   const startTimeRef = useRef<number>(0);
 
-  useEffect(() => {
-    if (engine.audioContextRef?.current) {
-      audioContextRef.current = engine.audioContextRef.current;
-    }
-  }, [engine]);
+  // Stable empty array
+  const emptyAnalyserData = useMemo(() => new Uint8Array(128), []);
 
+  // Ref to hold getAnalyserData so we don't depend on it in effect
+  const getAnalyserDataRef = useRef(getAnalyserData);
+  useEffect(() => {
+    getAnalyserDataRef.current = getAnalyserData;
+  }, [getAnalyserData]);
+
+  // Animation loop
   useEffect(() => {
     if (isPlaying) {
       const update = () => {
@@ -94,7 +101,7 @@ export function Transport({ engine }: { engine: TransportEngine }) {
             setTime(Math.max(0, ctx.currentTime - startTimeRef.current));
           }
         }
-        const data = getAnalyserData();
+        const data = getAnalyserDataRef.current();
         setAnalyserData(data);
         animationRef.current = requestAnimationFrame(update);
       };
@@ -102,29 +109,38 @@ export function Transport({ engine }: { engine: TransportEngine }) {
     } else {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
       setTime(0);
-      setAnalyserData(new Uint8Array(128));
+      setAnalyserData(emptyAnalyserData);
     }
     return () => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [isPlaying, getAnalyserData]);
+  }, [isPlaying, emptyAnalyserData, audioContextRef]);
 
+  // ✅ FIX: handlePlay now awaits initAudio() and play() in order
   const handlePlay = async () => {
     try {
-      await initAudio();
+      await initAudio(); // ensure context is ready
     } catch (err) {
       console.error("initAudio failed:", err);
       return;
     }
+
     const ctx = audioContextRef.current;
-    if (!ctx) {
-      console.error("AudioContext unavailable after initAudio");
-      return;
+    if (ctx) {
+      startTimeRef.current = ctx.currentTime;
+    } else {
+      console.warn("AudioContext ref not available after initAudio, using fallback start time");
+      startTimeRef.current = 0;
     }
-    startTimeRef.current = ctx.currentTime;
-    play();
-    setIsPlaying(true);
-    setActivePlaybackSource("manual");
+
+    // Now start playback (play() is async)
+    try {
+      await play();
+      setIsPlaying(true);
+      setActivePlaybackSource("manual");
+    } catch (err) {
+      console.error("Playback failed:", err);
+    }
   };
 
   const handleStop = () => {
@@ -143,6 +159,7 @@ export function Transport({ engine }: { engine: TransportEngine }) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  data-testid="transport-play-stop"
                   onClick={isPlaying ? handleStop : handlePlay}
                   className={`w-12 h-12 rounded-full border-2 flex items-center justify-center transition-all duration-200 ${
                     isManualActive
@@ -176,17 +193,19 @@ export function Transport({ engine }: { engine: TransportEngine }) {
             </TooltipProvider>
           )}
         </div>
-
         <div className="flex-1 flex justify-center">
-          <div className="font-mono text-2xl tracking-wider text-[var(--text-bright)] bg-[var(--surface-elevated)] px-4 py-1 rounded-md border border-[var(--border)]">
+          <div
+            data-testid="timer"
+            className="font-mono text-2xl tracking-wider text-[var(--text-bright)] bg-[var(--surface-elevated)] px-4 py-1 rounded-md border border-[var(--border)]"
+          >
             {formatTime(time)}
           </div>
         </div>
-
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-3">
             <Volume2 className="w-4 h-4 text-[var(--text-dim)]" />
             <input
+              data-testid="master-volume"
               type="range"
               min="0"
               max="200"
@@ -195,7 +214,10 @@ export function Transport({ engine }: { engine: TransportEngine }) {
               className="w-24"
               style={{ accentColor: "var(--accent)" }}
             />
-            <span className="font-mono text-xs text-[var(--text-dim)] w-8">
+            <span
+              data-testid="master-volume-value"
+              className="font-mono text-xs text-[var(--text-dim)] w-8"
+            >
               {Math.round(masterGain * 100)}%
             </span>
           </div>

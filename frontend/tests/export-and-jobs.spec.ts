@@ -108,15 +108,12 @@ test.describe("Audio Export", () => {
     await expect(page.getByTestId("export-wav")).toBeDisabled();
   });
 
-  // NEW: Export duration input changes (Test 7) – case-insensitive
+  // NEW: Export duration input changes (Test 7) – uses test ID
   test("export duration input updates the value", async ({ page }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     await page.getByTestId("export-tab").click();
-    const durationInput = page
-      .getByText(/DURATION/i)
-      .locator("..")
-      .locator("input");
+    const durationInput = page.getByTestId("export-duration-input");
     await expect(durationInput).toHaveValue("5");
     await durationInput.fill("12");
     await expect(durationInput).toHaveValue("12");
@@ -124,12 +121,12 @@ test.describe("Audio Export", () => {
     await expect(durationInput).toHaveValue("3");
   });
 
-  // NEW: Export filename input changes (Test 8)
+  // NEW: Export filename input changes (Test 8) – uses test ID
   test("export filename input updates the value", async ({ page }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     await page.getByTestId("export-tab").click();
-    const filenameInput = page.getByRole("textbox");
+    const filenameInput = page.getByTestId("export-filename-input");
     await expect(filenameInput).toHaveValue("ambient_mix");
     await filenameInput.fill("my_ambient");
     await expect(filenameInput).toHaveValue("my_ambient");

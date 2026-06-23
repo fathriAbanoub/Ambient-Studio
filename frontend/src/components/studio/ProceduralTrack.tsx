@@ -77,6 +77,7 @@ export function ProceduralTrack() {
 
   return (
     <div
+      data-testid="procedural-track"
       className={`group flex flex-col gap-2 p-3 rounded-md border transition-all duration-200 ${
         isDimmed ? "opacity-50" : ""
       } ${
@@ -100,7 +101,10 @@ export function ProceduralTrack() {
             PROCEDURAL
           </span>
           {isRunning && (
-            <span className="text-xs font-mono px-1.5 py-0.5 rounded-md bg-[var(--accent)]/20 text-[var(--accent)]">
+            <span
+              data-testid="current-scene"
+              className="text-xs font-mono px-1.5 py-0.5 rounded-md bg-[var(--accent)]/20 text-[var(--accent)]"
+            >
               {currentScene}
             </span>
           )}
@@ -112,6 +116,7 @@ export function ProceduralTrack() {
                 variant={isRunning ? "destructive" : "outline"}
                 size="sm"
                 onClick={handlePlayStop}
+                data-testid="generator-play-stop"
                 className={`h-8 text-xs font-mono ${
                   isRunning
                     ? "bg-[var(--accent3)]/10 text-[var(--accent3)] border-[var(--accent3)] hover:bg-[var(--accent3)]/20"
@@ -133,6 +138,9 @@ export function ProceduralTrack() {
         </TooltipProvider>
         <button
           onClick={() => setShowAdvanced(!showAdvanced)}
+          data-testid="generator-expand"
+          aria-label={showAdvanced ? "Hide advanced" : "Show advanced"}
+          aria-expanded={showAdvanced}
           className="text-[var(--text-dim)] hover:text-[var(--accent)] transition-colors"
         >
           {showAdvanced ? (
@@ -150,6 +158,7 @@ export function ProceduralTrack() {
               Seed
             </label>
             <input
+              data-testid="generator-seed"
               type="number"
               min={0}
               max={999999}
@@ -164,6 +173,7 @@ export function ProceduralTrack() {
               Scenes
             </label>
             <Switch
+              data-testid="generator-scenes-toggle"
               checked={generator.enableScenes}
               onCheckedChange={setGeneratorEnableScenes}
               className="data-[state=checked]:bg-[var(--accent3)]"
@@ -175,6 +185,7 @@ export function ProceduralTrack() {
               Tempo
             </label>
             <input
+              data-testid="generator-tempo"
               type="range"
               min={40}
               max={120}
@@ -193,6 +204,7 @@ export function ProceduralTrack() {
               Cmplx
             </label>
             <input
+              data-testid="generator-complexity"
               type="range"
               min={0}
               max={100}
@@ -215,6 +227,7 @@ export function ProceduralTrack() {
               Space
             </label>
             <input
+              data-testid="generator-space"
               type="range"
               min={0}
               max={100}
@@ -257,6 +270,7 @@ export function ProceduralTrack() {
               Scene Bars
             </label>
             <select
+              data-testid="generator-scene-duration"
               value={generator.sceneDuration}
               onChange={(e) =>
                 setGeneratorSceneDuration(parseInt(e.target.value))
@@ -275,6 +289,7 @@ export function ProceduralTrack() {
               size="sm"
               onClick={handleExport}
               disabled={isExporting}
+              data-testid="generator-export-wav"
               className="h-7 text-xs font-mono border-[var(--accent2)] text-[var(--accent2)] hover:bg-[var(--accent2)]/10"
             >
               {isExporting ? (
@@ -290,6 +305,7 @@ export function ProceduralTrack() {
                 Min
               </label>
               <input
+                data-testid="generator-export-duration"
                 type="number"
                 min={1}
                 max={60}

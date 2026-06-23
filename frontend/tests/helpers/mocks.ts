@@ -20,6 +20,19 @@ export const API_BASE = "http://localhost:3003";
 // Constants & helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Extracts the job ID from a URL path like `/job/123/progress` or `/job/123`.
+ */
+function extractJobIdFromUrl(url: string): string {
+  const parsed = new URL(url);
+  const pathParts = parsed.pathname.split("/").filter((p) => p.length > 0);
+  const jobIndex = pathParts.indexOf("job");
+  if (jobIndex !== -1 && pathParts.length > jobIndex + 1) {
+    return pathParts[jobIndex + 1];
+  }
+  return "";
+}
+
 // ── Mock response factories ────────────────────────────────────────────────
 
 const MOCK_HEALTH = { status: "ok", version: "3.1.0" };
@@ -216,7 +229,7 @@ export async function setupAllMocks(page: Page, options: MockOptions = {}) {
   // ── Job Progress (wildcard – matches any job ID) ──
   await page.route(`${API_BASE}/job/*/progress`, async (route: Route) => {
     pollCount++;
-    const jobId = route.request().url().split("/job/")[1].split("/progress")[0];
+    const jobId = extractJobIdFromUrl(route.request().url()); // ← FIXED
 
     if (scenario === "failed") {
       return route.fulfill({
@@ -282,7 +295,7 @@ export async function setupAllMocks(page: Page, options: MockOptions = {}) {
   // ── Job Status (GET/DELETE) ──
   await page.route(`${API_BASE}/job/*`, (route: Route) => {
     if (route.request().method() === "DELETE") {
-      const jobId = route.request().url().split("/job/")[1];
+      const jobId = extractJobIdFromUrl(route.request().url()); // ← FIXED
       return route.fulfill({
         status: 200,
         contentType: "application/json",
