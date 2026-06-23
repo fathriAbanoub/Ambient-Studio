@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useStudioStore } from "@/store/studioStore";
 import { Play, Square, Monitor, X } from "lucide-react";
+import { getSharedAudioContext, resumeSharedAudioContext } from "@/lib/audioContext";
 
 interface VideoPreviewProps {
   backgroundImage: File | null;
@@ -15,22 +16,28 @@ function formatTime(s: number) {
 }
 
 export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
-  const { tracks, masterGain, eqGains } = useStudioStore();
+  const { tracks, masterGain } = useStudioStore();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
   const sourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const trackNodesRef = useRef<AudioNode[]>([]);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const masterGainRef = useRef<GainNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
   const bgImageRef = useRef<HTMLImageElement | null>(null);
+  const elapsedRef = useRef<HTMLSpanElement>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
   const [open, setOpen] = useState(false);
 
   const loadedTracks = tracks.filter((t) => t.loaded && t.buffer);
 
-  // Load background image whenever it changes
+  useEffect(() => {
+    if (masterGainRef.current) {
+      masterGainRef.current.gain.value = masterGain;
+    }
+  }, [masterGain]);
+
   useEffect(() => {
     if (!backgroundImage) {
       bgImageRef.current = null;
@@ -52,7 +59,6 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
     const w = canvas.width;
     const h = canvas.height;
 
-    // Background
     if (bgImageRef.current) {
       ctx.drawImage(bgImageRef.current, 0, 0, w, h);
     } else {
@@ -63,7 +69,6 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
       ctx.fillRect(0, 0, w, h);
     }
 
-    // VU bars overlay at bottom
     if (analyserRef.current) {
       const data = new Uint8Array(analyserRef.current.frequencyBinCount);
       analyserRef.current.getByteFrequencyData(data);
@@ -83,10 +88,12 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
       ctx.restore();
     }
 
-    // Elapsed time overlay
-    if (audioCtxRef.current && isPlaying) {
-      const t = audioCtxRef.current.currentTime - startTimeRef.current;
-      setElapsed(t);
+    const audioCtx = getSharedAudioContext();
+    if (audioCtx && isPlaying) {
+      const t = audioCtx.currentTime - startTimeRef.current;
+      if (elapsedRef.current) {
+        elapsedRef.current.textContent = formatTime(t);
+      }
       ctx.save();
       ctx.font = "bold 13px monospace";
       ctx.fillStyle = "rgba(255,255,255,0.7)";
@@ -101,15 +108,29 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
   }, [drawFrame]);
 
   const stopAudio = useCallback(() => {
-    sourcesRef.current.forEach((s) => { try { s.stop(); } catch {} });
+    sourcesRef.current.forEach((s) => {
+      try { s.stop(); s.disconnect(); } catch {}
+    });
     sourcesRef.current = [];
+
+    trackNodesRef.current.forEach((node) => {
+      try { node.disconnect(); } catch {}
+    });
+    trackNodesRef.current = [];
+
+    if (masterGainRef.current) {
+      masterGainRef.current.disconnect();
+      masterGainRef.current = null;
+    }
+
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     animFrameRef.current = null;
     setIsPlaying(false);
-    setElapsed(0);
+    if (elapsedRef.current) {
+      elapsedRef.current.textContent = "0:00";
+    }
   }, []);
 
-  // Draw one last static frame after stopping
   useEffect(() => {
     if (!isPlaying) {
       drawFrame();
@@ -119,33 +140,21 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
   const startPreview = useCallback(async () => {
     if (!loadedTracks.length) return;
 
-    // Stop any existing playback first
-    sourcesRef.current.forEach((s) => { try { s.stop(); } catch {} });
-    sourcesRef.current = [];
-    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    stopAudio();
 
-    // Create fresh AudioContext
-    if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
-      try {
-        await audioCtxRef.current.close();
-      } catch (e) {
-        // Ignore if already closed
-      }
+    const ctx = getSharedAudioContext();
+    await resumeSharedAudioContext();
+
+    if (!analyserRef.current) {
+      analyserRef.current = ctx.createAnalyser();
+      analyserRef.current.fftSize = 128;
+      analyserRef.current.smoothingTimeConstant = 0.8;
+      analyserRef.current.connect(ctx.destination);
     }
-    const ctx = new AudioContext();
-    audioCtxRef.current = ctx;
 
-    // Analyser
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 128;
-    analyser.smoothingTimeConstant = 0.8;
-    analyserRef.current = analyser;
-
-    // Master gain
-    const master = ctx.createGain();
-    master.gain.value = masterGain;
-    master.connect(analyser);
-    analyser.connect(ctx.destination);
+    masterGainRef.current = ctx.createGain();
+    masterGainRef.current.gain.value = masterGain;
+    masterGainRef.current.connect(analyserRef.current);
 
     const hasSolo = tracks.some((t) => t.solo && t.loaded);
 
@@ -158,8 +167,10 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
       const panner = ctx.createStereoPanner();
       panner.pan.value = track.pan / 100;
 
+      trackNodesRef.current.push(gainNode, panner);
+
       gainNode.connect(panner);
-      panner.connect(master);
+      panner.connect(masterGainRef.current!);
 
       const source = ctx.createBufferSource();
       source.buffer = track.buffer;
@@ -173,26 +184,18 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
     startTimeRef.current = ctx.currentTime;
     setIsPlaying(true);
     renderLoop();
-  }, [loadedTracks, tracks, masterGain, renderLoop]);
+  }, [loadedTracks, tracks, masterGain, renderLoop, stopAudio]);
 
-  // Stop when closed
   useEffect(() => {
     if (!open && isPlaying) stopAudio();
   }, [open, isPlaying, stopAudio]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopAudio();
-      if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
-        audioCtxRef.current.close().catch(() => {
-          // Ignore errors if already closed
-        });
-      }
     };
   }, [stopAudio]);
 
-  // Draw static frame when opened
   useEffect(() => {
     if (open) {
       requestAnimationFrame(drawFrame);
@@ -216,7 +219,6 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
 
   return (
     <div className="border border-[var(--border)] rounded-lg overflow-hidden bg-[var(--surface)]">
-      {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)] bg-[var(--surface2)]">
         <div className="flex items-center gap-2 text-xs text-[var(--text-dim)] font-mono">
           <Monitor className="w-3.5 h-3.5" />
@@ -234,7 +236,6 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
         </button>
       </div>
 
-      {/* Canvas */}
       <div className="relative">
         <canvas
           ref={canvasRef}
@@ -244,7 +245,6 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
           style={{ aspectRatio: "16/9" }}
         />
 
-        {/* Play/Stop overlay */}
         {!isPlaying && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/30">
             <button
@@ -259,10 +259,9 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
         )}
       </div>
 
-      {/* Controls */}
       <div className="flex items-center justify-between px-3 py-2 bg-[var(--surface2)]">
-        <span className="font-mono text-xs text-[var(--text-dim)]">
-          {formatTime(elapsed)}
+        <span ref={elapsedRef} className="font-mono text-xs text-[var(--text-dim)]">
+          0:00
         </span>
         {isPlaying ? (
           <button

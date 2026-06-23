@@ -11,11 +11,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { getSharedAudioContext, resumeSharedAudioContext } from "@/lib/audioContext";
 
 interface TrackCardProps {
   track: Track;
   index: number;
-  getAudioContext: () => AudioContext;
 }
 
 function MiniWaveform({
@@ -80,7 +80,7 @@ function formatDuration(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
+export function TrackCard({ track, index }: TrackCardProps) {
   const {
     loadTrackFile,
     unloadTrack,
@@ -104,7 +104,8 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
         return;
       }
       try {
-        const ctx = getAudioContext();
+        const ctx = getSharedAudioContext();
+        await resumeSharedAudioContext();
         const arrayBuffer = await file.arrayBuffer();
         const buffer = await ctx.decodeAudioData(arrayBuffer);
         loadTrackFile(index, file, buffer);
@@ -113,7 +114,7 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
         addLog(`Failed to load ${file.name}: ${error}`, "err");
       }
     },
-    [getAudioContext, index, loadTrackFile, addLog],
+    [index, loadTrackFile, addLog],
   );
 
   const handleDrop = useCallback(
@@ -302,7 +303,6 @@ export function TrackCard({ track, index, getAudioContext }: TrackCardProps) {
             const file = e.target.files?.[0];
             if (file) {
               handleFileSelect(file);
-              // Reset the input value so that selecting the same file again triggers onChange
               e.target.value = '';
             }
           }}

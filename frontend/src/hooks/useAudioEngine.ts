@@ -1,6 +1,7 @@
 // Web Audio API hook for live playback
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Track, EQ_BANDS } from "@/types";
+import { getSharedAudioContext, resumeSharedAudioContext } from "@/lib/audioContext";
 
 interface AudioEngineState {
   isInitialized: boolean;
@@ -12,7 +13,6 @@ export function useAudioEngine(
   masterGain: number,
   eqGains: number[],
 ) {
-  const audioContextRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const eqNodesRef = useRef<BiquadFilterNode[]>([]);
@@ -20,19 +20,19 @@ export function useAudioEngine(
   const trackGainsRef = useRef<Map<string, GainNode>>(new Map());
   const trackPannersRef = useRef<Map<string, StereoPannerNode>>(new Map());
   const startTimeRef = useRef<number>(0);
-  const isPlayingRef = useRef<boolean>(false); // synchronous flag for async callbacks
+  const isPlayingRef = useRef<boolean>(false);
 
   const [state, setState] = useState<AudioEngineState>({
     isInitialized: false,
     isPlaying: false,
   });
 
-  // Initialize audio context
+  // Initialize audio context (shared singleton) – called once
   const initAudio = useCallback(async () => {
-    if (audioContextRef.current) return;
+    const ctx = getSharedAudioContext();
+    await resumeSharedAudioContext();
 
-    const ctx = new AudioContext();
-    audioContextRef.current = ctx;
+    if (analyserRef.current) return; // already initialized
 
     // Create analyser
     const analyser = ctx.createAnalyser();
@@ -85,7 +85,7 @@ export function useAudioEngine(
     });
   }, [eqGains]);
 
-  // Update track gain and pan
+  // Update track gain and pan (called from external UI)
   const updateTrackGain = useCallback((trackId: string, volume: number) => {
     const gainNode = trackGainsRef.current.get(trackId);
     if (gainNode) {
@@ -102,26 +102,14 @@ export function useAudioEngine(
 
   // Play
   const play = useCallback(async () => {
-    if (!audioContextRef.current) {
-      await initAudio();
-    }
+    // Ensure graph is initialized before playing
+    if (!analyserRef.current) await initAudio();
 
-    const ctx = audioContextRef.current!;
+    const ctx = getSharedAudioContext();
+    await resumeSharedAudioContext();
 
-    if (ctx.state === "suspended") {
-      await ctx.resume();
-    }
-
-    // Stop any existing playback and detach handlers to prevent zombie loops
-    sourcesRef.current.forEach((sources) => {
-      sources.forEach((s) => {
-        try {
-          s.onended = null; // critical: prevent stale handlers from rescheduling
-          s.stop();
-        } catch {}
-      });
-    });
-    sourcesRef.current.clear();
+    // Stop and fully clean up any existing playback
+    stop();
 
     startTimeRef.current = ctx.currentTime;
     isPlayingRef.current = true;
@@ -161,7 +149,7 @@ export function useAudioEngine(
         // Schedule next loop
         const nextStartTime = actualStart + remainingDuration;
         source.onended = () => {
-          if (isPlayingRef.current && audioContextRef.current) {
+          if (isPlayingRef.current) {
             scheduleNextBuffer(nextStartTime, 0);
           }
         };
@@ -175,9 +163,9 @@ export function useAudioEngine(
     });
 
     setState((s) => ({ ...s, isPlaying: true }));
-  }, [tracks, initAudio]);
+  }, [tracks, initAudio, stop]);
 
-  // Stop – also detaches handlers for extra safety
+  // Stop – also disconnects and clears track nodes to prevent memory leaks
   const stop = useCallback(() => {
     isPlayingRef.current = false;
 
@@ -186,10 +174,17 @@ export function useAudioEngine(
         try {
           s.onended = null;
           s.stop();
+          s.disconnect();
         } catch {}
       });
     });
     sourcesRef.current.clear();
+
+    // Disconnect and clear track gain/panner nodes
+    trackGainsRef.current.forEach((node) => node.disconnect());
+    trackGainsRef.current.clear();
+    trackPannersRef.current.forEach((node) => node.disconnect());
+    trackPannersRef.current.clear();
 
     setState((s) => ({ ...s, isPlaying: false }));
   }, []);
@@ -197,14 +192,11 @@ export function useAudioEngine(
   // Play Loop Seam Preview
   const playLoopSeam = useCallback(
     async (loopStartMs: number, loopEndMs: number, crossfadeMs: number) => {
-      if (!audioContextRef.current) {
-        await initAudio();
-      }
+      // Ensure graph is initialized
+      if (!analyserRef.current) await initAudio();
 
-      const ctx = audioContextRef.current!;
-      if (ctx.state === "suspended") {
-        await ctx.resume();
-      }
+      const ctx = getSharedAudioContext();
+      await resumeSharedAudioContext();
 
       // Stop any existing playback
       stop();
@@ -286,25 +278,25 @@ export function useAudioEngine(
     return data;
   }, []);
 
-  // Cleanup on unmount
+  // Cleanup on unmount – stop sources and disconnect, but do NOT close the shared context
   useEffect(() => {
     return () => {
-      // Prevent any queued onended callbacks from scheduling on closed context
       isPlayingRef.current = false;
-
       sourcesRef.current.forEach((sources) => {
         sources.forEach((s) => {
           try {
+            s.onended = null;
             s.stop();
+            s.disconnect();
           } catch {}
         });
       });
-      if (
-        audioContextRef.current &&
-        audioContextRef.current.state !== "closed"
-      ) {
-        audioContextRef.current.close().catch(() => {});
-      }
+      sourcesRef.current.clear();
+      trackGainsRef.current.forEach((node) => node.disconnect());
+      trackGainsRef.current.clear();
+      trackPannersRef.current.forEach((node) => node.disconnect());
+      trackPannersRef.current.clear();
+      // Do not close the AudioContext – it's shared
     };
   }, []);
 
@@ -317,6 +309,5 @@ export function useAudioEngine(
     updateTrackGain,
     updateTrackPan,
     getAnalyserData,
-    audioContextRef,
   };
 }
