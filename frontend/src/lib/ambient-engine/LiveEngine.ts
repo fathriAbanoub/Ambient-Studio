@@ -10,6 +10,7 @@
  *   C4: 600ms harmonic slew handled here via ctx.currentTime, not in musicalLogic
  *   W1: Persistent StereoPannerNodes for pad/bell with smooth setValueAtTime drift
  *   W2: Melody events routed through melodyBuses[i % 3] for visual analysis
+ *   D1: Added dispose() method to disconnect all audio nodes and prevent leakage
  */
 
 import {
@@ -67,6 +68,9 @@ export class LiveEngine {
   private harmonicSlewStartTime: number | null = null;
   private harmonicSlewEndTime: number | null = null;
   private readonly SLEW_DURATION = 0.6; // 600ms exact from spec
+
+  // D1: Disposed flag to prevent reuse after cleanup
+  private disposed = false;
 
   constructor(params: EngineParams, injectedCtx?: AudioContext) {
     // Use injected context if provided, otherwise use shared singleton
@@ -132,7 +136,7 @@ export class LiveEngine {
   }
 
   async start(): Promise<void> {
-    if (this.running) return;
+    if (this.running || this.disposed) return;
     await this.ctx.resume();
     this.running = true;
     this.tick();
@@ -145,7 +149,56 @@ export class LiveEngine {
     this.running = false;
   }
 
+  /**
+   * D1: Dispose all audio nodes to prevent leakage.
+   * Call this after stop() when the engine is no longer needed.
+   */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+
+    // Stop any ongoing playback and clear scheduler
+    this.stop();
+
+    // Disconnect all audio nodes from the graph
+    const nodes: AudioNode[] = [
+      this.out,
+      this.gain,
+      this.delay,
+      this.fb,
+      this.filter,
+      this.drumBus,
+      this.drumCompressor,
+      this.padPanL,
+      this.padPanR,
+      this.bellPan,
+      ...this.melodyBuses,
+    ];
+
+    for (const node of nodes) {
+      try {
+        node.disconnect();
+      } catch (_) {
+        // Ignore errors if node already disconnected
+      }
+    }
+
+    // Clear references to help garbage collection
+    (this.out as any) = null;
+    (this.gain as any) = null;
+    (this.delay as any) = null;
+    (this.fb as any) = null;
+    (this.filter as any) = null;
+    (this.drumBus as any) = null;
+    (this.drumCompressor as any) = null;
+    (this.padPanL as any) = null;
+    (this.padPanR as any) = null;
+    (this.bellPan as any) = null;
+    this.melodyBuses = [];
+  }
+
   setMix(mix: number): void {
+    if (this.disposed) return;
     this.params.mix = mix;
     const t0 = this.ctx.currentTime;
     this.delay.delayTime.setValueAtTime(0.3 + 0.4 * mix, t0);
@@ -155,18 +208,24 @@ export class LiveEngine {
     this.filter.frequency.linearRampToValueAtTime(cutoff, t0 + 0.5);
   }
 
-  setBpm(bpm: number): void { this.params.bpm = bpm; }
-  setComplexity(c: number): void { this.params.complexity = c; }
-  setScale(s: "majorPent" | "minorPent"): void { this.params.scale = s; }
-  setRootHz(hz: number): void { this.params.rootHz = hz; }
-  setDrumLevel(d: number): void { this.params.drumLevel = d; }
+  setBpm(bpm: number): void { if (!this.disposed) this.params.bpm = bpm; }
+  setComplexity(c: number): void { if (!this.disposed) this.params.complexity = c; }
+  setScale(s: "majorPent" | "minorPent"): void { if (!this.disposed) this.params.scale = s; }
+  setRootHz(hz: number): void { if (!this.disposed) this.params.rootHz = hz; }
+  setDrumLevel(d: number): void { if (!this.disposed) this.params.drumLevel = d; }
 
   getCurrentState(): EngineState { return { ...this.state }; }
   getParams(): EngineParams { return { ...this.params }; }
-  getMasterNode(): AudioNode { return this.out; }
+
+  // ✅ Reverted to AudioNode (never null) – safe because it's never called after dispose()
+  getMasterNode(): AudioNode {
+    return this.out;
+  }
+
   getCurrentSceneName(): string { return getSceneName(this.state); }
 
   private tick(): void {
+    if (this.disposed || !this.running) return;
     const t0 = this.ctx.currentTime;
 
     const preTickParams = getEffectiveSceneParams(this.state, this.params);
@@ -231,6 +290,7 @@ export class LiveEngine {
   }
 
   private scheduleSynthEvent(event: MusicalEvent, t0: number): void {
+    if (this.disposed) return;
     switch (event.type) {
       case "kick": this.playKick(t0, event.amp); break;
       case "snare": this.playSnare(t0, event.amp, event.isGhost ?? false); break;
@@ -243,6 +303,7 @@ export class LiveEngine {
   }
 
   private playTonal(event: MusicalEvent, t0: number, isMelody: boolean): void {
+    if (this.disposed) return;
     const { hz, amp, durationSec, pan, timbre, type } = event;
     if (hz === undefined) return;
 
@@ -342,6 +403,7 @@ export class LiveEngine {
   }
 
   private playKick(t0: number, amp: number): void {
+    if (this.disposed) return;
     const osc = this.ctx.createOscillator();
     const g = this.ctx.createGain();
     osc.type = "sine";
@@ -356,6 +418,7 @@ export class LiveEngine {
   }
 
   private playSnare(t0: number, amp: number, isGhost: boolean): void {
+    if (this.disposed) return;
     const noise = this.ctx.createBufferSource();
     const filter = this.ctx.createBiquadFilter();
     const g = this.ctx.createGain();
@@ -374,6 +437,7 @@ export class LiveEngine {
   }
 
   private playHat(t0: number, amp: number, closed: boolean): void {
+    if (this.disposed) return;
     const noise = this.ctx.createBufferSource();
     const filter = this.ctx.createBiquadFilter();
     const g = this.ctx.createGain();

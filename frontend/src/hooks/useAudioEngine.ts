@@ -100,6 +100,32 @@ export function useAudioEngine(
     }
   }, []);
 
+  // ✅ FIX: Moved `stop` above `play` to prevent Temporal Dead Zone (TDZ) error.
+  // `play` and `playLoopSeam` reference `stop` in their dependency arrays, 
+  // so `stop` must be initialized first to avoid a ReferenceError during render.
+  const stop = useCallback(() => {
+    isPlayingRef.current = false;
+
+    sourcesRef.current.forEach((sources) => {
+      sources.forEach((s) => {
+        try {
+          s.onended = null;
+          s.stop();
+          s.disconnect();
+        } catch {}
+      });
+    });
+    sourcesRef.current.clear();
+
+    // Disconnect and clear track gain/panner nodes
+    trackGainsRef.current.forEach((node) => node.disconnect());
+    trackGainsRef.current.clear();
+    trackPannersRef.current.forEach((node) => node.disconnect());
+    trackPannersRef.current.clear();
+
+    setState((s) => ({ ...s, isPlaying: false }));
+  }, []);
+
   // Play
   const play = useCallback(async () => {
     // Ensure graph is initialized before playing
@@ -164,30 +190,6 @@ export function useAudioEngine(
 
     setState((s) => ({ ...s, isPlaying: true }));
   }, [tracks, initAudio, stop]);
-
-  // Stop – also disconnects and clears track nodes to prevent memory leaks
-  const stop = useCallback(() => {
-    isPlayingRef.current = false;
-
-    sourcesRef.current.forEach((sources) => {
-      sources.forEach((s) => {
-        try {
-          s.onended = null;
-          s.stop();
-          s.disconnect();
-        } catch {}
-      });
-    });
-    sourcesRef.current.clear();
-
-    // Disconnect and clear track gain/panner nodes
-    trackGainsRef.current.forEach((node) => node.disconnect());
-    trackGainsRef.current.clear();
-    trackPannersRef.current.forEach((node) => node.disconnect());
-    trackPannersRef.current.clear();
-
-    setState((s) => ({ ...s, isPlaying: false }));
-  }, []);
 
   // Play Loop Seam Preview
   const playLoopSeam = useCallback(

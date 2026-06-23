@@ -30,6 +30,9 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [open, setOpen] = useState(false);
 
+  // Ref to hold the current playing state for stale closure avoidance
+  const isPlayingRef = useRef(false);
+
   const loadedTracks = tracks.filter((t) => t.loaded && t.buffer);
 
   useEffect(() => {
@@ -88,8 +91,9 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
       ctx.restore();
     }
 
-    const audioCtx = getSharedAudioContext();
-    if (audioCtx && isPlaying) {
+    // Only access AudioContext when actually playing
+    if (isPlayingRef.current) {
+      const audioCtx = getSharedAudioContext(); // never returns falsy
       const t = audioCtx.currentTime - startTimeRef.current;
       if (elapsedRef.current) {
         elapsedRef.current.textContent = formatTime(t);
@@ -100,7 +104,7 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
       ctx.fillText(formatTime(t), 10, h - 10);
       ctx.restore();
     }
-  }, [isPlaying]);
+  }, []); // Stable across re‑renders
 
   const renderLoop = useCallback(() => {
     drawFrame();
@@ -126,6 +130,7 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     animFrameRef.current = null;
     setIsPlaying(false);
+    isPlayingRef.current = false;
     if (elapsedRef.current) {
       elapsedRef.current.textContent = "0:00";
     }
@@ -183,6 +188,7 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
 
     startTimeRef.current = ctx.currentTime;
     setIsPlaying(true);
+    isPlayingRef.current = true;
     renderLoop();
   }, [loadedTracks, tracks, masterGain, renderLoop, stopAudio]);
 

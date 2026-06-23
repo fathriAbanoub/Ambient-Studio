@@ -90,7 +90,13 @@ export function useProceduralEngine() {
     if (scenePollRef.current)  { clearInterval(scenePollRef.current); scenePollRef.current = null; }
     if (animFrameRef.current)  { cancelAnimationFrame(animFrameRef.current); animFrameRef.current = null; }
     if (analyserRef.current)   { try { analyserRef.current.disconnect(); } catch {} analyserRef.current = null; }
-    if (engineRef.current)     { engineRef.current.stop(); engineRef.current = null; }
+
+    // ✅ FIX: Call dispose() instead of stop() to tear down the full audio graph
+    if (engineRef.current) {
+      engineRef.current.dispose();
+      engineRef.current = null;
+    }
+
     setIsRunning(false);
     setGeneratorRunning(false);
     setIsPlaying(false);
@@ -141,12 +147,18 @@ export function useProceduralEngine() {
     if (isRunning && engineRef.current?.running) updateParams();
   }, [isRunning, updateParams]);
 
+  // ✅ FIX: On unmount, dispose the engine to prevent leaks
   useEffect(() => {
     return () => {
       if (scenePollRef.current)  clearInterval(scenePollRef.current);
       if (animFrameRef.current)  cancelAnimationFrame(animFrameRef.current);
       if (analyserRef.current)   { try { analyserRef.current.disconnect(); } catch {} }
-      if (engineRef.current)     engineRef.current.stop();
+
+      if (engineRef.current) {
+        engineRef.current.dispose();
+        engineRef.current = null;
+      }
+
       setGeneratorRunning(false);
       setIsPlaying(false);
     };
