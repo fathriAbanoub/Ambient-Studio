@@ -112,10 +112,11 @@ export function useAudioEngine(
       await ctx.resume();
     }
 
-    // Stop any existing playback
+    // Stop any existing playback and detach handlers to prevent zombie loops
     sourcesRef.current.forEach((sources) => {
       sources.forEach((s) => {
         try {
+          s.onended = null; // critical: prevent stale handlers from rescheduling
           s.stop();
         } catch {}
       });
@@ -176,13 +177,14 @@ export function useAudioEngine(
     setState((s) => ({ ...s, isPlaying: true }));
   }, [tracks, initAudio]);
 
-  // Stop
+  // Stop – also detaches handlers for extra safety
   const stop = useCallback(() => {
     isPlayingRef.current = false;
 
     sourcesRef.current.forEach((sources) => {
       sources.forEach((s) => {
         try {
+          s.onended = null;
           s.stop();
         } catch {}
       });
@@ -287,6 +289,9 @@ export function useAudioEngine(
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      // Prevent any queued onended callbacks from scheduling on closed context
+      isPlayingRef.current = false;
+
       sourcesRef.current.forEach((sources) => {
         sources.forEach((s) => {
           try {

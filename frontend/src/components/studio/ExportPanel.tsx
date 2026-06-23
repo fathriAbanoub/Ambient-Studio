@@ -291,6 +291,9 @@ export function ExportPanel({ engine }: { engine: any }) {
   }, []);
 
   const handleExportWav = async () => {
+    // Clear any stale error from previous runs
+    setJobError(null);
+
     if (noTracksLoaded) {
       showToast(
         "No tracks loaded. Please load at least one audio track.",
@@ -349,6 +352,9 @@ export function ExportPanel({ engine }: { engine: any }) {
   };
 
   const handleExportVideo = async () => {
+    // Clear any stale error from previous runs
+    setJobError(null);
+
     if (noTracksLoaded) {
       showToast(
         "No tracks loaded. Please load at least one audio track.",
@@ -494,7 +500,7 @@ export function ExportPanel({ engine }: { engine: any }) {
               DURATION (min)
             </label>
             <input
-              data-testid="export-duration-input" // ✅ ADDED
+              data-testid="export-duration-input"
               type="number"
               min="1"
               max="480"
@@ -518,7 +524,7 @@ export function ExportPanel({ engine }: { engine: any }) {
               FILE NAME
             </label>
             <input
-              data-testid="export-filename-input" // ✅ ADDED
+              data-testid="export-filename-input"
               type="text"
               value={exportName}
               onChange={(e) => setExportName(e.target.value)}
@@ -571,6 +577,7 @@ export function ExportPanel({ engine }: { engine: any }) {
                   : "border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--accent2)]"
               }`}
               title="Include audio visualizer in rendered video"
+              aria-pressed={showVisualizer}
             >
               <div className="flex gap-0.5">
                 <div className="w-1 h-4 bg-current opacity-60"></div>
@@ -597,6 +604,7 @@ export function ExportPanel({ engine }: { engine: any }) {
                   : "border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--warn)]"
               }`}
               title={useGpuEncoding ? "Using GPU (NVENC) - Faster" : "Using CPU (libx264) - Slower"}
+              aria-pressed={useGpuEncoding}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
