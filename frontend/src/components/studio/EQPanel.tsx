@@ -116,10 +116,7 @@ export function EQPanel() {
               aria-label={`EQ band ${band.label}`}
             >
               {/* Value display */}
-              <div
-                className="text-xs font-mono text-[var(--text)] w-8 text-center"
-                aria-live="polite"
-              >
+              <div className="text-xs font-mono text-[var(--text)] w-8 text-center">
                 {value > 0 ? `+${value}` : value}
               </div>
 
@@ -148,10 +145,13 @@ export function EQPanel() {
                   data-testid="eq-slider"
                   aria-label={`${band.label} gain`}
                   className={cn(
-                    "absolute inset-0",
+                    // ✅ FIX: Override the shared component's min-height with the same variant selector
+                    "absolute inset-0 data-[orientation=vertical]:min-h-0",
+
                     // Hide default track and range
                     "[&_[data-slot=slider-track]]:bg-transparent",
                     "[&_[data-slot=slider-range]]:hidden",
+
                     // Style the thumb as a horizontal bar
                     "[&_[data-slot=slider-thumb]]:w-4",
                     "[&_[data-slot=slider-thumb]]:h-2",

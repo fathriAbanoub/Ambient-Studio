@@ -1,7 +1,10 @@
 // Web Audio API hook for live playback
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Track, EQ_BANDS } from "@/types";
-import { getSharedAudioContext, resumeSharedAudioContext } from "@/lib/audioContext";
+import {
+  getSharedAudioContext,
+  resumeSharedAudioContext,
+} from "@/lib/audioContext";
 
 interface AudioEngineState {
   isInitialized: boolean;
@@ -101,7 +104,7 @@ export function useAudioEngine(
   }, []);
 
   // ✅ FIX: Moved `stop` above `play` to prevent Temporal Dead Zone (TDZ) error.
-  // `play` and `playLoopSeam` reference `stop` in their dependency arrays, 
+  // `play` and `playLoopSeam` reference `stop` in their dependency arrays,
   // so `stop` must be initialized first to avoid a ReferenceError during render.
   const stop = useCallback(() => {
     isPlayingRef.current = false;
@@ -298,6 +301,24 @@ export function useAudioEngine(
       trackGainsRef.current.clear();
       trackPannersRef.current.forEach((node) => node.disconnect());
       trackPannersRef.current.clear();
+      eqNodesRef.current.forEach((node) => {
+        try {
+          node.disconnect();
+        } catch {}
+      });
+      eqNodesRef.current = [];
+      if (masterGainRef.current) {
+        try {
+          masterGainRef.current.disconnect();
+        } catch {}
+        masterGainRef.current = null;
+      }
+      if (analyserRef.current) {
+        try {
+          analyserRef.current.disconnect();
+        } catch {}
+        analyserRef.current = null;
+      }
       // Do not close the AudioContext – it's shared
     };
   }, []);
