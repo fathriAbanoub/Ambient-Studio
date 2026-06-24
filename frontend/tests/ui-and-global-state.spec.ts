@@ -13,7 +13,8 @@ test.describe("EQ Panel", () => {
   test("should display 7 EQ band sliders", async ({ page }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
-    const sliders = page.getByTestId("eq-slider");
+    // ✅ Semantic locator: all sliders whose accessible name contains "gain"
+    const sliders = page.getByRole("slider", { name: /gain/i });
     await expect(sliders).toHaveCount(7);
   });
 
@@ -30,18 +31,18 @@ test.describe("EQ Panel", () => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     await page.getByTestId("eq-reset").click();
-    const sliders = page.getByTestId("eq-slider");
+    const sliders = page.getByRole("slider", { name: /gain/i });
     const count = await sliders.count();
     for (let i = 0; i < count; i++) {
       await expect(sliders.nth(i)).toHaveAttribute("aria-valuenow", "0");
     }
   });
 
-  // NEW: EQ slider changes aria-valuenow (Test 2)
   test("adjusting an EQ slider updates its aria-valuenow", async ({ page }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
-    const slider = page.getByTestId("eq-slider").first();
+    // ✅ Target by the exact accessible name
+    const slider = page.getByRole("slider", { name: "Sub gain" });
     await expect(slider).toHaveAttribute("aria-valuenow", "0");
     await slider.focus();
     await slider.press("ArrowUp");
@@ -73,7 +74,6 @@ test.describe("Presets", () => {
     await expect(page.getByTestId("preset-café")).toBeVisible();
   });
 
-  // NEW: Ocean, Space, Café presets apply (Test 11)
   const presetNames = ["ocean", "space", "café"];
   for (const name of presetNames) {
     test(`should apply ${name} preset and log it`, async ({ page }) => {
@@ -141,7 +141,6 @@ test.describe("Header Status", () => {
     await expect(page.getByTestId("status-indicator")).toHaveText("IDLE", { timeout: 10000 });
   });
 
-  // NEW: Header shows EXPORTING during render (Test 10)
   test("should show EXPORTING when a render job is in progress", async ({ page }) => {
     await setupAllMocks(page, { scenario: "always-processing" });
     await page.goto("/", { waitUntil: "networkidle" });

@@ -1,10 +1,12 @@
 "use client";
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect } from "react";
 import { useStudioStore } from "@/store/studioStore";
 import { EQ_BANDS } from "@/types";
 import { RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import { cn } from "@/lib/utils";
 
 function getCSSVar(name: string): string {
   return getComputedStyle(document.documentElement)
@@ -73,179 +75,9 @@ function FrequencyResponse({ eqGains }: { eqGains: number[] }) {
   );
 }
 
-interface VerticalSliderProps {
-  value: number;
-  onChange: (value: number) => void;
-  label: string;
-  frequency: number;
-}
-
-function VerticalSlider({
-  value,
-  onChange,
-  label,
-  frequency,
-}: VerticalSliderProps) {
-  const sliderRef = useRef<HTMLDivElement>(null);
-  const isDragging = useRef(false);
-
-  // Refs to store currently attached event listeners for cleanup on unmount
-  const listenerRefs = useRef<{
-    mouseMove: ((e: MouseEvent) => void) | null;
-    mouseUp: ((e: MouseEvent) => void) | null;
-    touchMove: ((e: TouchEvent) => void) | null;
-    touchEnd: ((e: TouchEvent) => void) | null;
-  }>({
-    mouseMove: null,
-    mouseUp: null,
-    touchMove: null,
-    touchEnd: null,
-  });
-
-  const updateValue = useCallback(
-    (clientY: number) => {
-      if (!sliderRef.current) return;
-      const rect = sliderRef.current.getBoundingClientRect();
-      const y = clientY - rect.top;
-      const percentage = 1 - Math.min(1, Math.max(0, y / rect.height));
-      const db = Math.round((percentage * 24 - 12) * 2) / 2;
-      onChange(Math.max(-12, Math.min(12, db)));
-    },
-    [onChange],
-  );
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    isDragging.current = true;
-    updateValue(e.clientY);
-
-    const handleMove = (e: MouseEvent) => {
-      if (isDragging.current) updateValue(e.clientY);
-    };
-    const handleUp = () => {
-      isDragging.current = false;
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
-      // Clear refs so cleanup doesn't try to remove them again
-      listenerRefs.current.mouseMove = null;
-      listenerRefs.current.mouseUp = null;
-    };
-
-    // Store the handlers for unmount cleanup
-    listenerRefs.current.mouseMove = handleMove;
-    listenerRefs.current.mouseUp = handleUp;
-
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
-  };
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    e.preventDefault();
-    isDragging.current = true;
-    const touch = e.touches[0];
-    updateValue(touch.clientY);
-
-    const handleMove = (e: TouchEvent) => {
-      if (isDragging.current && e.touches[0]) updateValue(e.touches[0].clientY);
-    };
-    const handleEnd = () => {
-      isDragging.current = false;
-      window.removeEventListener("touchmove", handleMove);
-      window.removeEventListener("touchend", handleEnd);
-      listenerRefs.current.touchMove = null;
-      listenerRefs.current.touchEnd = null;
-    };
-
-    listenerRefs.current.touchMove = handleMove;
-    listenerRefs.current.touchEnd = handleEnd;
-
-    window.addEventListener("touchmove", handleMove);
-    window.addEventListener("touchend", handleEnd);
-  };
-
-  // Cleanup any lingering listeners if the component unmounts while dragging
-  useEffect(() => {
-    return () => {
-      const { mouseMove, mouseUp, touchMove, touchEnd } = listenerRefs.current;
-      if (mouseMove) window.removeEventListener("mousemove", mouseMove);
-      if (mouseUp) window.removeEventListener("mouseup", mouseUp);
-      if (touchMove) window.removeEventListener("touchmove", touchMove);
-      if (touchEnd) window.removeEventListener("touchend", touchEnd);
-    };
-  }, []);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      onChange(Math.min(12, value + 1));
-    }
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      onChange(Math.max(-12, value - 1));
-    }
-  };
-
-  const percentage = (value + 12) / 24;
-  const thumbPercent = (1 - percentage) * 100;
-  const centerPercent = 50;
-  const fillTop = value >= 0 ? thumbPercent : centerPercent;
-  const fillHeight = Math.abs(thumbPercent - centerPercent);
-
-  return (
-    <div
-      className="flex flex-col items-center gap-2"
-      role="group"
-      aria-label={`EQ band ${label}`}
-    >
-      <div
-        className="text-xs font-mono text-[var(--text)] w-8 text-center"
-        aria-live="polite"
-      >
-        {value > 0 ? `+${value}` : value}
-      </div>
-      <div
-        ref={sliderRef}
-        data-testid="eq-slider"
-        role="slider"
-        aria-orientation="vertical"
-        aria-valuemin={-12}
-        aria-valuemax={12}
-        aria-valuenow={value}
-        aria-label={`${label} gain`}
-        tabIndex={0}
-        onMouseDown={handleMouseDown}
-        onTouchStart={handleTouchStart}
-        onKeyDown={handleKeyDown}
-        className="relative w-6 h-32 rounded-md cursor-pointer bg-[var(--surface-elevated)] border border-[var(--border)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-      >
-        <div className="absolute left-0 right-0 top-1/2 h-px bg-[var(--text-dim)]/30" />
-        <div
-          className="absolute left-0 right-0 bg-[var(--accent2)]/50 transition-all"
-          style={{ height: `${fillHeight}%`, top: `${fillTop}%` }}
-        />
-        <div
-          className="absolute left-1/2 w-4 h-2 rounded-md bg-[var(--accent2)] shadow-md -translate-x-1/2"
-          style={{
-            top: `${thumbPercent}%`,
-            transform: "translate(-50%, -50%)",
-          }}
-        />
-      </div>
-      <div
-        data-testid={`eq-label-${label}`}
-        className="text-xs text-[var(--text-dim)] font-mono"
-      >
-        {label}
-      </div>
-      <div className="text-xs text-[var(--text-dim)]/50">
-        {frequency >= 1000 ? `${frequency / 1000}k` : frequency}Hz
-      </div>
-    </div>
-  );
-}
-
 export function EQPanel() {
   const { eqGains, setEqGain, resetEq } = useStudioStore();
+
   return (
     <div className="flex flex-col h-full p-4">
       <div className="flex items-center justify-between mb-4">
@@ -262,20 +94,98 @@ export function EQPanel() {
           <RotateCcw className="w-3 h-3 mr-1" /> RESET
         </Button>
       </div>
+
       <div className="mb-4">
         <FrequencyResponse eqGains={eqGains} />
       </div>
+
       <div className="flex-1 flex justify-around">
-        {EQ_BANDS.map((band, i) => (
-          <VerticalSlider
-            key={band.label}
-            value={eqGains[i]}
-            onChange={(db) => setEqGain(i, db)}
-            label={band.label}
-            frequency={band.freq}
-          />
-        ))}
+        {EQ_BANDS.map((band, i) => {
+          const value = eqGains[i];
+          const percentage = (value + 12) / 24;
+          const thumbPercent = (1 - percentage) * 100;
+          const centerPercent = 50;
+          const fillTop = value >= 0 ? thumbPercent : centerPercent;
+          const fillHeight = Math.abs(thumbPercent - centerPercent);
+
+          return (
+            <div
+              key={band.label}
+              className="flex flex-col items-center gap-2"
+              role="group"
+              aria-label={`EQ band ${band.label}`}
+            >
+              {/* Value display */}
+              <div
+                className="text-xs font-mono text-[var(--text)] w-8 text-center"
+                aria-live="polite"
+              >
+                {value > 0 ? `+${value}` : value}
+              </div>
+
+              {/* Slider container */}
+              <div className="relative w-6 h-32 rounded-md bg-[var(--surface-elevated)] border border-[var(--border)]">
+                {/* Center line */}
+                <div className="absolute left-0 right-0 top-1/2 h-px bg-[var(--text-dim)]/30 pointer-events-none" />
+
+                {/* Custom fill (from center to thumb) */}
+                <div
+                  className="absolute left-0 right-0 bg-[var(--accent2)]/50 transition-all pointer-events-none"
+                  style={{
+                    height: `${fillHeight}%`,
+                    top: `${fillTop}%`,
+                  }}
+                />
+
+                {/* Radix Slider */}
+                <Slider
+                  orientation="vertical"
+                  min={-12}
+                  max={12}
+                  step={1}
+                  value={[value]}
+                  onValueChange={([val]) => setEqGain(i, val)}
+                  data-testid="eq-slider"
+                  aria-label={`${band.label} gain`}
+                  className={cn(
+                    "absolute inset-0",
+                    // Hide default track and range
+                    "[&_[data-slot=slider-track]]:bg-transparent",
+                    "[&_[data-slot=slider-range]]:hidden",
+                    // Style the thumb as a horizontal bar
+                    "[&_[data-slot=slider-thumb]]:w-4",
+                    "[&_[data-slot=slider-thumb]]:h-2",
+                    "[&_[data-slot=slider-thumb]]:rounded-md",
+                    "[&_[data-slot=slider-thumb]]:bg-[var(--accent2)]",
+                    "[&_[data-slot=slider-thumb]]:shadow-md",
+                    "[&_[data-slot=slider-thumb]]:border-0",
+                    "[&_[data-slot=slider-thumb]]:ring-0",
+                    "[&_[data-slot=slider-thumb]]:focus-visible:ring-2",
+                    "[&_[data-slot=slider-thumb]]:focus-visible:ring-[var(--accent)]",
+                    "[&_[data-slot=slider-thumb]]:left-1/2",
+                    "[&_[data-slot=slider-thumb]]:-translate-x-1/2",
+                    "[&_[data-slot=slider-thumb]]:m-0",
+                  )}
+                />
+              </div>
+
+              {/* Label */}
+              <div
+                data-testid={`eq-label-${band.label}`}
+                className="text-xs text-[var(--text-dim)] font-mono"
+              >
+                {band.label}
+              </div>
+
+              {/* Frequency */}
+              <div className="text-xs text-[var(--text-dim)]/50">
+                {band.freq >= 1000 ? `${band.freq / 1000}k` : band.freq}Hz
+              </div>
+            </div>
+          );
+        })}
       </div>
+
       <div className="flex justify-center mt-4 text-xs text-[var(--text-dim)]">
         <span>-12dB</span>
         <span className="mx-8">0dB</span>
