@@ -1,7 +1,10 @@
 // Web Audio API hook for live playback
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Track, EQ_BANDS } from "@/types";
-import { getSharedAudioContext, resumeSharedAudioContext } from "@/lib/audioContext";
+import {
+  getSharedAudioContext,
+  resumeSharedAudioContext,
+} from "@/lib/audioContext";
 
 interface AudioEngineState {
   isInitialized: boolean;
@@ -22,6 +25,9 @@ export function useAudioEngine(
   const startTimeRef = useRef<number>(0);
   const isPlayingRef = useRef<boolean>(false);
 
+  // ✅ ADD THIS: Track mount status to prevent post-unmount async mutations
+  const mountedRef = useRef(false);
+
   const [state, setState] = useState<AudioEngineState>({
     isInitialized: false,
     isPlaying: false,
@@ -31,6 +37,9 @@ export function useAudioEngine(
   const initAudio = useCallback(async () => {
     const ctx = getSharedAudioContext();
     await resumeSharedAudioContext();
+
+    // ✅ GUARD: Abort if the component unmounted during the await
+    if (!mountedRef.current) return;
 
     if (analyserRef.current) return; // already initialized
 
@@ -101,7 +110,7 @@ export function useAudioEngine(
   }, []);
 
   // ✅ FIX: Moved `stop` above `play` to prevent Temporal Dead Zone (TDZ) error.
-  // `play` and `playLoopSeam` reference `stop` in their dependency arrays, 
+  // `play` and `playLoopSeam` reference `stop` in their dependency arrays,
   // so `stop` must be initialized first to avoid a ReferenceError during render.
   const stop = useCallback(() => {
     isPlayingRef.current = false;
@@ -128,11 +137,20 @@ export function useAudioEngine(
 
   // Play
   const play = useCallback(async () => {
+    // ✅ GUARD: Don't start playback if unmounted
+    if (!mountedRef.current) return;
+
     // Ensure graph is initialized before playing
     if (!analyserRef.current) await initAudio();
 
+    // ✅ GUARD: initAudio might have aborted due to unmount
+    if (!mountedRef.current) return;
+
     const ctx = getSharedAudioContext();
     await resumeSharedAudioContext();
+
+    // ✅ GUARD: Check again after the second await
+    if (!mountedRef.current) return;
 
     // Stop and fully clean up any existing playback
     stop();
@@ -194,11 +212,20 @@ export function useAudioEngine(
   // Play Loop Seam Preview
   const playLoopSeam = useCallback(
     async (loopStartMs: number, loopEndMs: number, crossfadeMs: number) => {
+      // ✅ GUARD: Don't start playback if unmounted
+      if (!mountedRef.current) return;
+
       // Ensure graph is initialized
       if (!analyserRef.current) await initAudio();
 
+      // ✅ GUARD: initAudio might have aborted due to unmount
+      if (!mountedRef.current) return;
+
       const ctx = getSharedAudioContext();
       await resumeSharedAudioContext();
+
+      // ✅ GUARD: Check again after the second await
+      if (!mountedRef.current) return;
 
       // Stop any existing playback
       stop();
@@ -282,7 +309,11 @@ export function useAudioEngine(
 
   // Cleanup on unmount – stop sources and disconnect, but do NOT close the shared context
   useEffect(() => {
+    mountedRef.current = true; // Mark as mounted
+
     return () => {
+      mountedRef.current = false; // Mark as unmounted IMMEDIATELY
+
       isPlayingRef.current = false;
       sourcesRef.current.forEach((sources) => {
         sources.forEach((s) => {
@@ -298,6 +329,24 @@ export function useAudioEngine(
       trackGainsRef.current.clear();
       trackPannersRef.current.forEach((node) => node.disconnect());
       trackPannersRef.current.clear();
+      eqNodesRef.current.forEach((node) => {
+        try {
+          node.disconnect();
+        } catch {}
+      });
+      eqNodesRef.current = [];
+      if (masterGainRef.current) {
+        try {
+          masterGainRef.current.disconnect();
+        } catch {}
+        masterGainRef.current = null;
+      }
+      if (analyserRef.current) {
+        try {
+          analyserRef.current.disconnect();
+        } catch {}
+        analyserRef.current = null;
+      }
       // Do not close the AudioContext – it's shared
     };
   }, []);

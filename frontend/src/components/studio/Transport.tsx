@@ -48,11 +48,21 @@ export function Transport({ engine }: { engine: TransportEngine }) {
     getAnalyserDataRef.current = getAnalyserData;
   }, [getAnalyserData]);
 
+  const resumePendingRef = useRef(false);
+
   const update = useCallback(() => {
     const ctx = getSharedAudioContext();
     if (ctx && ctx.state !== "closed") {
       if (ctx.state === "suspended") {
-        ctx.resume().catch(() => {});
+        if (!resumePendingRef.current) {
+          resumePendingRef.current = true;
+          ctx
+            .resume()
+            .catch(() => {})
+            .finally(() => {
+              resumePendingRef.current = false;
+            });
+        }
       } else {
         const elapsed = ctx.currentTime - startTimeRef.current;
         if (timerRef.current) {
@@ -75,7 +85,11 @@ export function Transport({ engine }: { engine: TransportEngine }) {
         bar.style.height = `${Math.max(4, height * 0.4)}px`;
         const isHigh = i >= 12;
         const isMid = i >= 8 && i < 12;
-        bar.style.backgroundColor = isHigh ? "var(--warning)" : isMid ? "#ffd740" : "var(--accent3)";
+        bar.style.backgroundColor = isHigh
+          ? "var(--warning)"
+          : isMid
+            ? "#ffd740"
+            : "var(--accent3)";
         bar.style.opacity = height > 10 ? "1" : "0.3";
       }
     }
@@ -216,7 +230,9 @@ export function Transport({ engine }: { engine: TransportEngine }) {
             {Array.from({ length: 16 }).map((_, i) => (
               <div
                 key={i}
-                ref={(el) => { vuBarsRef.current[i] = el; }}
+                ref={(el) => {
+                  vuBarsRef.current[i] = el;
+                }}
                 className="w-1.5 rounded-sm"
                 style={{
                   height: "4px",
