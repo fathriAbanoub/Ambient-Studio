@@ -57,26 +57,44 @@ export function useProceduralEngine() {
 
   const start = useCallback(async () => {
     if (engineRef.current?.running) return;
+
+    // ✅ Cleanup helper for a newly created engine that failed to start
+    let engine: LiveEngine | null = null;
+    const cleanupStartedEngine = () => {
+      if (!engine) return;
+      const ownsEngine = engineRef.current === engine;
+      if (ownsEngine || engine.running) {
+        try {
+          engine.dispose();
+        } catch {
+          /* best-effort cleanup */
+        }
+      }
+      if (ownsEngine) {
+        engineRef.current = null;
+      }
+    };
+
     try {
-      // LiveEngine constructor now handles full RNG init order internally:
-      //   createInitialState → createNoiseBuffer (advances ~22k RNG calls) → initializeBell
-      const engine = new LiveEngine(buildParams());
-      engineRef.current = engine;
-      await engine.start();
+      // ✅ FIX: Use a const for TypeScript narrowing across the await boundary
+      const newEngine = new LiveEngine(buildParams());
+
+      // Assign to the outer let so cleanupStartedEngine can still access it
+      engine = newEngine;
+      engineRef.current = newEngine;
+
+      await newEngine.start();
 
       // ✅ Guard: ensure we weren't stopped/disposed during the async start
-      if (engineRef.current !== engine || !engine.running) {
-        // Engine was torn down while we were starting; do not proceed
-        if (engine.running) {
-          engine.dispose();
-        }
+      if (engineRef.current !== newEngine || !newEngine.running) {
+        cleanupStartedEngine();
         return;
       }
 
-      const analyser = engine.ctx.createAnalyser();
+      const analyser = newEngine.ctx.createAnalyser();
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.8;
-      engine.getMasterNode().connect(analyser);
+      newEngine.getMasterNode().connect(analyser);
       analyserRef.current = analyser;
 
       setIsRunning(true);
@@ -85,15 +103,17 @@ export function useProceduralEngine() {
       addLog("Procedural generator started", "ok");
 
       scenePollRef.current = window.setInterval(() => {
-        if (engine.running) {
-          const name = engine.getCurrentSceneName();
+        // ✅ TypeScript now knows newEngine is never null
+        if (newEngine.running) {
+          const name = newEngine.getCurrentSceneName();
           setCurrentScene(name);
           setGeneratorScene(name);
         }
       }, 2000);
 
       const updateAnalyser = () => {
-        if (engine.running && analyserRef.current) {
+        // ✅ TypeScript now knows newEngine is never null
+        if (newEngine.running && analyserRef.current) {
           try {
             const data = new Uint8Array(analyserRef.current.frequencyBinCount);
             analyserRef.current.getByteFrequencyData(data);
@@ -102,11 +122,12 @@ export function useProceduralEngine() {
             /* shutdown race */
           }
         }
-        if (engine.running)
+        if (newEngine.running)
           animFrameRef.current = requestAnimationFrame(updateAnalyser);
       };
       updateAnalyser();
     } catch (error) {
+      cleanupStartedEngine();
       addLog(`Generator start failed: ${error}`, "err");
       showToast(`Generator failed: ${error}`, "error");
     }
