@@ -56,7 +56,11 @@ export function useProceduralEngine() {
   ]);
 
   const start = useCallback(async () => {
-    if (engineRef.current?.running) return;
+    // ✅ FIX: Dispose any existing engine before creating a new one to prevent transient tick() races
+    if (engineRef.current) {
+      engineRef.current.dispose();
+      engineRef.current = null;
+    }
 
     // ✅ Cleanup helper for a newly created engine that failed to start
     let engine: LiveEngine | null = null;

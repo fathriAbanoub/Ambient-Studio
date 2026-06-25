@@ -219,9 +219,13 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
         const source = ctx.createBufferSource();
         source.buffer = track.buffer;
         source.loop = true;
-        source.loopStart = Math.random() * track.buffer.duration;
+
+        // ✅ FIX: Leave loopStart at 0 (default) so the full buffer participates in looping.
+        // Only use the random offset for the initial start position.
+        const randomOffset = Math.random() * track.buffer.duration;
+
         source.connect(gainNode);
-        source.start(0, source.loopStart);
+        source.start(0, randomOffset);
         sourcesRef.current.push(source);
       });
 

@@ -13,7 +13,8 @@
  *   D1: Added dispose() method to disconnect all audio nodes and prevent leakage
  *   G1: Added guard in start() after ctx.resume() to prevent execution on disposed instance
  *   T1: Removed null assignments to audio node fields to maintain type safety
- *   ✅ FIX: Added `starting` flag to prevent concurrent start() calls (Item 4)
+ *   ✅ FIX: Added `starting` flag to prevent concurrent start() calls
+ *   ✅ FIX: stop() cancels in-flight start, start() checks starting flag after resume
  */
 
 import {
@@ -142,18 +143,13 @@ export class LiveEngine {
   }
 
   async start(): Promise<void> {
-    // ✅ FIX: Prevent concurrent starts
-    if (this.running || this.disposed || this.starting) return;
-
+    if (this.running || this.disposed) return;
     this.starting = true;
+
     try {
       await this.ctx.resume();
-
-      // Guard: re-check disposed status after async resume
-      if (this.disposed) {
-        this.starting = false;
-        return;
-      }
+      // Guard: re-check disposed status and starting flag after async resume
+      if (this.disposed || !this.starting) return;
 
       this.running = true;
       this.tick();
@@ -163,7 +159,8 @@ export class LiveEngine {
   }
 
   stop(): void {
-    if (!this.running) return;
+    if (!this.running && !this.starting) return;
+    this.starting = false; // cancel any in-flight start
     if (this.schedulerId !== null) window.clearTimeout(this.schedulerId);
     this.schedulerId = null;
     this.running = false;
