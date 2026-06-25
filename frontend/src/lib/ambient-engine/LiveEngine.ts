@@ -13,6 +13,7 @@
  *   D1: Added dispose() method to disconnect all audio nodes and prevent leakage
  *   G1: Added guard in start() after ctx.resume() to prevent execution on disposed instance
  *   T1: Removed null assignments to audio node fields to maintain type safety
+ *   ✅ FIX: Added `starting` flag to prevent concurrent start() calls (Item 4)
  */
 
 import {
@@ -73,6 +74,9 @@ export class LiveEngine {
 
   // D1: Disposed flag to prevent reuse after cleanup
   private disposed = false;
+
+  // ✅ FIX: Starting flag to prevent concurrent start() calls
+  private starting = false;
 
   constructor(params: EngineParams, injectedCtx?: AudioContext) {
     // Use injected context if provided, otherwise use shared singleton
@@ -138,14 +142,24 @@ export class LiveEngine {
   }
 
   async start(): Promise<void> {
-    if (this.running || this.disposed) return;
-    await this.ctx.resume();
+    // ✅ FIX: Prevent concurrent starts
+    if (this.running || this.disposed || this.starting) return;
 
-    // ✅ Guard: re-check disposed status after async resume
-    if (this.disposed) return;
+    this.starting = true;
+    try {
+      await this.ctx.resume();
 
-    this.running = true;
-    this.tick();
+      // Guard: re-check disposed status after async resume
+      if (this.disposed) {
+        this.starting = false;
+        return;
+      }
+
+      this.running = true;
+      this.tick();
+    } finally {
+      this.starting = false;
+    }
   }
 
   stop(): void {
@@ -162,6 +176,9 @@ export class LiveEngine {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+
+    // Cancel any pending start
+    this.starting = false;
 
     // Stop any ongoing playback and clear scheduler
     this.stop();
@@ -204,21 +221,37 @@ export class LiveEngine {
     this.filter.frequency.linearRampToValueAtTime(cutoff, t0 + 0.5);
   }
 
-  setBpm(bpm: number): void { if (!this.disposed) this.params.bpm = bpm; }
-  setComplexity(c: number): void { if (!this.disposed) this.params.complexity = c; }
-  setScale(s: "majorPent" | "minorPent"): void { if (!this.disposed) this.params.scale = s; }
-  setRootHz(hz: number): void { if (!this.disposed) this.params.rootHz = hz; }
-  setDrumLevel(d: number): void { if (!this.disposed) this.params.drumLevel = d; }
+  setBpm(bpm: number): void {
+    if (!this.disposed) this.params.bpm = bpm;
+  }
+  setComplexity(c: number): void {
+    if (!this.disposed) this.params.complexity = c;
+  }
+  setScale(s: "majorPent" | "minorPent"): void {
+    if (!this.disposed) this.params.scale = s;
+  }
+  setRootHz(hz: number): void {
+    if (!this.disposed) this.params.rootHz = hz;
+  }
+  setDrumLevel(d: number): void {
+    if (!this.disposed) this.params.drumLevel = d;
+  }
 
-  getCurrentState(): EngineState { return { ...this.state }; }
-  getParams(): EngineParams { return { ...this.params }; }
+  getCurrentState(): EngineState {
+    return { ...this.state };
+  }
+  getParams(): EngineParams {
+    return { ...this.params };
+  }
 
   // ✅ Returns AudioNode (never null) – safe because it's never called after dispose()
   getMasterNode(): AudioNode {
     return this.out;
   }
 
-  getCurrentSceneName(): string { return getSceneName(this.state); }
+  getCurrentSceneName(): string {
+    return getSceneName(this.state);
+  }
 
   private tick(): void {
     if (this.disposed || !this.running) return;
@@ -288,13 +321,23 @@ export class LiveEngine {
   private scheduleSynthEvent(event: MusicalEvent, t0: number): void {
     if (this.disposed) return;
     switch (event.type) {
-      case "kick": this.playKick(t0, event.amp); break;
-      case "snare": this.playSnare(t0, event.amp, event.isGhost ?? false); break;
-      case "hihat": this.playHat(t0, event.amp, event.isClosed ?? true); break;
-      case "melody": this.playTonal(event, t0, true); break;
+      case "kick":
+        this.playKick(t0, event.amp);
+        break;
+      case "snare":
+        this.playSnare(t0, event.amp, event.isGhost ?? false);
+        break;
+      case "hihat":
+        this.playHat(t0, event.amp, event.isClosed ?? true);
+        break;
+      case "melody":
+        this.playTonal(event, t0, true);
+        break;
       case "pad":
       case "bass":
-      case "bell": this.playTonal(event, t0, false); break;
+      case "bell":
+        this.playTonal(event, t0, false);
+        break;
     }
   }
 
@@ -307,11 +350,21 @@ export class LiveEngine {
     let vibratoAmount: number | undefined;
 
     switch (type) {
-      case "melody": env = ADSR_MELODY; vibratoAmount = 1.5; break;
-      case "pad": env = pan < 0 ? ADSR_PAD_L : ADSR_PAD_R; break;
-      case "bass": env = ADSR_BASS; break;
-      case "bell": env = ADSR_BELL; break;
-      default: env = ADSR_PAD_L;
+      case "melody":
+        env = ADSR_MELODY;
+        vibratoAmount = 1.5;
+        break;
+      case "pad":
+        env = pan < 0 ? ADSR_PAD_L : ADSR_PAD_R;
+        break;
+      case "bass":
+        env = ADSR_BASS;
+        break;
+      case "bell":
+        env = ADSR_BELL;
+        break;
+      default:
+        env = ADSR_PAD_L;
     }
 
     const [osc, modOsc] = this.createOscillator(hz, timbre ?? "sine");
@@ -338,8 +391,14 @@ export class LiveEngine {
     g.gain.setValueAtTime(0, t0);
     g.gain.linearRampToValueAtTime(amp, t0 + env.a);
     g.gain.linearRampToValueAtTime(amp * env.s, t0 + env.a + env.d);
-    g.gain.setValueAtTime(amp * env.s, t0 + Math.max(env.a + env.d, durationSec));
-    g.gain.linearRampToValueAtTime(0.0001, t0 + Math.max(env.a + env.d, durationSec) + env.r);
+    g.gain.setValueAtTime(
+      amp * env.s,
+      t0 + Math.max(env.a + env.d, durationSec),
+    );
+    g.gain.linearRampToValueAtTime(
+      0.0001,
+      t0 + Math.max(env.a + env.d, durationSec) + env.r,
+    );
 
     if (filterNode) {
       osc.connect(filterNode);
@@ -362,18 +421,30 @@ export class LiveEngine {
     g.connect(destination);
 
     const stopTime = t0 + Math.max(env.a + env.d, durationSec) + env.r + 0.05;
-    if (modOsc) { modOsc.start(t0); modOsc.stop(stopTime); }
+    if (modOsc) {
+      modOsc.start(t0);
+      modOsc.stop(stopTime);
+    }
     osc.start(t0);
     osc.stop(stopTime);
   }
 
-  private createOscillator(freq: number, timbre: TimbreMode): [OscillatorNode, OscillatorNode | null] {
+  private createOscillator(
+    freq: number,
+    timbre: TimbreMode,
+  ): [OscillatorNode, OscillatorNode | null] {
     const osc = this.ctx.createOscillator();
     let modOsc: OscillatorNode | null = null;
     switch (timbre) {
-      case "sine": osc.type = "sine"; break;
-      case "triangle": osc.type = "triangle"; break;
-      case "softsq": osc.type = "square"; break;
+      case "sine":
+        osc.type = "sine";
+        break;
+      case "triangle":
+        osc.type = "triangle";
+        break;
+      case "softsq":
+        osc.type = "square";
+        break;
       case "fm": {
         osc.type = "sine";
         modOsc = this.ctx.createOscillator();

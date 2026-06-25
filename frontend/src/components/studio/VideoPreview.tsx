@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useStudioStore } from "@/store/studioStore";
 import { Play, Square, Monitor, X } from "lucide-react";
-import { getSharedAudioContext, resumeSharedAudioContext } from "@/lib/audioContext";
+import {
+  getSharedAudioContext,
+  resumeSharedAudioContext,
+} from "@/lib/audioContext";
 
 interface VideoPreviewProps {
   backgroundImage: File | null;
@@ -32,6 +35,10 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
 
   // Ref to hold the current playing state for stale closure avoidance
   const isPlayingRef = useRef(false);
+  // ✅ FIX: In-flight start guard
+  const isStartingRef = useRef(false);
+  // ✅ FIX: Cancellation token for overlapping async starts
+  const startGenerationRef = useRef(0);
 
   const loadedTracks = tracks.filter((t) => t.loaded && t.buffer);
 
@@ -48,7 +55,9 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
     }
     const url = URL.createObjectURL(backgroundImage);
     const img = new Image();
-    img.onload = () => { bgImageRef.current = img; };
+    img.onload = () => {
+      bgImageRef.current = img;
+    };
     img.src = url;
     return () => URL.revokeObjectURL(url);
   }, [backgroundImage]);
@@ -106,19 +115,32 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
     }
   }, []); // Stable across re‑renders
 
+  // ✅ FIX: renderLoop now only schedules next frame if still playing
   const renderLoop = useCallback(() => {
     drawFrame();
-    animFrameRef.current = requestAnimationFrame(renderLoop);
+    if (isPlayingRef.current) {
+      animFrameRef.current = requestAnimationFrame(renderLoop);
+    }
   }, [drawFrame]);
 
+  // ✅ CORRECTED stopAudio: increments generation and resets state
   const stopAudio = useCallback(() => {
+    // Increment generation to cancel any in-flight start
+    startGenerationRef.current += 1;
+    isStartingRef.current = false;
+
     sourcesRef.current.forEach((s) => {
-      try { s.stop(); s.disconnect(); } catch {}
+      try {
+        s.stop();
+        s.disconnect();
+      } catch {}
     });
     sourcesRef.current = [];
 
     trackNodesRef.current.forEach((node) => {
-      try { node.disconnect(); } catch {}
+      try {
+        node.disconnect();
+      } catch {}
     });
     trackNodesRef.current = [];
 
@@ -127,8 +149,14 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
       masterGainRef.current = null;
     }
 
+    if (analyserRef.current) {
+      analyserRef.current.disconnect();
+      analyserRef.current = null;
+    }
+
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     animFrameRef.current = null;
+
     setIsPlaying(false);
     isPlayingRef.current = false;
     if (elapsedRef.current) {
@@ -142,54 +170,75 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
     }
   }, [isPlaying, drawFrame]);
 
+  // ✅ CORRECTED startPreview: stopAudio first, then take generation, clear only if still active
   const startPreview = useCallback(async () => {
     if (!loadedTracks.length) return;
 
+    // Stop any existing playback FIRST. This invalidates any previous in-flight starts.
     stopAudio();
 
-    const ctx = getSharedAudioContext();
-    await resumeSharedAudioContext();
+    // NOW take the generation token for THIS specific start attempt.
+    const generation = ++startGenerationRef.current;
+    isStartingRef.current = true;
 
-    if (!analyserRef.current) {
-      analyserRef.current = ctx.createAnalyser();
-      analyserRef.current.fftSize = 128;
-      analyserRef.current.smoothingTimeConstant = 0.8;
-      analyserRef.current.connect(ctx.destination);
+    try {
+      const ctx = getSharedAudioContext();
+      await resumeSharedAudioContext();
+
+      // Check if we were cancelled by a newer start or a stop
+      if (generation !== startGenerationRef.current) return;
+      if (!isStartingRef.current) return;
+
+      if (!analyserRef.current) {
+        analyserRef.current = ctx.createAnalyser();
+        analyserRef.current.fftSize = 128;
+        analyserRef.current.smoothingTimeConstant = 0.8;
+        analyserRef.current.connect(ctx.destination);
+      }
+
+      masterGainRef.current = ctx.createGain();
+      masterGainRef.current.gain.value = masterGain;
+      masterGainRef.current.connect(analyserRef.current);
+
+      const hasSolo = tracks.some((t) => t.solo && t.loaded);
+
+      tracks.forEach((track) => {
+        if (!track.buffer || !track.loaded) return;
+        if (track.muted || (hasSolo && !track.solo)) return;
+
+        const gainNode = ctx.createGain();
+        gainNode.gain.value = track.volume / 100;
+        const panner = ctx.createStereoPanner();
+        panner.pan.value = track.pan / 100;
+
+        trackNodesRef.current.push(gainNode, panner);
+
+        gainNode.connect(panner);
+        panner.connect(masterGainRef.current!);
+
+        const source = ctx.createBufferSource();
+        source.buffer = track.buffer;
+        source.loop = true;
+        source.loopStart = Math.random() * track.buffer.duration;
+        source.connect(gainNode);
+        source.start(0, source.loopStart);
+        sourcesRef.current.push(source);
+      });
+
+      startTimeRef.current = ctx.currentTime;
+      setIsPlaying(true);
+      isPlayingRef.current = true;
+      renderLoop();
+    } catch (error) {
+      console.error("Video preview start error:", error);
+      stopAudio();
+    } finally {
+      // Only clear the flag if we are STILL the active generation.
+      // This prevents an older, cancelled start from corrupting the state of a newer, active start.
+      if (generation === startGenerationRef.current) {
+        isStartingRef.current = false;
+      }
     }
-
-    masterGainRef.current = ctx.createGain();
-    masterGainRef.current.gain.value = masterGain;
-    masterGainRef.current.connect(analyserRef.current);
-
-    const hasSolo = tracks.some((t) => t.solo && t.loaded);
-
-    tracks.forEach((track) => {
-      if (!track.buffer || !track.loaded) return;
-      if (track.muted || (hasSolo && !track.solo)) return;
-
-      const gainNode = ctx.createGain();
-      gainNode.gain.value = track.volume / 100;
-      const panner = ctx.createStereoPanner();
-      panner.pan.value = track.pan / 100;
-
-      trackNodesRef.current.push(gainNode, panner);
-
-      gainNode.connect(panner);
-      panner.connect(masterGainRef.current!);
-
-      const source = ctx.createBufferSource();
-      source.buffer = track.buffer;
-      source.loop = true;
-      source.loopStart = Math.random() * track.buffer.duration;
-      source.connect(gainNode);
-      source.start(0, source.loopStart);
-      sourcesRef.current.push(source);
-    });
-
-    startTimeRef.current = ctx.currentTime;
-    setIsPlaying(true);
-    isPlayingRef.current = true;
-    renderLoop();
   }, [loadedTracks, tracks, masterGain, renderLoop, stopAudio]);
 
   useEffect(() => {
@@ -213,7 +262,9 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
       <button
         onClick={() => setOpen(true)}
         disabled={loadedTracks.length === 0}
-        title={loadedTracks.length === 0 ? "Load tracks to preview" : "Preview video"}
+        title={
+          loadedTracks.length === 0 ? "Load tracks to preview" : "Preview video"
+        }
         aria-label="Open video preview"
         className="flex items-center gap-2 px-3 py-2 rounded border border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--accent2)] hover:text-[var(--accent2)] transition-all text-sm disabled:opacity-40 disabled:cursor-not-allowed"
       >
@@ -234,7 +285,10 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
           )}
         </div>
         <button
-          onClick={() => { stopAudio(); setOpen(false); }}
+          onClick={() => {
+            stopAudio();
+            setOpen(false);
+          }}
           aria-label="Close video preview"
           className="text-[var(--text-dim)] hover:text-[var(--warn)] transition-colors"
         >
@@ -266,7 +320,10 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
       </div>
 
       <div className="flex items-center justify-between px-3 py-2 bg-[var(--surface2)]">
-        <span ref={elapsedRef} className="font-mono text-xs text-[var(--text-dim)]">
+        <span
+          ref={elapsedRef}
+          className="font-mono text-xs text-[var(--text-dim)]"
+        >
           0:00
         </span>
         {isPlaying ? (
