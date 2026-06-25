@@ -25,7 +25,7 @@ export function useAudioEngine(
   const startTimeRef = useRef<number>(0);
   const isPlayingRef = useRef<boolean>(false);
 
-  // ✅ ADD THIS: Track mount status to prevent post-unmount async mutations
+  // Track mount status to prevent post-unmount async mutations
   const mountedRef = useRef(false);
 
   const [state, setState] = useState<AudioEngineState>({
@@ -38,7 +38,7 @@ export function useAudioEngine(
     const ctx = getSharedAudioContext();
     await resumeSharedAudioContext();
 
-    // ✅ GUARD: Abort if the component unmounted during the await
+    // GUARD: Abort if the component unmounted during the await
     if (!mountedRef.current) return;
 
     if (analyserRef.current) return; // already initialized
@@ -109,9 +109,7 @@ export function useAudioEngine(
     }
   }, []);
 
-  // ✅ FIX: Moved `stop` above `play` to prevent Temporal Dead Zone (TDZ) error.
-  // `play` and `playLoopSeam` reference `stop` in their dependency arrays,
-  // so `stop` must be initialized first to avoid a ReferenceError during render.
+  // stop – defined before play to avoid TDZ
   const stop = useCallback(() => {
     isPlayingRef.current = false;
 
@@ -135,21 +133,21 @@ export function useAudioEngine(
     setState((s) => ({ ...s, isPlaying: false }));
   }, []);
 
-  // Play
+  // Play – using native loop for click‑free seamless looping
   const play = useCallback(async () => {
-    // ✅ GUARD: Don't start playback if unmounted
+    // GUARD: Don't start playback if unmounted
     if (!mountedRef.current) return;
 
     // Ensure graph is initialized before playing
     if (!analyserRef.current) await initAudio();
 
-    // ✅ GUARD: initAudio might have aborted due to unmount
+    // GUARD: initAudio might have aborted due to unmount
     if (!mountedRef.current) return;
 
     const ctx = getSharedAudioContext();
     await resumeSharedAudioContext();
 
-    // ✅ GUARD: Check again after the second await
+    // GUARD: Check again after the second await
     if (!mountedRef.current) return;
 
     // Stop and fully clean up any existing playback
@@ -167,6 +165,7 @@ export function useAudioEngine(
       if (track.muted || (hasSolo && !track.solo)) return;
 
       const sources: AudioBufferSourceNode[] = [];
+
       const trackGain = ctx.createGain();
       trackGain.gain.value = track.volume / 100;
       trackGainsRef.current.set(track.id, trackGain);
@@ -178,53 +177,39 @@ export function useAudioEngine(
       trackGain.connect(panner);
       panner.connect(masterGainRef.current!);
 
-      // Loop the track continuously
-      const scheduleNextBuffer = (startTime: number, offset: number = 0) => {
-        const source = ctx.createBufferSource();
-        source.buffer = track.buffer;
-        source.connect(trackGain);
-
-        const actualStart = Math.max(0, startTime);
-        const remainingDuration = track.buffer!.duration - offset;
-
-        source.start(actualStart, offset, remainingDuration);
-        sources.push(source);
-
-        // Schedule next loop
-        const nextStartTime = actualStart + remainingDuration;
-        source.onended = () => {
-          if (isPlayingRef.current) {
-            scheduleNextBuffer(nextStartTime, 0);
-          }
-        };
-      };
+      // Use native loop for click‑free seamless looping
+      const source = ctx.createBufferSource();
+      source.buffer = track.buffer;
+      source.loop = true; // Native looping – guaranteed gapless
+      source.connect(trackGain);
 
       // Start with random offset for phase diversity
       const randomOffset = Math.random() * track.buffer.duration;
-      scheduleNextBuffer(0, randomOffset);
+      source.start(0, randomOffset);
 
+      sources.push(source);
       sourcesRef.current.set(track.id, sources);
     });
 
     setState((s) => ({ ...s, isPlaying: true }));
   }, [tracks, initAudio, stop]);
 
-  // Play Loop Seam Preview
+  // Play Loop Seam Preview – uses crossfade between two sources, remains unchanged
   const playLoopSeam = useCallback(
     async (loopStartMs: number, loopEndMs: number, crossfadeMs: number) => {
-      // ✅ GUARD: Don't start playback if unmounted
+      // GUARD: Don't start playback if unmounted
       if (!mountedRef.current) return;
 
       // Ensure graph is initialized
       if (!analyserRef.current) await initAudio();
 
-      // ✅ GUARD: initAudio might have aborted due to unmount
+      // GUARD: initAudio might have aborted due to unmount
       if (!mountedRef.current) return;
 
       const ctx = getSharedAudioContext();
       await resumeSharedAudioContext();
 
-      // ✅ GUARD: Check again after the second await
+      // GUARD: Check again after the second await
       if (!mountedRef.current) return;
 
       // Stop any existing playback
@@ -325,28 +310,34 @@ export function useAudioEngine(
         });
       });
       sourcesRef.current.clear();
+
       trackGainsRef.current.forEach((node) => node.disconnect());
       trackGainsRef.current.clear();
       trackPannersRef.current.forEach((node) => node.disconnect());
       trackPannersRef.current.clear();
-      eqNodesRef.current.forEach((node) => {
-        try {
-          node.disconnect();
-        } catch {}
-      });
-      eqNodesRef.current = [];
-      if (masterGainRef.current) {
-        try {
-          masterGainRef.current.disconnect();
-        } catch {}
-        masterGainRef.current = null;
-      }
+
+      // ✅ FIX: Disconnect from destination inward to source for semantic correctness
       if (analyserRef.current) {
         try {
           analyserRef.current.disconnect();
         } catch {}
         analyserRef.current = null;
       }
+
+      eqNodesRef.current.forEach((node) => {
+        try {
+          node.disconnect();
+        } catch {}
+      });
+      eqNodesRef.current = [];
+
+      if (masterGainRef.current) {
+        try {
+          masterGainRef.current.disconnect();
+        } catch {}
+        masterGainRef.current = null;
+      }
+
       // Do not close the AudioContext – it's shared
     };
   }, []);
