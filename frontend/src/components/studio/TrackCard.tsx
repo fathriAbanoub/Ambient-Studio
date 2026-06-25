@@ -11,7 +11,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { getSharedAudioContext, resumeSharedAudioContext } from "@/lib/audioContext";
+import { getSharedAudioContext } from "@/lib/audioContext";
 
 interface TrackCardProps {
   track: Track;
@@ -97,6 +97,7 @@ export function TrackCard({ track, index }: TrackCardProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
+  // ✅ FIX: Removed resumeSharedAudioContext() – decoding doesn't need running context
   const handleFileSelect = useCallback(
     async (file: File) => {
       if (!file.type.startsWith("audio/")) {
@@ -105,7 +106,6 @@ export function TrackCard({ track, index }: TrackCardProps) {
       }
       try {
         const ctx = getSharedAudioContext();
-        await resumeSharedAudioContext();
         const arrayBuffer = await file.arrayBuffer();
         const buffer = await ctx.decodeAudioData(arrayBuffer);
         loadTrackFile(index, file, buffer);
@@ -303,7 +303,7 @@ export function TrackCard({ track, index }: TrackCardProps) {
             const file = e.target.files?.[0];
             if (file) {
               handleFileSelect(file);
-              e.target.value = '';
+              e.target.value = "";
             }
           }}
           className="hidden"
