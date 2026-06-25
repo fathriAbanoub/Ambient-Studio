@@ -55,12 +55,44 @@ export function useProceduralEngine() {
     generator.drumLevel,
   ]);
 
-  const start = useCallback(async () => {
-    // ✅ FIX: Dispose any existing engine before creating a new one to prevent transient tick() races
+  // ✅ FIX (CodeRabbit): Shared teardown used by both start() and stop() so
+  // failure paths leave scenePollRef / animFrameRef / analyserRef / isRunning /
+  // store flags consistent. Previously start() only disposed engineRef.current
+  // and bypassed this cleanup, leaking the scene poll interval and leaving
+  // isRunning/setGeneratorRunning/setIsPlaying stuck at true if LiveEngine
+  // construction or start() threw.
+  const performTeardown = useCallback(() => {
+    if (scenePollRef.current) {
+      clearInterval(scenePollRef.current);
+      scenePollRef.current = null;
+    }
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (analyserRef.current) {
+      try {
+        analyserRef.current.disconnect();
+      } catch {}
+      analyserRef.current = null;
+    }
     if (engineRef.current) {
-      engineRef.current.dispose();
+      try {
+        engineRef.current.dispose();
+      } catch {
+        /* best-effort cleanup */
+      }
       engineRef.current = null;
     }
+    setIsRunning(false);
+    setGeneratorRunning(false);
+    setIsPlaying(false);
+  }, [setGeneratorRunning, setIsPlaying]);
+
+  const start = useCallback(async () => {
+    // ✅ FIX (CodeRabbit): Full teardown of any previous engine so state is
+    // consistent even if LiveEngine construction or start() throws downstream.
+    performTeardown();
 
     // ✅ Cleanup helper for a newly created engine that failed to start
     let engine: LiveEngine | null = null;
@@ -132,11 +164,14 @@ export function useProceduralEngine() {
       updateAnalyser();
     } catch (error) {
       cleanupStartedEngine();
+      // ✅ performTeardown() at the top already reset isRunning / store flags /
+      // scenePollRef / animFrameRef, so the UI stays consistent on failure.
       addLog(`Generator start failed: ${error}`, "err");
       showToast(`Generator failed: ${error}`, "error");
     }
   }, [
     buildParams,
+    performTeardown,
     setGeneratorRunning,
     setIsPlaying,
     addLog,
@@ -145,35 +180,12 @@ export function useProceduralEngine() {
   ]);
 
   const stop = useCallback(() => {
-    if (scenePollRef.current) {
-      clearInterval(scenePollRef.current);
-      scenePollRef.current = null;
-    }
-    if (animFrameRef.current) {
-      cancelAnimationFrame(animFrameRef.current);
-      animFrameRef.current = null;
-    }
-    if (analyserRef.current) {
-      try {
-        analyserRef.current.disconnect();
-      } catch {}
-      analyserRef.current = null;
-    }
-
-    // ✅ FIX: Call dispose() instead of stop() to tear down the full audio graph
-    if (engineRef.current) {
-      engineRef.current.dispose();
-      engineRef.current = null;
-    }
-
-    setIsRunning(false);
-    setGeneratorRunning(false);
-    setIsPlaying(false);
+    performTeardown();
     setCurrentScene("Calm");
     setGeneratorScene("Calm");
     setAnalyserData(new Uint8Array(128));
     addLog("Procedural generator stopped", "info");
-  }, [setGeneratorRunning, setIsPlaying, setGeneratorScene, addLog]);
+  }, [performTeardown, setGeneratorScene, addLog]);
 
   const updateParams = useCallback(() => {
     const engine = engineRef.current;

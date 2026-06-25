@@ -15,6 +15,9 @@
  *   T1: Removed null assignments to audio node fields to maintain type safety
  *   ✅ FIX: Added `starting` flag to prevent concurrent start() calls
  *   ✅ FIX: stop() cancels in-flight start, start() checks starting flag after resume
+ *   ✅ FIX (CodeRabbit): start() guard now also checks `starting` so concurrent
+ *       calls cannot both pass the gate and double-tick. A monotonic start token
+ *       would additionally cover start→stop→start; left as a future improvement.
  */
 
 import {
@@ -143,7 +146,11 @@ export class LiveEngine {
   }
 
   async start(): Promise<void> {
-    if (this.running || this.disposed) return;
+    // ✅ FIX (CodeRabbit): include `starting` so concurrent start() calls cannot
+    // both pass the guard and double-tick. For the rarer start→stop→start race,
+    // a monotonic start token would be more robust (see review), but this closes
+    // the common concurrent case.
+    if (this.running || this.starting || this.disposed) return;
     this.starting = true;
 
     try {

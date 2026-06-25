@@ -25,6 +25,12 @@ export function useAudioEngine(
   const startTimeRef = useRef<number>(0);
   const isPlayingRef = useRef<boolean>(false);
 
+  // ✅ FIX (CodeRabbit): Monotonic play-generation token. stop() bumps it so
+  // any in-flight play()/playLoopSeam() awaiting initAudio() or
+  // resumeSharedAudioContext() can detect that it has been cancelled and bail
+  // before creating sources or setting isPlaying back to true.
+  const playGenRef = useRef<number>(0);
+
   // Track mount status to prevent post-unmount async mutations
   const mountedRef = useRef(false);
 
@@ -109,8 +115,10 @@ export function useAudioEngine(
     }
   }, []);
 
-  // stop – defined before play to avoid TDZ
-  const stop = useCallback(() => {
+  // ✅ FIX (CodeRabbit): Internal source-teardown shared by stop() and
+  // play()/playLoopSeam(). Does NOT bump playGenRef — callers that should
+  // cancel pending plays must use stop() instead.
+  const stopSources = useCallback(() => {
     isPlayingRef.current = false;
 
     sourcesRef.current.forEach((sources) => {
@@ -129,29 +137,44 @@ export function useAudioEngine(
     trackGainsRef.current.clear();
     trackPannersRef.current.forEach((node) => node.disconnect());
     trackPannersRef.current.clear();
-
-    setState((s) => ({ ...s, isPlaying: false }));
   }, []);
+
+  // stop – defined before play to avoid TDZ
+  const stop = useCallback(() => {
+    // ✅ FIX (CodeRabbit): Invalidate any in-flight play()/playLoopSeam() so
+    // late async completion cannot revive playback after the user has stopped.
+    playGenRef.current++;
+    stopSources();
+    setState((s) => ({ ...s, isPlaying: false }));
+  }, [stopSources]);
 
   // Play – using native loop for click‑free seamless looping
   const play = useCallback(async () => {
+    // ✅ FIX (CodeRabbit): Capture generation. stop() bumps this ref; if it
+    // changes during an await, the user (or a newer play) has cancelled us
+    // and we must bail.
+    const myGen = playGenRef.current;
+
     // GUARD: Don't start playback if unmounted
     if (!mountedRef.current) return;
 
     // Ensure graph is initialized before playing
     if (!analyserRef.current) await initAudio();
 
-    // GUARD: initAudio might have aborted due to unmount
-    if (!mountedRef.current) return;
+    // GUARD: initAudio might have aborted due to unmount OR stop() was called
+    if (!mountedRef.current || playGenRef.current !== myGen) return;
 
     const ctx = getSharedAudioContext();
     await resumeSharedAudioContext();
 
     // GUARD: Check again after the second await
-    if (!mountedRef.current) return;
+    if (!mountedRef.current || playGenRef.current !== myGen) return;
 
-    // Stop and fully clean up any existing playback
-    stop();
+    // Stop and fully clean up any existing playback (without bumping generation)
+    stopSources();
+
+    // ✅ Final cancellation check before mutating isPlaying / creating sources
+    if (playGenRef.current !== myGen) return;
 
     startTimeRef.current = ctx.currentTime;
     isPlayingRef.current = true;
@@ -192,28 +215,35 @@ export function useAudioEngine(
     });
 
     setState((s) => ({ ...s, isPlaying: true }));
-  }, [tracks, initAudio, stop]);
+  }, [tracks, initAudio, stopSources]);
 
   // Play Loop Seam Preview – uses crossfade between two sources, remains unchanged
   const playLoopSeam = useCallback(
     async (loopStartMs: number, loopEndMs: number, crossfadeMs: number) => {
+      // ✅ FIX (CodeRabbit): Capture generation so stop() can cancel this
+      // in-flight call.
+      const myGen = playGenRef.current;
+
       // GUARD: Don't start playback if unmounted
       if (!mountedRef.current) return;
 
       // Ensure graph is initialized
       if (!analyserRef.current) await initAudio();
 
-      // GUARD: initAudio might have aborted due to unmount
-      if (!mountedRef.current) return;
+      // GUARD: initAudio might have aborted due to unmount OR stop() was called
+      if (!mountedRef.current || playGenRef.current !== myGen) return;
 
       const ctx = getSharedAudioContext();
       await resumeSharedAudioContext();
 
       // GUARD: Check again after the second await
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || playGenRef.current !== myGen) return;
 
-      // Stop any existing playback
-      stop();
+      // Stop any existing playback (without bumping generation)
+      stopSources();
+
+      // ✅ Final cancellation check before mutating isPlaying / creating sources
+      if (playGenRef.current !== myGen) return;
 
       const loopStart = loopStartMs / 1000;
       const loopEnd = loopEndMs / 1000;
@@ -280,7 +310,7 @@ export function useAudioEngine(
 
       setState((s) => ({ ...s, isPlaying: true }));
     },
-    [tracks, initAudio, stop],
+    [tracks, initAudio, stopSources],
   );
 
   // Get analyser data for VU meter
