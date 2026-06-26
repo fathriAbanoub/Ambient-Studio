@@ -246,26 +246,12 @@ export function useProceduralEngine() {
     if (isRunning && engineRef.current?.running) updateParams();
   }, [isRunning, updateParams]);
 
-  // ✅ FIX: On unmount, dispose the engine to prevent leaks
+  // ✅ FIX: On unmount, reuse performTeardown to prevent logic duplication
   useEffect(() => {
     return () => {
-      if (scenePollRef.current) clearInterval(scenePollRef.current);
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      if (analyserRef.current) {
-        try {
-          analyserRef.current.disconnect();
-        } catch {}
-      }
-
-      if (engineRef.current) {
-        engineRef.current.dispose();
-        engineRef.current = null;
-      }
-
-      setGeneratorRunning(false);
-      setIsPlaying(false);
+      performTeardown();
     };
-  }, [setGeneratorRunning, setIsPlaying]);
+  }, [performTeardown]);
 
   return {
     isRunning,

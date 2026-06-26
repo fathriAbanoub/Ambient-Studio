@@ -1,7 +1,7 @@
 /**
  * @ambient-engine/core — Pure musical logic + synthesis shells for ambient music generation.
  *
- * Two-layer architecture:
+ * Three-layer architecture:
  *   1. musicalLogic.ts — Pure algorithm, zero Web Audio deps, fully deterministic
  *   2. LiveEngine.ts   — Browser real-time playback via Web Audio API
  *   3. renderAmbient.ts — Browser offline WAV export via OfflineAudioContext
@@ -23,13 +23,13 @@ export {
   type MusicalEvent,
   type TimbreMode,
   type Scene,
-} from './musicalLogic';
+} from "./musicalLogic";
 
 // Browser-only shells
-export { LiveEngine } from './LiveEngine';
+export { LiveEngine } from "./LiveEngine";
 export {
   renderAmbient,
   audioBufferToWav,
   renderAndDownloadWav,
   type RenderProgress,
-} from './renderAmbient';
+} from "./renderAmbient";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import { useStudioStore } from "@/store/studioStore";
 import { EQ_BANDS } from "@/types";
 import { RotateCcw } from "lucide-react";
@@ -16,8 +16,10 @@ function getCSSVar(name: string): string {
 
 function FrequencyResponse({ eqGains }: { eqGains: number[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
-  useEffect(() => {
+  // Redraw helper function
+  const redrawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -66,6 +68,25 @@ function FrequencyResponse({ eqGains }: { eqGains: number[] }) {
       ctx.fill();
     });
   }, [eqGains]);
+
+  // Redraw when eqGains or container size changes
+  useEffect(() => {
+    redrawCanvas();
+  }, [eqGains, canvasSize, redrawCanvas]);
+
+  // Set up ResizeObserver to handle container resizing
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      const rect = canvas.getBoundingClientRect();
+      setCanvasSize({ width: rect.width, height: rect.height });
+    });
+
+    resizeObserver.observe(canvas);
+    return () => resizeObserver.disconnect();
+  }, []);
 
   return (
     <canvas
