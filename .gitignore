@@ -129,3 +129,7 @@ entities.json
 
 # Next.js auto-generated type references
 next-env.d.ts
+
+# Catch accidentally generated pip/terminal residue files (e.g., from => typos)
+backend/=*
+=*
