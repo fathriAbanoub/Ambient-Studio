@@ -9,20 +9,28 @@ import { setupAllMocks } from "./helpers/mocks";
 // ──────────────────────────────────────────────────────────────────────────────
 
 test.describe("Track Loading", () => {
-  test("should load an audio file into track 1 and display filename + waveform", async ({ page }) => {
+  test("should load an audio file into track 1 and display filename + waveform", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await expect(track1.getByTestId("drop-zone")).toBeVisible();
     const fileInput = track1.getByTestId("file-input");
     await fileInput.setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toHaveText("dummy-1sec", { timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toHaveText("dummy-1sec", {
+      timeout: 10000,
+    });
     await expect(track1.getByTestId("track-duration")).toBeVisible();
     await page.getByTestId("console-tab").click();
-    await expect(page.getByText("Loaded: dummy-1sec.wav")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Loaded: dummy-1sec.wav")).toBeVisible({
+      timeout: 5000,
+    });
   });
 
-  test("volume slider should be visible and functional on loaded track", async ({ page }) => {
+  test("volume slider should be visible and functional on loaded track", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
@@ -37,7 +45,9 @@ test.describe("Track Loading", () => {
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("pan-slider")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("pan-slider")).toBeVisible({
+      timeout: 10000,
+    });
     await expect(track1.getByTestId("pan-value")).toBeVisible();
   });
 
@@ -46,7 +56,9 @@ test.describe("Track Loading", () => {
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await expect(track1).not.toHaveClass(/opacity-50/);
     await track1.getByRole("button", { name: /mute/i }).click();
     await expect(track1).toHaveClass(/opacity-50/);
@@ -59,8 +71,12 @@ test.describe("Track Loading", () => {
     const track2 = page.getByTestId("track-2");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
     await track2.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
-    await expect(track2.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
+    await expect(track2.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await track1.getByRole("button", { name: /solo/i }).click();
     await expect(track2).toHaveClass(/opacity-50/);
     await expect(track1).not.toHaveClass(/opacity-50/);
@@ -71,19 +87,25 @@ test.describe("Track Loading", () => {
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await track1.hover();
     await track1.getByTestId("remove-track").click();
     await expect(track1.getByTestId("drop-zone")).toBeVisible();
   });
 
   // NEW: Track volume slider updates display (Test 3)
-  test("changing volume slider updates the displayed value", async ({ page }) => {
+  test("changing volume slider updates the displayed value", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     const volumeSlider = track1.getByTestId("volume-slider");
     const volumeDisplay = track1.getByTestId("volume-value");
     await expect(volumeDisplay).toHaveText("100");
@@ -99,7 +121,9 @@ test.describe("Track Loading", () => {
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     const panSlider = track1.getByTestId("pan-slider");
     const panDisplay = track1.getByTestId("pan-value");
     await expect(panDisplay).toHaveText("0");
@@ -111,38 +135,54 @@ test.describe("Track Loading", () => {
 });
 
 test.describe("Procedural Generator", () => {
-  test("should start and stop the generator, showing scene name", async ({ page }) => {
+  test("should start and stop the generator, showing scene name", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     const playBtn = page.getByTestId("generator-play-stop");
     await expect(playBtn).toBeVisible();
     await playBtn.click();
     await expect(playBtn).toHaveText(/stop/i, { timeout: 10000 });
-    await expect(page.getByTestId("current-scene")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("current-scene")).toBeVisible({
+      timeout: 10000,
+    });
     await page.getByTestId("console-tab").click();
-    await expect(page.getByText("Procedural generator started")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Procedural generator started")).toBeVisible({
+      timeout: 5000,
+    });
     await playBtn.click();
     await expect(playBtn).toHaveText(/play/i, { timeout: 5000 });
     await expect(page.getByTestId("current-scene")).not.toBeVisible();
   });
 
-  test("should dim the generator when a manual track has solo active", async ({ page }) => {
+  test("should dim the generator when a manual track has solo active", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await track1.getByRole("button", { name: /solo/i }).click();
     const procTrack = page.getByTestId("procedural-track");
     await expect(procTrack).toHaveClass(/opacity-50/, { timeout: 5000 });
   });
 
   // NEW: Generator export WAV with progress (Test 5) – unused variable removed
-  test("clicking EXPORT WAV shows progress updates and completes", async ({ page }) => {
+  test("clicking EXPORT WAV shows progress updates and completes", async ({
+    page,
+  }) => {
     await page.addInitScript(() => {
       const OriginalOfflineCtx = window.OfflineAudioContext;
       window.OfflineAudioContext = class extends OriginalOfflineCtx {
-        constructor(numberOfChannels: number, length: number, sampleRate: number) {
+        constructor(
+          numberOfChannels: number,
+          length: number,
+          sampleRate: number,
+        ) {
           super(numberOfChannels, length, sampleRate);
         }
         startRendering() {
@@ -177,12 +217,14 @@ test.describe("Procedural Generator", () => {
   });
 
   // NEW: Generator complexity slider changes value (Test 13)
-  test("changing complexity slider updates the displayed percentage", async ({ page }) => {
+  test("changing complexity slider updates the displayed percentage", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     await page.getByTestId("generator-expand").click();
     const complexitySlider = page.getByTestId("generator-complexity");
-    const complexityDisplay = page.locator('[data-testid="generator-complexity"] + span');
+    const complexityDisplay = page.getByTestId("generator-complexity-value");
     await expect(complexityDisplay).toHaveText("35%");
     await complexitySlider.fill("75");
     await expect(complexityDisplay).toHaveText("75%");
@@ -190,12 +232,14 @@ test.describe("Procedural Generator", () => {
     await expect(complexityDisplay).toHaveText("20%");
   });
 
-  test("changing space slider updates the displayed percentage", async ({ page }) => {
+  test("changing space slider updates the displayed percentage", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     await page.getByTestId("generator-expand").click();
     const spaceSlider = page.getByTestId("generator-space");
-    const spaceDisplay = page.locator('[data-testid="generator-space"] + span');
+    const spaceDisplay = page.getByTestId("generator-space-value");
     await expect(spaceDisplay).toHaveText("40%");
     await spaceSlider.fill("80");
     await expect(spaceDisplay).toHaveText("80%");
@@ -205,19 +249,30 @@ test.describe("Procedural Generator", () => {
 });
 
 test.describe("Active Playback Source", () => {
-  test("manual play button sets source to 'manual' and shows glow", async ({ page }) => {
+  test("manual play button sets source to 'manual' and shows glow", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     const playBtn = page.getByTestId("transport-play-stop");
     await playBtn.click();
-    await expect(page.getByTestId("status-indicator")).toHaveText("PLAYING", { timeout: 5000 });
-    await expect(playBtn).toHaveClass(/shadow-\[0_0_12px_var\(--glow-cyan\)\]/, { timeout: 5000 });
+    await expect(page.getByTestId("status-indicator")).toHaveText("PLAYING", {
+      timeout: 5000,
+    });
+    await expect(playBtn).toHaveClass(
+      /shadow-\[0_0_12px_var\(--glow-cyan\)\]/,
+      { timeout: 5000 },
+    );
   });
 
-  test("generator play sets source to 'generator' and shows glow", async ({ page }) => {
+  test("generator play sets source to 'generator' and shows glow", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     const genBtn = page.getByTestId("generator-play-stop");
@@ -228,7 +283,9 @@ test.describe("Active Playback Source", () => {
     await expect(procTrack).toHaveClass(/shadow-\[/, { timeout: 5000 });
   });
 
-  test("switching from generator to manual should update glow", async ({ page }) => {
+  test("switching from generator to manual should update glow", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     const genBtn = page.getByTestId("generator-play-stop");
@@ -238,18 +295,27 @@ test.describe("Active Playback Source", () => {
     await expect(genBtn).toHaveText(/play/i, { timeout: 5000 });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     const transportBtn = page.getByTestId("transport-play-stop");
     await transportBtn.click();
-    await expect(page.getByTestId("status-indicator")).toHaveText("PLAYING", { timeout: 5000 });
-    await expect(transportBtn).toHaveClass(/shadow-\[0_0_12px_var\(--glow-cyan\)\]/, { timeout: 5000 });
+    await expect(page.getByTestId("status-indicator")).toHaveText("PLAYING", {
+      timeout: 5000,
+    });
+    await expect(transportBtn).toHaveClass(
+      /shadow-\[0_0_12px_var\(--glow-cyan\)\]/,
+      { timeout: 5000 },
+    );
     const procTrack = page.getByTestId("procedural-track");
     await expect(procTrack).not.toHaveClass(/shadow-\[0_0_12px/);
   });
 });
 
 test.describe("Transport", () => {
-  test("master volume slider should be visible and show 100%", async ({ page }) => {
+  test("master volume slider should be visible and show 100%", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     const slider = page.getByTestId("master-volume");
@@ -269,7 +335,9 @@ test.describe("Transport", () => {
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     const playBtn = page.getByTestId("transport-play-stop");
     const status = page.getByTestId("status-indicator");
     await expect(status).toHaveText("IDLE");
@@ -280,7 +348,9 @@ test.describe("Transport", () => {
   });
 
   // NEW: master volume slider updates percentage (Test 4)
-  test("master volume slider updates the displayed percentage", async ({ page }) => {
+  test("master volume slider updates the displayed percentage", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     const masterSlider = page.getByTestId("master-volume");
@@ -293,19 +363,27 @@ test.describe("Transport", () => {
   });
 
   // NEW: Force Stop button appears when playing and stops playback (Test 6)
-  test("Force Stop button appears when playing and stops playback", async ({ page }) => {
+  test("Force Stop button appears when playing and stops playback", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     const playBtn = page.getByTestId("transport-play-stop");
     await playBtn.click();
-    await expect(page.getByTestId("status-indicator")).toHaveText("PLAYING", { timeout: 5000 });
-    const forceStop = page.locator('button.border-\\[var\\(--warning\\)\\]');
+    await expect(page.getByTestId("status-indicator")).toHaveText("PLAYING", {
+      timeout: 5000,
+    });
+    const forceStop = page.locator("button.border-\\[var\\(--warning\\)\\]");
     await expect(forceStop).toBeVisible();
     await forceStop.click();
-    await expect(page.getByTestId("status-indicator")).toHaveText("IDLE", { timeout: 5000 });
+    await expect(page.getByTestId("status-indicator")).toHaveText("IDLE", {
+      timeout: 5000,
+    });
     await expect(forceStop).not.toBeVisible();
   });
 });
@@ -315,7 +393,9 @@ test.describe("Advanced Generator Parameters", () => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     await page.getByTestId("generator-expand").click();
-    await expect(page.getByTestId("generator-seed")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId("generator-seed")).toBeVisible({
+      timeout: 5000,
+    });
     await expect(page.getByTestId("generator-scenes-toggle")).toBeVisible();
     await expect(page.getByTestId("generator-tempo")).toBeVisible();
     await expect(page.getByTestId("generator-complexity")).toBeVisible();
@@ -368,10 +448,14 @@ test.describe("Advanced Generator Parameters", () => {
     await expect(sceneSelect).toHaveValue("64");
   });
 
-  test("EXPORT WAV button in advanced panel should be visible", async ({ page }) => {
+  test("EXPORT WAV button in advanced panel should be visible", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     await page.getByTestId("generator-expand").click();
-    await expect(page.getByTestId("generator-export-wav")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId("generator-export-wav")).toBeVisible({
+      timeout: 5000,
+    });
   });
 });

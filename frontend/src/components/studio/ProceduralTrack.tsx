@@ -224,7 +224,10 @@ export function ProceduralTrack() {
               className="w-20"
               style={{ accentColor: GENERATOR_COLOR }}
             />
-            <span className="text-xs font-mono w-7">
+            <span
+              data-testid="generator-complexity-value"
+              className="text-xs font-mono w-7"
+            >
               {Math.round(generator.complexity * 100)}%
             </span>
           </div>
@@ -247,7 +250,10 @@ export function ProceduralTrack() {
               className="w-20"
               style={{ accentColor: GENERATOR_COLOR }}
             />
-            <span className="text-xs font-mono w-7">
+            <span
+              data-testid="generator-space-value"
+              className="text-xs font-mono w-7"
+            >
               {Math.round(generator.space * 100)}%
             </span>
           </div>
