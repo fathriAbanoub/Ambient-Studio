@@ -17,32 +17,51 @@
  * HARMONIC SLEW: This module only tracks targetRootHz changes.
  * The 600ms linear slew is handled by the synthesis shells (LiveEngine,
  * renderAmbient) which have access to real or offline AudioContext time.
+ *
+ * Fixes applied:
+ *   ✅ FIX (default-enabled flags): enableScenes and enableHarmonicLoop are
+ *       documented as default true, but the guards used truthy checks
+ *       (`!params.enableScenes` / `!params.enableHarmonicLoop`) which
+ *       evaluated to true when the field was omitted (undefined), disabling
+ *       the behavior. Switched to explicit `=== false` checks so callers
+ *       that omit these optional fields get the documented default-enabled
+ *       behavior. Affected: updateSceneEngine(), updateHarmonicLoop(),
+ *       getEffectiveSceneParams().
+ *   ✅ FIX (beat-0 harmonic advance): updateHarmonicLoop() previously
+ *       advanced harmonicLoopIndex on beat 0 because barCount=0 satisfies
+ *       `barCount % 8 === 0 && beat % 4 === 0`. This skipped the initial
+ *       root segment that createInitialState() set up (harmonicLoopIndex=0,
+ *       targetRootHz=params.rootHz, typically A3=220Hz). Added a
+ *       `state.beat > 0` guard so the loop only advances after the first
+ *       beat cycle has begun — the first advance now fires at beat 32
+ *       (bar 8) instead of beat 0. harmonicLoopIndex and targetRootHz
+ *       update behavior is unchanged.
  */
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type TimbreMode = 'sine' | 'triangle' | 'softsq' | 'fm';
+export type TimbreMode = "sine" | "triangle" | "softsq" | "fm";
 
 export interface EngineParams {
-  scale: 'majorPent' | 'minorPent';
+  scale: "majorPent" | "minorPent";
   rootHz: number;
   bpm: number;
-  complexity: number;       // 0..1
-  mix: number;              // 0..1 (delay level)
+  complexity: number; // 0..1
+  mix: number; // 0..1 (delay level)
   sceneDurationBars?: number; // default 32
-  enableScenes?: boolean;     // default true
+  enableScenes?: boolean; // default true
   enableHarmonicLoop?: boolean; // default true
   seed?: number;
-  drumLevel?: number;         // 0..1
+  drumLevel?: number; // 0..1
 }
 
 export interface MusicalEvent {
-  type: 'melody' | 'pad' | 'bass' | 'bell' | 'kick' | 'snare' | 'hihat';
-  hz?: number;              // undefined for drums (kick/snare/hihat)
+  type: "melody" | "pad" | "bass" | "bell" | "kick" | "snare" | "hihat";
+  hz?: number; // undefined for drums (kick/snare/hihat)
   amp: number;
   durationSec: number;
-  pan: number;              // -1 to 1 (for tonal); 0 for drums (panning via persistent nodes)
-  timbre?: TimbreMode;      // undefined for drums
+  pan: number; // -1 to 1 (for tonal); 0 for drums (panning via persistent nodes)
+  timbre?: TimbreMode; // undefined for drums
   beatIndex: number;
   /** For snare: true = ghost note (lower amp, shorter) */
   isGhost?: boolean;
@@ -107,7 +126,7 @@ const ROOT_LOOP_HZ = [220, 185, 147, 165]; // A3 → F#3 → D3 → E3
 
 export interface Scene {
   name: string;
-  scale: 'majorPent' | 'minorPent';
+  scale: "majorPent" | "minorPent";
   bpm: number;
   mix: number;
   complexity: number;
@@ -116,15 +135,39 @@ export interface Scene {
 }
 
 export const SCENES: Scene[] = [
-  { name: 'Calm',     scale: 'majorPent', bpm: 72, mix: 0.4,  complexity: 0.30, density: 0.80, timbre: 'sine' },
-  { name: 'Nocturne', scale: 'minorPent', bpm: 62, mix: 0.55, complexity: 0.45, density: 0.65, timbre: 'triangle' },
-  { name: 'Ether',    scale: 'majorPent', bpm: 68, mix: 0.65, complexity: 0.55, density: 0.55, timbre: 'fm' },
+  {
+    name: "Calm",
+    scale: "majorPent",
+    bpm: 72,
+    mix: 0.4,
+    complexity: 0.3,
+    density: 0.8,
+    timbre: "sine",
+  },
+  {
+    name: "Nocturne",
+    scale: "minorPent",
+    bpm: 62,
+    mix: 0.55,
+    complexity: 0.45,
+    density: 0.65,
+    timbre: "triangle",
+  },
+  {
+    name: "Ether",
+    scale: "majorPent",
+    bpm: 68,
+    mix: 0.65,
+    complexity: 0.55,
+    density: 0.55,
+    timbre: "fm",
+  },
 ];
 
 // ── Seeded PRNG: mulberry32 ───────────────────────────────────────────────────
 
 export function mulberry32Next(state: { rngState: number }): number {
-  let t = (state.rngState += 0x6D2B79F5);
+  let t = (state.rngState += 0x6d2b79f5);
   t = Math.imul(t ^ (t >>> 15), t | 1);
   t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
@@ -132,11 +175,16 @@ export function mulberry32Next(state: { rngState: number }): number {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function currentScale(scale: 'majorPent' | 'minorPent'): number[] {
-  return scale === 'majorPent' ? MAJOR_PENT : MINOR_PENT;
+function currentScale(scale: "majorPent" | "minorPent"): number[] {
+  return scale === "majorPent" ? MAJOR_PENT : MINOR_PENT;
 }
 
-function noteHz(degree: number, octaveShift: number, rootHz: number, scale: 'majorPent' | 'minorPent'): number {
+function noteHz(
+  degree: number,
+  octaveShift: number,
+  rootHz: number,
+  scale: "majorPent" | "minorPent",
+): number {
   const semi = currentScale(scale)[((degree % 5) + 5) % 5] + 12 * octaveShift;
   return rootHz * Math.pow(2, semi / 12);
 }
@@ -145,14 +193,18 @@ function euclideanRhythm(step: number, pulses: number, steps: number): boolean {
   return (step * pulses) % steps < pulses;
 }
 
-function markovStep(lastInterval: number, complexity: number, rng: () => number): number {
+function markovStep(
+  lastInterval: number,
+  complexity: number,
+  rng: () => number,
+): number {
   const intervals = [-2, -1, 0, 1, 2];
   const baseWeights = [
-    [0.10, 0.25, 0.40, 0.20, 0.05],
-    [0.05, 0.25, 0.45, 0.20, 0.05],
-    [0.10, 0.20, 0.40, 0.20, 0.10],
-    [0.05, 0.20, 0.45, 0.25, 0.05],
-    [0.05, 0.20, 0.40, 0.25, 0.10],
+    [0.1, 0.25, 0.4, 0.2, 0.05],
+    [0.05, 0.25, 0.45, 0.2, 0.05],
+    [0.1, 0.2, 0.4, 0.2, 0.1],
+    [0.05, 0.2, 0.45, 0.25, 0.05],
+    [0.05, 0.2, 0.4, 0.25, 0.1],
   ];
   const lastIdx = intervals.indexOf(lastInterval);
   const row = lastIdx >= 0 ? baseWeights[lastIdx] : baseWeights[2];
@@ -167,9 +219,13 @@ function markovStep(lastInterval: number, complexity: number, rng: () => number)
 
 function updateSceneEngine(
   state: EngineState,
-  params: EngineParams
+  params: EngineParams,
 ): { params: EngineParams; state: Partial<EngineState> } {
-  if (!params.enableScenes) return { params, state: {} };
+  // ✅ FIX (default-enabled flags): enableScenes defaults to true. Use
+  // explicit `=== false` so callers that omit the field get the documented
+  // default-enabled behavior. Previously `!params.enableScenes` was true
+  // when the field was undefined, disabling scenes silently.
+  if (params.enableScenes === false) return { params, state: {} };
 
   const barCount = Math.floor(state.beat / BEATS_PER_BAR);
   const barsIntoScene = barCount - state.sceneStartBeat / BEATS_PER_BAR;
@@ -187,17 +243,21 @@ function updateSceneEngine(
   const nextScene = SCENES[(newSceneIndex + 1) % SCENES.length];
   const progress = Math.min(
     (barCount - newSceneStartBeat / BEATS_PER_BAR) / sceneDurationBars,
-    1.0
+    1.0,
   );
-  const t = progress < 0.5
-    ? 2 * progress * progress
-    : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+  const t =
+    progress < 0.5
+      ? 2 * progress * progress
+      : 1 - Math.pow(-2 * progress + 2, 2) / 2;
 
   const newParams = { ...params };
   newParams.bpm = currentScene.bpm + (nextScene.bpm - currentScene.bpm) * t;
   newParams.mix = currentScene.mix + (nextScene.mix - currentScene.mix) * t;
-  newParams.complexity = currentScene.complexity + (nextScene.complexity - currentScene.complexity) * t;
-  const newDensity = currentScene.density + (nextScene.density - currentScene.density) * t;
+  newParams.complexity =
+    currentScene.complexity +
+    (nextScene.complexity - currentScene.complexity) * t;
+  const newDensity =
+    currentScene.density + (nextScene.density - currentScene.density) * t;
   newParams.scale = progress < 0.5 ? currentScene.scale : nextScene.scale;
   const newTimbre = progress < 0.5 ? currentScene.timbre : nextScene.timbre;
 
@@ -216,12 +276,27 @@ function updateSceneEngine(
  * FIX C4: Harmonic loop only sets targetRootHz.
  * The synthesis shell detects when targetRootHz changes and applies the 600ms slew.
  * currentRootHz is NOT updated here — the shell owns that.
+ *
+ * ✅ FIX (default-enabled flags): enableHarmonicLoop defaults to true. Use
+ * explicit `=== false` so callers that omit the field get the documented
+ * default-enabled behavior.
+ *
+ * ✅ FIX (beat-0 harmonic advance): Added `state.beat > 0` to the boundary
+ * condition. Previously beat 0 satisfied `barCount % 8 === 0 && beat % 4 === 0`
+ * (since 0 % 8 === 0 and 0 % 4 === 0), causing the loop to advance from
+ * harmonicLoopIndex 0 → 1 on the very first beat. This skipped the initial
+ * root segment that createInitialState() set up (harmonicLoopIndex=0,
+ * targetRootHz=params.rootHz, typically A3=220Hz). With the guard, the
+ * first advance fires at beat 32 (bar 8) instead, giving the initial root
+ * a full 8-bar cycle before the first change. harmonicLoopIndex and
+ * targetRootHz update behavior is unchanged.
  */
 function updateHarmonicLoop(
   state: EngineState,
-  params: EngineParams
+  params: EngineParams,
 ): Partial<EngineState> {
-  if (!params.enableHarmonicLoop) {
+  // ✅ FIX (default-enabled flags): enableHarmonicLoop defaults to true.
+  if (params.enableHarmonicLoop === false) {
     return {
       targetRootHz: params.rootHz,
       currentRootHz: params.rootHz,
@@ -230,7 +305,15 @@ function updateHarmonicLoop(
 
   const barCount = Math.floor(state.beat / BEATS_PER_BAR);
 
-  if (barCount % 8 === 0 && state.beat % BEATS_PER_BAR === 0) {
+  // ✅ FIX (beat-0 harmonic advance): `state.beat > 0` prevents the first
+  // beat from advancing the loop. The boundary check still fires every 8
+  // bars (beat 32, 64, 96, ...), preserving the original cadence after
+  // the initial cycle.
+  if (
+    state.beat > 0 &&
+    barCount % 8 === 0 &&
+    state.beat % BEATS_PER_BAR === 0
+  ) {
     const newLoopIndex = (state.harmonicLoopIndex + 1) % ROOT_LOOP_HZ.length;
     const newTarget = ROOT_LOOP_HZ[newLoopIndex];
     if (newTarget !== state.targetRootHz) {
@@ -250,7 +333,7 @@ function updateHarmonicLoop(
 export function getMusicalEvents(
   beat: number,
   state: EngineState,
-  params: EngineParams
+  params: EngineParams,
 ): { events: MusicalEvent[]; nextState: EngineState } {
   const s: EngineState = { ...state };
   const events: MusicalEvent[] = [];
@@ -282,12 +365,12 @@ export function getMusicalEvents(
 
     if (drumLevel > 0 && euclideanRhythm(sixteenthStep % 16, 5, 16)) {
       events.push({
-        type: 'kick',
+        type: "kick",
         amp: DRUM_KICK_AMP * drumLevel,
         durationSec: 0.3,
         pan: 0,
         beatIndex: beat,
-        subBeatIndex: i,   // FIX C1
+        subBeatIndex: i, // FIX C1
       });
     }
 
@@ -295,22 +378,25 @@ export function getMusicalEvents(
       const beatStep = sixteenthStep % 16;
       if (beatStep === 4 || beatStep === 12) {
         events.push({
-          type: 'snare',
+          type: "snare",
           amp: DRUM_SNARE_AMP * drumLevel,
           durationSec: 0.12,
           pan: 0,
           beatIndex: beat,
-          subBeatIndex: i,   // FIX C1
+          subBeatIndex: i, // FIX C1
           isGhost: false,
         });
-      } else if (euclideanRhythm(sixteenthStep % 16, 2, 16) && rng() < DRUM_GHOST_PROBABILITY) {
+      } else if (
+        euclideanRhythm(sixteenthStep % 16, 2, 16) &&
+        rng() < DRUM_GHOST_PROBABILITY
+      ) {
         events.push({
-          type: 'snare',
+          type: "snare",
           amp: DRUM_SNARE_AMP * 0.3 * drumLevel,
           durationSec: 0.06,
           pan: 0,
           beatIndex: beat,
-          subBeatIndex: i,   // FIX C1
+          subBeatIndex: i, // FIX C1
           isGhost: true,
         });
       }
@@ -319,12 +405,12 @@ export function getMusicalEvents(
     if (drumLevel > 0 && euclideanRhythm(sixteenthStep % 16, 9, 16)) {
       const isClosed = rng() < DRUM_HAT_CLOSED_PROB;
       events.push({
-        type: 'hihat',
+        type: "hihat",
         amp: (isClosed ? DRUM_HAT_AMP : DRUM_HAT_AMP * 0.7) * drumLevel,
         durationSec: isClosed ? 0.03 : 0.08,
         pan: 0,
         beatIndex: beat,
-        subBeatIndex: i,   // FIX C1
+        subBeatIndex: i, // FIX C1
         isClosed,
       });
     }
@@ -337,23 +423,27 @@ export function getMusicalEvents(
   const sectionOffset = sectionOffsets[barIndex % sectionOffsets.length];
 
   // 6. Cadence / Markov
-  const isCadence = s.beat % CADENCE_INTERVAL === (CADENCE_INTERVAL - 1);
+  const isCadence = s.beat % CADENCE_INTERVAL === CADENCE_INTERVAL - 1;
   if (isCadence) {
     s.degree = rng() < 0.6 ? 0 : 2;
     s.lastInterval = 0;
   } else {
-    const interval = markovStep(s.lastInterval, effectiveParams.complexity, rng);
+    const interval = markovStep(
+      s.lastInterval,
+      effectiveParams.complexity,
+      rng,
+    );
     s.lastInterval = interval;
     s.degree = (s.degree + interval + 5) % 5;
   }
 
   // 7. Melody
   if (rng() < currentDensity) {
-    const isPhraseEnd = s.beat % PHRASE_LENGTH === (PHRASE_LENGTH - 1);
+    const isPhraseEnd = s.beat % PHRASE_LENGTH === PHRASE_LENGTH - 1;
     const octaveShift = isPhraseEnd && rng() < 0.3 ? 2 : 1;
     const fMel = noteHz(s.degree, octaveShift, currentRootHz, currentScaleName);
     events.push({
-      type: 'melody',
+      type: "melody",
       hz: fMel,
       amp: 0.22,
       durationSec: beatSec * 0.85,
@@ -368,21 +458,21 @@ export function getMusicalEvents(
   const padDegree = (s.degree + 2 + sectionOffset + 5) % 5;
   const fPad = noteHz(padDegree, 2, currentRootHz, currentScaleName);
   events.push({
-    type: 'pad',
+    type: "pad",
     hz: fPad * 0.995,
     amp: 0.12,
     durationSec: beatSec * 1.0,
-    pan: -1,  // signals "left pad" → use padPanL node and ADSR_PAD_L
+    pan: -1, // signals "left pad" → use padPanL node and ADSR_PAD_L
     timbre: currentTimbre,
     beatIndex: beat,
     subBeatIndex: 0,
   });
   events.push({
-    type: 'pad',
+    type: "pad",
     hz: fPad * 1.005,
     amp: 0.12,
     durationSec: beatSec * 1.0,
-    pan: 1,   // signals "right pad" → use padPanR node and ADSR_PAD_R
+    pan: 1, // signals "right pad" → use padPanR node and ADSR_PAD_R
     timbre: currentTimbre,
     beatIndex: beat,
     subBeatIndex: 0,
@@ -394,12 +484,12 @@ export function getMusicalEvents(
     const bassDegree = (s.degree + sectionOffset + 5) % 5;
     const fBass = noteHz(bassDegree, -1, currentRootHz, currentScaleName) / 2;
     events.push({
-      type: 'bass',
+      type: "bass",
       hz: fBass,
       amp: 0.18,
       durationSec: beatSec * 0.7,
       pan: 0,
-      timbre: 'sine',
+      timbre: "sine",
       beatIndex: beat,
       subBeatIndex: 0,
     });
@@ -409,13 +499,18 @@ export function getMusicalEvents(
   if (s.beat >= s.nextBellBeat) {
     const bellOctave = 2 + Math.floor(rng() * 2);
     const bellDegree = Math.floor(rng() * 5);
-    const fBell = noteHz(bellDegree, bellOctave, currentRootHz, currentScaleName);
+    const fBell = noteHz(
+      bellDegree,
+      bellOctave,
+      currentRootHz,
+      currentScaleName,
+    );
     events.push({
-      type: 'bell',
+      type: "bell",
       hz: fBell,
       amp: 0.15,
       durationSec: beatSec * 0.3,
-      pan: 2,  // signals "bell" → use bellPan node
+      pan: 2, // signals "bell" → use bellPan node
       timbre: currentTimbre,
       beatIndex: beat,
       subBeatIndex: 0,
@@ -482,12 +577,17 @@ export function getSceneName(state: EngineState): string {
  * Used by LiveEngine.tick() to wire scene BPM to the scheduler and scene mix
  * to setMix(), and by renderAmbient to animate mix during offline rendering.
  * Mirrors the interpolation inside updateSceneEngine() exactly.
+ *
+ * ✅ FIX (default-enabled flags): enableScenes defaults to true. Use
+ * explicit `=== false` so callers that omit the field get the documented
+ * default-enabled behavior.
  */
 export function getEffectiveSceneParams(
   state: EngineState,
-  params: EngineParams
+  params: EngineParams,
 ): { bpm: number; mix: number } {
-  if (!params.enableScenes) {
+  // ✅ FIX (default-enabled flags): enableScenes defaults to true.
+  if (params.enableScenes === false) {
     return { bpm: params.bpm, mix: params.mix };
   }
 
@@ -505,10 +605,14 @@ export function getEffectiveSceneParams(
 
   const currentScene = SCENES[sceneIndex];
   const nextScene = SCENES[(sceneIndex + 1) % SCENES.length];
-  const progress = Math.min((barCount - sceneStartBar) / sceneDurationBars, 1.0);
-  const t = progress < 0.5
-    ? 2 * progress * progress
-    : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+  const progress = Math.min(
+    (barCount - sceneStartBar) / sceneDurationBars,
+    1.0,
+  );
+  const t =
+    progress < 0.5
+      ? 2 * progress * progress
+      : 1 - Math.pow(-2 * progress + 2, 2) / 2;
 
   return {
     bpm: currentScene.bpm + (nextScene.bpm - currentScene.bpm) * t,
@@ -519,12 +623,20 @@ export function getEffectiveSceneParams(
 // ── Determinism test ──────────────────────────────────────────────────────────
 
 (function testDeterminism() {
-  if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production') return;
+  if (typeof process !== "undefined" && process.env?.NODE_ENV === "production")
+    return;
 
   const testParams: EngineParams = {
-    scale: 'majorPent', rootHz: 220, bpm: 72, complexity: 0.35,
-    mix: 0.4, seed: 42, enableScenes: true, enableHarmonicLoop: true,
-    sceneDurationBars: 32, drumLevel: 0.5,
+    scale: "majorPent",
+    rootHz: 220,
+    bpm: 72,
+    complexity: 0.35,
+    mix: 0.4,
+    seed: 42,
+    enableScenes: true,
+    enableHarmonicLoop: true,
+    sceneDurationBars: 32,
+    drumLevel: 0.5,
   };
 
   function runOnce(): MusicalEvent[] {
@@ -533,7 +645,11 @@ export function getEffectiveSceneParams(
     state = initializeBell(state);
     const all: MusicalEvent[] = [];
     for (let i = 0; i < 64; i++) {
-      const { events, nextState } = getMusicalEvents(i, { ...state }, testParams);
+      const { events, nextState } = getMusicalEvents(
+        i,
+        { ...state },
+        testParams,
+      );
       all.push(...events);
       state = nextState;
     }
@@ -544,12 +660,22 @@ export function getEffectiveSceneParams(
   const r2 = runOnce();
   let match = r1.length === r2.length;
   for (let i = 0; match && i < r1.length; i++) {
-    const a = r1[i], b = r2[i];
-    if (a.type !== b.type || a.hz !== b.hz || a.amp !== b.amp ||
-        a.subBeatIndex !== b.subBeatIndex || a.isGhost !== b.isGhost || a.isClosed !== b.isClosed ||
-        a.durationSec !== b.durationSec || a.pan !== b.pan || a.timbre !== b.timbre || a.beatIndex !== b.beatIndex) {
+    const a = r1[i],
+      b = r2[i];
+    if (
+      a.type !== b.type ||
+      a.hz !== b.hz ||
+      a.amp !== b.amp ||
+      a.subBeatIndex !== b.subBeatIndex ||
+      a.isGhost !== b.isGhost ||
+      a.isClosed !== b.isClosed ||
+      a.durationSec !== b.durationSec ||
+      a.pan !== b.pan ||
+      a.timbre !== b.timbre ||
+      a.beatIndex !== b.beatIndex
+    ) {
       match = false;
     }
   }
-  if (!match) console.error('[ambient-engine] DETERMINISM TEST FAILED');
+  if (!match) console.error("[ambient-engine] DETERMINISM TEST FAILED");
 })();
