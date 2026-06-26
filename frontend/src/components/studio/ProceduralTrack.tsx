@@ -57,18 +57,25 @@ export function ProceduralTrack() {
   const isDimmed = hasManualSolo;
   const isActive = isRunning && activePlaybackSource === "generator";
 
+  // ✅ FIX: start() now returns Promise<boolean> — true only on confirmed
+  // successful engine start, false on any failure (thrown error or the
+  // early-return path when the engine was disposed during async start).
+  // Previously start() swallowed errors internally, so this catch never fired
+  // and setActivePlaybackSource("generator") was called unconditionally —
+  // showing a generator glow even when the engine wasn't actually running.
+  // Now we only set the active source after a confirmed success, and run
+  // stop() + setActivePlaybackSource(null) cleanup on failure.
   const handlePlayStop = async () => {
     if (isRunning) {
       stop();
       setActivePlaybackSource(null);
     } else {
-      try {
-        await start();
+      const success = await start();
+      if (success) {
         setActivePlaybackSource("generator");
-      } catch (err) {
+      } else {
         stop();
         setActivePlaybackSource(null);
-        console.error("Generator start failed:", err);
       }
     }
   };
