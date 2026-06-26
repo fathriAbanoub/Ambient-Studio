@@ -1,15 +1,14 @@
 /**
- * mocks.ts – Shared API mocks for Ambient Studio Playwright tests
- *
- * Strategy:
- *   - All API calls intercepted via page.route() – no real backend.
- *   - Every async action is properly awaited via visible changes.
- *   - Data‑testid attributes are used for robust selectors (see README).
- *
- * CRITICAL: Playwright route handlers are evaluated in registration order.
- * The FIRST handler that calls route.fulfill/continue/abort WINS.
- * Therefore, we NEVER call setupAllMocks() in beforeEach AND again in a test.
- * Each test that needs mocks calls setupAllMocks() exactly once.
+mocks.ts – Shared API mocks for Ambient Studio Playwright tests
+Strategy:
+All API calls intercepted via page.route() – no real backend.
+Every async action is properly awaited via visible changes.
+Data‑testid attributes are used for robust selectors (see README).
+CRITICAL: Playwright route handlers are matched in registration order,
+but executed in reverse order. The LAST registered handler that matches
+a request will handle it, unless it calls route.fallback().
+Therefore, we NEVER call setupAllMocks() in beforeEach AND again in a test.
+Each test that needs mocks calls setupAllMocks() exactly once.
  */
 
 import { Page, Route } from "@playwright/test";
@@ -37,7 +36,9 @@ function extractJobIdFromUrl(url: string): string {
 
 const MOCK_HEALTH = { status: "ok", version: "3.1.0" };
 
-export function mockAnalyzeLoopResponse(overrides: Record<string, unknown> = {}) {
+export function mockAnalyzeLoopResponse(
+  overrides: Record<string, unknown> = {},
+) {
   return {
     loop_start_ms: 4200,
     loop_end_ms: 32800,
@@ -61,7 +62,7 @@ export function mockAnalyzeLoopResponse(overrides: Record<string, unknown> = {})
         loop_start_ms: 5000,
         loop_end_ms: 30000,
         crossfade_ms: 100,
-        raw_analyzer_score: 0.80,
+        raw_analyzer_score: 0.8,
         validator_score: 0.82,
         repetition_salience_score: 0.65,
         validation_metrics: { spectral_distance: 0.12, energy_diff: 0.04 },
@@ -75,7 +76,10 @@ export function mockJobQueued(jobId = "mock-job-123") {
   return { status: "queued", job_id: jobId, queue_position: 0 };
 }
 
-export function mockJobProgress(jobId = "mock-job-123", overrides: Record<string, unknown> = {}) {
+export function mockJobProgress(
+  jobId = "mock-job-123",
+  overrides: Record<string, unknown> = {},
+) {
   return {
     job_id: jobId,
     status: "processing",
