@@ -89,7 +89,13 @@ export function useProceduralEngine() {
     setIsPlaying(false);
   }, [setGeneratorRunning, setIsPlaying]);
 
-  const start = useCallback(async () => {
+  // ✅ FIX: start() now returns Promise<boolean> — true on success, false on
+  // failure (thrown error OR early-return when the engine was disposed during
+  // the async start). Previously start() swallowed errors internally, so
+  // ProceduralTrack.handlePlayStop's catch never fired and
+  // setActivePlaybackSource("generator") was called unconditionally even when
+  // the engine failed to start.
+  const start = useCallback(async (): Promise<boolean> => {
     // ✅ FIX (CodeRabbit): Full teardown of any previous engine so state is
     // consistent even if LiveEngine construction or start() throws downstream.
     performTeardown();
@@ -124,7 +130,7 @@ export function useProceduralEngine() {
       // ✅ Guard: ensure we weren't stopped/disposed during the async start
       if (engineRef.current !== newEngine || !newEngine.running) {
         cleanupStartedEngine();
-        return;
+        return false;
       }
 
       const analyser = newEngine.ctx.createAnalyser();
@@ -162,12 +168,15 @@ export function useProceduralEngine() {
           animFrameRef.current = requestAnimationFrame(updateAnalyser);
       };
       updateAnalyser();
+
+      return true;
     } catch (error) {
       cleanupStartedEngine();
       // ✅ performTeardown() at the top already reset isRunning / store flags /
       // scenePollRef / animFrameRef, so the UI stays consistent on failure.
       addLog(`Generator start failed: ${error}`, "err");
       showToast(`Generator failed: ${error}`, "error");
+      return false;
     }
   }, [
     buildParams,

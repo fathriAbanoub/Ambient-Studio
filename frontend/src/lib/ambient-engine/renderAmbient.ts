@@ -8,6 +8,30 @@
  *   C4: 600ms harmonic slew applied via OfflineAudioContext time scheduling
  *   W3: Remove duplicated scene interpolation — accumulate beat time using
  *       actual per-beat BPM from nextState after each getMusicalEvents call
+ *   ✅ FIX (NOISE_BUFFER_SAMPLES): createNoiseBufferFromState() and
+ *       createNoiseBufferFromSnapshot() now use the shared
+ *       NOISE_BUFFER_SAMPLES constant (imported from musicalLogic.ts)
+ *       instead of computing Math.floor(ctx.sampleRate * 0.5) inline.
+ *       While the OfflineAudioContext is hardcoded to 44100 Hz (so the
+ *       inline expression happened to evaluate to 22050), this was fragile:
+ *       any future change to SAMPLE_RATE would silently desync the RNG
+ *       stream from LiveEngine's. Importing the constant ensures a single
+ *       source of truth shared across all three files (musicalLogic.ts,
+ *       LiveEngine.ts, renderAmbient.ts).
+ *   ✅ FIX (continue in-progress live slew): When startState comes from a
+ *       running LiveEngine mid-slew, currentRootHz can differ from
+ *       targetRootHz (e.g., 200 Hz mid-glide from A3=220 → F#3=185). The
+ *       offline slew trackers previously started as null, so getSlewedHz()
+ *       returned currentRootHz immediately and the export froze at the
+ *       intermediate root until the next bar-8 harmonic change. Now we
+ *       seed slewStartHz/slewEndHz/slewStartTime/slewEndTime from the
+ *       state delta (currentRootHz → targetRootHz) when they differ, so
+ *       the export continues the active glide from currentTime=0. The
+ *       live engine's wall-clock slew timing is private and not carried
+ *       in EngineState, so the offline slew restarts at the export's
+ *       first beat — this preserves the musical intent (continue toward
+ *       the target) without claiming byte-identical timing to the live
+ *       stream. The SLEW_DURATION (600ms) is unchanged.
  */
 
 import {
@@ -20,6 +44,7 @@ import {
   initializeBell,
   mulberry32Next,
   getEffectiveSceneParams,
+  NOISE_BUFFER_SAMPLES,
 } from "./musicalLogic";
 
 const FM_MOD_RATIO = 1.5;
@@ -132,6 +157,25 @@ export async function renderAmbient(
   let slewStartTime: number | null = null;
   let slewEndTime: number | null = null;
   const SLEW_DURATION = 0.6;
+
+  // ✅ FIX (continue in-progress live slew): If startState comes from a
+  // running LiveEngine that is mid-slew, currentRootHz will differ from
+  // targetRootHz (e.g., 200 Hz mid-glide from A3=220 → F#3=185). The live
+  // engine's slew timing fields are private and not carried in EngineState,
+  // so we cannot reconstruct the exact wall-clock position of the glide.
+  // Instead, we seed a fresh offline slew starting at currentTime=0 from
+  // currentRootHz → targetRootHz. This preserves the musical intent — the
+  // export continues gliding toward the target instead of freezing at the
+  // intermediate root until the next bar-8 harmonic change. The 600ms
+  // SLEW_DURATION is unchanged. When currentRootHz === targetRootHz (the
+  // common case: fresh render, or live engine not mid-slew), no slew is
+  // seeded and behavior is identical to before.
+  if (startState && state.currentRootHz !== state.targetRootHz) {
+    slewStartHz = state.currentRootHz;
+    slewEndHz = state.targetRootHz;
+    slewStartTime = 0;
+    slewEndTime = SLEW_DURATION;
+  }
 
   // ── FIX W3 + beat timing: accumulate time from actual per-beat BPM ──
   // Instead of duplicating scene interpolation logic, we read the BPM that
@@ -273,30 +317,36 @@ function getSlewedHz(
 // ── FIX C2: Noise buffer consuming from main state RNG stream ─────────────────
 // Used for fresh renders — advances state.rngState by ~22k calls in-place.
 
+// ✅ FIX (NOISE_BUFFER_SAMPLES): Uses the shared NOISE_BUFFER_SAMPLES constant
+// (imported from musicalLogic.ts) instead of Math.floor(ctx.sampleRate * 0.5).
+// While the OfflineAudioContext is hardcoded to 44100 Hz (so the inline
+// expression happened to evaluate to 22050), this was fragile: any future
+// change to SAMPLE_RATE would silently desync the RNG stream from
+// LiveEngine's createNoiseBuffer(). Importing the constant ensures a single
+// source of truth shared across all three files.
 function createNoiseBufferFromState(
   ctx: OfflineAudioContext,
   state: EngineState,
 ): AudioBuffer {
-  const bufferSize = Math.floor(ctx.sampleRate * 0.5); // 22050 at 44100Hz
-  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const buffer = ctx.createBuffer(1, NOISE_BUFFER_SAMPLES, ctx.sampleRate);
   const data = buffer.getChannelData(0);
   // Consume directly from state.rngState — advances the main stream
-  for (let i = 0; i < bufferSize; i++) {
+  for (let i = 0; i < NOISE_BUFFER_SAMPLES; i++) {
     data[i] = mulberry32Next(state) * 2 - 1;
   }
   return buffer;
 }
 
 // Used for live-export — generates from a snapshot so main stream is NOT advanced.
+// ✅ FIX (NOISE_BUFFER_SAMPLES): Same single-source-of-truth fix as above.
 function createNoiseBufferFromSnapshot(
   ctx: OfflineAudioContext,
   seedSnapshot: number,
 ): AudioBuffer {
-  const bufferSize = Math.floor(ctx.sampleRate * 0.5);
-  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const buffer = ctx.createBuffer(1, NOISE_BUFFER_SAMPLES, ctx.sampleRate);
   const data = buffer.getChannelData(0);
   const localState = { rngState: seedSnapshot };
-  for (let i = 0; i < bufferSize; i++) {
+  for (let i = 0; i < NOISE_BUFFER_SAMPLES; i++) {
     data[i] = mulberry32Next(localState) * 2 - 1;
   }
   return buffer;
