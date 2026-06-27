@@ -57,6 +57,8 @@
   --text-bright: #eaf4ff;
   --glow: rgba(0, 229, 255, 0.15);
   --glow2: rgba(124, 77, 255, 0.12);
+  --glow-cyan: rgba(0, 229, 255, 0.22);
+  --glow-purple: rgba(124, 77, 255, 0.18);
   --radius: 0.5rem;
   --background: #080c10;
   --foreground: #c8d8e8;
@@ -184,14 +186,14 @@ input[type="range"]::-moz-range-thumb {
 /* Glow effects */
 .glow-cyan {
   box-shadow:
-    0 0 20px var(--glow),
-    0 0 40px var(--glow);
+    0 0 20px var(--glow-cyan),
+    0 0 40px var(--glow-cyan);
 }
 
 .glow-purple {
   box-shadow:
-    0 0 20px var(--glow2),
-    0 0 40px var(--glow2);
+    0 0 20px var(--glow-purple),
+    0 0 40px var(--glow-purple);
 }
 
 /* Track colors */

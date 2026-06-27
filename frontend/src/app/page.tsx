@@ -1,101 +1,63 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import { useStudioStore } from "@/store/studioStore";
 import { useAudioEngine } from "@/hooks/useAudioEngine";
 import { checkHealth } from "@/lib/api";
 import { Header } from "@/components/studio/Header";
 import { Transport } from "@/components/studio/Transport";
 import { TrackCard } from "@/components/studio/TrackCard";
+import { ProceduralTrack } from "@/components/studio/ProceduralTrack";
 import { EQPanel } from "@/components/studio/EQPanel";
-import { ExportPanel } from "@/components/studio/ExportPanel";
-import { PresetBar } from "@/components/studio/PresetBar";
-import { LogConsole } from "@/components/studio/LogConsole";
+import { BottomDrawer } from "@/components/studio/BottomDrawer";
 
 export default function StudioPage() {
-  const { tracks, initTracks, setBackendOnline, addLog, masterGain, eqGains } = useStudioStore();
-  const audioContextRef = useRef<AudioContext | null>(null);
+  const { tracks, initTracks, setBackendOnline, addLog, masterGain, eqGains } =
+    useStudioStore();
   const lastBackendStatusRef = useRef<boolean | null>(null);
-  
-  // Audio Engine
+
   const engine = useAudioEngine(tracks, masterGain, eqGains);
-  
-  // Get or create audio context (used by TrackCard for decoding)
-  const getAudioContext = useCallback(() => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext();
-    }
-    return audioContextRef.current;
-  }, []);
-  
-  // Initialize tracks on mount
+
   useEffect(() => {
     initTracks(8);
-    
-    // Check backend health
     const checkBackend = async () => {
       const health = await checkHealth();
       const isOnline = health !== null;
+      const wasOnline = lastBackendStatusRef.current;
       setBackendOnline(isOnline);
-      
-      // Only log when status changes
-      if (lastBackendStatusRef.current !== isOnline) {
-        if (health) {
-          addLog(`Backend connected (v${health.version})`, "ok");
-        } else {
-          addLog("Backend offline - WAV export only", "err");
-        }
-        lastBackendStatusRef.current = isOnline;
+      if (wasOnline !== null && wasOnline !== isOnline) {
+        if (health) addLog(`Backend connected (v${health.version})`, "ok");
+        else addLog("Backend offline - WAV export only", "err");
       }
+      lastBackendStatusRef.current = isOnline;
     };
-    
     checkBackend();
-    
-    // Periodic health check
     const interval = setInterval(checkBackend, 30000);
-    
     return () => {
       clearInterval(interval);
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
     };
   }, [initTracks, setBackendOnline, addLog]);
-  
+
   return (
     <div className="min-h-screen flex flex-col bg-[var(--bg)] text-[var(--text)]">
       <Header />
-      
       <Transport engine={engine} />
-      
-      {/* Preset Bar */}
-      <div className="border-b border-[var(--border)] bg-[var(--surface)]/60 px-6 py-2">
-        <PresetBar />
-      </div>
-      
-      {/* Main Content */}
+
       <div className="flex-1 flex gap-4 p-4 min-h-0">
-        {/* Track List */}
         <div className="flex-1 flex flex-col gap-2 overflow-y-auto">
+          <ProceduralTrack />
           {tracks.map((track, index) => (
-            <TrackCard
-              key={track.id}
-              track={track}
-              index={index}
-              getAudioContext={getAudioContext}
-            />
+            <TrackCard key={track.id} track={track} index={index} />
           ))}
         </div>
-        
-        {/* EQ Panel */}
-        <div className="w-[280px] shrink-0">
+
+        <div className="w-[280px] shrink-0 relative">
+          <div className="absolute left-0 top-0 bottom-0 w-px bg-[var(--border)]" />
           <EQPanel />
         </div>
       </div>
-      
-      <ExportPanel engine={engine} />
-      
-      <LogConsole />
+
+      <BottomDrawer engine={engine} />
     </div>
   );
 }

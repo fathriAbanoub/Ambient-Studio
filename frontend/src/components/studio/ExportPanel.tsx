@@ -52,6 +52,7 @@ export function ExportPanel({ engine }: { engine: any }) {
     setCurrentJobId,
     updateJobProgress,
     resetJobState,
+    setJobError,
     jobStatus,
     queuePosition,
     elapsedSeconds,
@@ -130,7 +131,7 @@ export function ExportPanel({ engine }: { engine: any }) {
       showToast("No loop points found. Analyze a track first.", "error");
       return;
     }
-    
+
     addLog(`Previewing loop seam...`, "info");
     engine.playLoopSeam(
       loopAnalysis.loopStartMs,
@@ -181,7 +182,7 @@ export function ExportPanel({ engine }: { engine: any }) {
           } else if (progress.status === "completed") {
             setExportProgress(100);
             setExportLabel("Done!");
-            
+
             // Only log completion once
             if (!hasLoggedCompletion) {
               addLog(
@@ -192,7 +193,7 @@ export function ExportPanel({ engine }: { engine: any }) {
               );
               hasLoggedCompletion = true;
             }
-            
+
             // Only show toast once
             if (!hasShownCompletionToast) {
               showToast(
@@ -241,11 +242,17 @@ export function ExportPanel({ engine }: { engine: any }) {
             setIsExporting(false);
             resetJobState();
           } else if (progress.status === "failed") {
-            addLog(`✗ Render failed: ${progress.error}`, "err");
-            showToast(`Render failed: ${progress.error}`, "error");
+            // Save the error before resetJobState() wipes it — otherwise the
+            // export-error div never stably renders (React batches the
+            // set(jobError) + set(initialJobState) into a single commit and
+            // the component re-renders with jobError === null).
+            const errorMsg = progress.error ?? "Unknown error";
+            addLog(`✗ Render failed: ${errorMsg}`, "err");
+            showToast(`Render failed: ${errorMsg}`, "error");
             stopPolling();
             setIsExporting(false);
             resetJobState();
+            setJobError(errorMsg); // re-apply so the error UI stays visible
           } else if (progress.status === "cancelled") {
             addLog("Render cancelled", "info");
             showToast("Render cancelled", "warning");
@@ -272,6 +279,7 @@ export function ExportPanel({ engine }: { engine: any }) {
       setJobHistory,
       setIsExporting,
       resetJobState,
+      setJobError,
     ],
   );
 
@@ -283,6 +291,9 @@ export function ExportPanel({ engine }: { engine: any }) {
   }, []);
 
   const handleExportWav = async () => {
+    // Clear any stale error from previous runs
+    setJobError(null);
+
     if (noTracksLoaded) {
       showToast(
         "No tracks loaded. Please load at least one audio track.",
@@ -341,6 +352,9 @@ export function ExportPanel({ engine }: { engine: any }) {
   };
 
   const handleExportVideo = async () => {
+    // Clear any stale error from previous runs
+    setJobError(null);
+
     if (noTracksLoaded) {
       showToast(
         "No tracks loaded. Please load at least one audio track.",
@@ -456,7 +470,10 @@ export function ExportPanel({ engine }: { engine: any }) {
       <div className="relative z-10 border-t border-[var(--border)] bg-[var(--surface)]/80 backdrop-blur-sm p-4">
         {/* Validation Warnings */}
         {(noTracksLoaded || invalidDuration) && (
-          <div className="mb-4 p-3 bg-[var(--warn)]/10 border border-[var(--warn)]/30 rounded text-sm">
+          <div
+            data-testid="no-tracks-warning"
+            className="mb-4 p-3 bg-[var(--warn)]/10 border border-[var(--warn)]/30 rounded text-sm"
+          >
             <div className="flex items-center gap-2 text-[var(--warn)]">
               <AlertCircle className="w-4 h-4" />
               <span className="font-medium">Cannot render:</span>
@@ -483,6 +500,7 @@ export function ExportPanel({ engine }: { engine: any }) {
               DURATION (min)
             </label>
             <input
+              data-testid="export-duration-input"
               type="number"
               min="1"
               max="480"
@@ -506,6 +524,7 @@ export function ExportPanel({ engine }: { engine: any }) {
               FILE NAME
             </label>
             <input
+              data-testid="export-filename-input"
               type="text"
               value={exportName}
               onChange={(e) => setExportName(e.target.value)}
@@ -550,6 +569,7 @@ export function ExportPanel({ engine }: { engine: any }) {
               VISUALIZER
             </label>
             <button
+              data-testid="visualizer-toggle"
               onClick={() => setShowVisualizer(!showVisualizer)}
               className={`flex items-center gap-2 px-3 py-2 rounded border transition-all text-sm ${
                 showVisualizer
@@ -557,6 +577,7 @@ export function ExportPanel({ engine }: { engine: any }) {
                   : "border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--accent2)]"
               }`}
               title="Include audio visualizer in rendered video"
+              aria-pressed={showVisualizer}
             >
               <div className="flex gap-0.5">
                 <div className="w-1 h-4 bg-current opacity-60"></div>
@@ -575,6 +596,7 @@ export function ExportPanel({ engine }: { engine: any }) {
               GPU ENCODE
             </label>
             <button
+              data-testid="gpu-toggle"
               onClick={() => setUseGpuEncoding(!useGpuEncoding)}
               className={`flex items-center gap-2 px-3 py-2 rounded border transition-all text-sm ${
                 useGpuEncoding
@@ -582,6 +604,7 @@ export function ExportPanel({ engine }: { engine: any }) {
                   : "border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--warn)]"
               }`}
               title={useGpuEncoding ? "Using GPU (NVENC) - Faster" : "Using CPU (libx264) - Slower"}
+              aria-pressed={useGpuEncoding}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
@@ -594,6 +617,7 @@ export function ExportPanel({ engine }: { engine: any }) {
           <div className="flex flex-col gap-2 ml-auto items-end">
             <div className="flex flex-col items-end gap-1 min-w-[220px]">
               <button
+                data-testid="analyze-loop"
                 onClick={handleAnalyzeLoop}
                 disabled={
                   isAnalyzingLoop || activeTracksForAnalysis.length === 0
@@ -618,25 +642,33 @@ export function ExportPanel({ engine }: { engine: any }) {
               </button>
 
               {loopAnalysisError && (
-                <p className="text-sm text-[var(--warn)] mt-1">
+                <p
+                  data-testid="analysis-error"
+                  className="text-sm text-[var(--warn)] mt-1"
+                >
                   {loopAnalysisError}
                 </p>
               )}
 
               {loopAnalysis && (
-                <div className="rounded-md border border-[var(--border)] p-3 mt-2 space-y-1 text-sm w-full">
+                <div
+                  data-testid="analysis-result"
+                  className="rounded-md border border-[var(--border)] p-3 mt-2 space-y-1 text-sm w-full"
+                >
                   <p className="font-medium text-[var(--text)]">
                     Loop Analysis Result
                   </p>
 
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[var(--text-dim)]">
                     <span>Loop start</span>
-                    <span>
-                      {(loopAnalysis.loopStartMs / 1000).toFixed(3)}s
+                    <span data-testid="analysis-loop-start">
+                      {(loopAnalysis.loopStartMs / 1000).toFixed(1)}s
                     </span>
 
                     <span>Loop end</span>
-                    <span>{(loopAnalysis.loopEndMs / 1000).toFixed(3)}s</span>
+                    <span data-testid="analysis-loop-end">
+                      {(loopAnalysis.loopEndMs / 1000).toFixed(1)}s
+                    </span>
 
                     <span>Duration</span>
                     <span>
@@ -652,6 +684,7 @@ export function ExportPanel({ engine }: { engine: any }) {
 
                     <span>Score</span>
                     <span
+                      data-testid="analysis-score"
                       className={
                         loopAnalysis.score < 0.7
                           ? "text-[var(--warn)] font-medium"
@@ -663,20 +696,23 @@ export function ExportPanel({ engine }: { engine: any }) {
                   </div>
 
                   {loopAnalysis.score < 0.7 && (
-                    <p className="text-[var(--warn)] text-xs mt-1">
+                    <p
+                      data-testid="low-score-warning"
+                      className="text-[var(--warn)] text-xs mt-1"
+                    >
                       ⚠ Loop seam may be audible. Consider using an alternative
                       candidate.
                     </p>
                   )}
 
-                  {(loopAnalysis.candidates?.length ?? 0) > 0 ||
-                  (loopAnalysis.alternatives?.length ?? 0) > 0 ? (
-                    <p className="text-[var(--text-dim)] text-xs mt-1">
-                      {loopAnalysis.candidates?.length ?? 0} candidate(s) ·{" "}
-                      {loopAnalysis.alternatives?.length ?? 0} alternative(s)
-                      detected
-                    </p>
-                  ) : null}
+                  <div className="flex gap-4 text-[var(--text-dim)] text-xs mt-1">
+                    <span data-testid="analysis-candidates">
+                      {loopAnalysis.candidates?.length ?? 0} candidate(s)
+                    </span>
+                    <span data-testid="analysis-alternatives">
+                      {loopAnalysis.alternatives?.length ?? 0} alternative(s) detected
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
@@ -684,6 +720,7 @@ export function ExportPanel({ engine }: { engine: any }) {
             <div className="flex gap-3">
             {loopAnalysis && (
               <button
+                data-testid="preview-seam"
                 onClick={handlePreviewSeam}
                 disabled={isExporting}
                 className={`
@@ -702,6 +739,7 @@ export function ExportPanel({ engine }: { engine: any }) {
             )}
 
             <button
+              data-testid="export-wav"
               onClick={handleExportWav}
               disabled={buttonsDisabled}
               title={tooltip}
@@ -723,6 +761,7 @@ export function ExportPanel({ engine }: { engine: any }) {
             </button>
 
             <button
+              data-testid="render-video"
               onClick={handleExportVideo}
               disabled={buttonsDisabled}
               title={tooltip}
@@ -746,6 +785,7 @@ export function ExportPanel({ engine }: { engine: any }) {
             {/* Cancel Button */}
             {isExporting && (
               <button
+                data-testid="cancel-render"
                 onClick={handleCancel}
                 className="flex items-center gap-2 px-4 py-2 rounded font-medium transition-all bg-[var(--warn)]/20 text-[var(--warn)] hover:bg-[var(--warn)]/30 border border-[var(--warn)]"
               >
@@ -761,7 +801,10 @@ export function ExportPanel({ engine }: { engine: any }) {
         {isExporting && (
           <div className="mt-4">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-[var(--text-dim)]">
+              <span
+                data-testid="export-progress-label"
+                className="text-xs text-[var(--text-dim)]"
+              >
                 {exportLabel}
               </span>
               <div className="flex items-center gap-3">
@@ -785,7 +828,10 @@ export function ExportPanel({ engine }: { engine: any }) {
                 </span>
               </div>
             </div>
-            <div className="h-1.5 bg-[var(--surface2)] rounded-full overflow-hidden">
+            <div
+              data-testid="export-progress-bar"
+              className="h-1.5 bg-[var(--surface2)] rounded-full overflow-hidden"
+            >
               <div
                 className="h-full bg-gradient-to-r from-[var(--accent)] to-[var(--accent2)] transition-all duration-300"
                 style={{ width: `${exportProgress}%` }}
@@ -796,7 +842,10 @@ export function ExportPanel({ engine }: { engine: any }) {
 
         {/* Error Display */}
         {jobError && (
-          <div className="mt-3 p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
+          <div
+            data-testid="export-error"
+            className="mt-3 p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400"
+          >
             Error: {jobError}
           </div>
         )}
