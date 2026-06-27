@@ -1,23 +1,22 @@
 /**
-mocks.ts – Shared API mocks for Ambient Studio Playwright tests
-Strategy:
-All API calls intercepted via page.route() – no real backend.
-Every async action is properly awaited via visible changes.
-Data‑testid attributes are used for robust selectors (see README).
-CRITICAL: Playwright route handlers are matched in registration order,
-but executed in reverse order. The LAST registered handler that matches
-a request will handle it, unless it calls route.fallback().
-Therefore, we NEVER call setupAllMocks() in beforeEach AND again in a test.
-Each test that needs mocks calls setupAllMocks() exactly once.
+ * mocks.ts – Shared API mocks for Ambient Studio Playwright tests
+ *
+ * Strategy:
+ *   - All API calls intercepted via page.route() – no real backend.
+ *   - Every async action is properly awaited via visible changes.
+ *   - Data‑testid attributes are used for robust selectors (see README).
+ *
+ * CRITICAL: Playwright route handlers are evaluated in registration order.
+ * The FIRST handler that calls route.fulfill/continue/abort WINS.
+ * Therefore, we NEVER call setupAllMocks() in beforeEach AND again in a test.
+ * Each test that needs mocks calls setupAllMocks() exactly once.
  */
 
 import { Page, Route } from "@playwright/test";
 
 export const API_BASE = "http://localhost:3003";
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Constants & helpers
-// ──────────────────────────────────────────────────────────────────────────────
+// ── Constants & helpers ──────────────────────────────────────────────────────
 
 /**
  * Extracts the job ID from a URL path like `/job/123/progress` or `/job/123`.
@@ -230,76 +229,42 @@ export async function setupAllMocks(page: Page, options: MockOptions = {}) {
     }),
   );
 
-  // ── Job Progress (wildcard – matches any job ID) ──
+  // ── Job Progress (counter-based – matches any job ID) ──
+  // ponytail: A mock doesn't need a formal FSM. We track how many times the
+  // endpoint was hit and return the appropriate response from the scenario.
+  // Ceiling: If scenarios need complex branching based on request bodies or
+  // per-job state, upgrade to a real state machine. For now, a counter is enough.
   await page.route(`${API_BASE}/job/*/progress`, async (route: Route) => {
-    pollCount++;
-    const jobId = extractJobIdFromUrl(route.request().url()); // ← FIXED
+    const jobId = extractJobIdFromUrl(route.request().url());
+    const i = pollCount++;
 
-    if (scenario === "failed") {
-      return route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(mockJobFailed(jobId)),
-      });
+    let body: Record<string, unknown>;
+    if (scenario === "failed") body = mockJobFailed(jobId);
+    else if (scenario === "always-queued")
+      body = mockJobQueuedWaiting(jobId, 2);
+    else if (scenario === "always-processing")
+      body = mockJobProgress(jobId, { progress: 30 });
+    else if (scenario === "queued-then-processing") {
+      if (i === 0) body = mockJobQueuedWaiting(jobId, 2);
+      else if (i === 1) body = mockJobProgress(jobId, { progress: 30 });
+      else body = mockJobCompleted(jobId);
+    } else {
+      // processing-then-complete
+      if (i === 0) body = mockJobProgress(jobId);
+      else body = mockJobCompleted(jobId);
     }
 
-    if (scenario === "always-queued") {
-      return route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(mockJobQueuedWaiting(jobId, 2)),
-      });
-    }
-
-    if (scenario === "always-processing") {
-      return route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(mockJobProgress(jobId, { progress: 30 })),
-      });
-    }
-
-    if (scenario === "queued-then-processing") {
-      if (pollCount <= 1) {
-        return route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify(mockJobQueuedWaiting(jobId, 2)),
-        });
-      }
-      if (pollCount <= 2) {
-        return route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify(mockJobProgress(jobId, { progress: 30 })),
-        });
-      }
-      return route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(mockJobCompleted(jobId)),
-      });
-    }
-
-    // Default: processing-then-complete
-    if (pollCount <= 1) {
-      return route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(mockJobProgress(jobId)),
-      });
-    }
     return route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(mockJobCompleted(jobId)),
+      body: JSON.stringify(body),
     });
   });
 
   // ── Job Status (GET/DELETE) ──
   await page.route(`${API_BASE}/job/*`, (route: Route) => {
     if (route.request().method() === "DELETE") {
-      const jobId = extractJobIdFromUrl(route.request().url()); // ← FIXED
+      const jobId = extractJobIdFromUrl(route.request().url());
       return route.fulfill({
         status: 200,
         contentType: "application/json",

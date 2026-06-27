@@ -186,7 +186,8 @@ test.describe("Procedural Generator", () => {
           super(numberOfChannels, length, sampleRate);
         }
         startRendering() {
-          return new Promise((resolve) => {
+          // ✅ FIX: Add <AudioBuffer> generic to resolve TypeScript error
+          return new Promise<AudioBuffer>((resolve) => {
             setTimeout(() => {
               resolve({
                 length: this.length,
@@ -205,7 +206,6 @@ test.describe("Procedural Generator", () => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     await page.getByTestId("generator-expand").click();
-    // ✅ No unused `procTrack` – we use the global `page` directly
     const exportDurationInput = page.getByTestId("generator-export-duration");
     await exportDurationInput.fill("1");
     const exportBtn = page.getByTestId("generator-export-wav");
@@ -254,6 +254,10 @@ test.describe("Active Playback Source", () => {
   }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
+    // ✅ FIX: Wait for backend health check to resolve before interacting.
+    await expect(page.getByTestId("status-indicator")).toHaveText("IDLE", {
+      timeout: 10000,
+    });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
     await expect(track1.getByTestId("track-name")).toBeVisible({
@@ -275,6 +279,10 @@ test.describe("Active Playback Source", () => {
   }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
+    // ✅ FIX: Wait for backend health check to resolve before interacting.
+    await expect(page.getByTestId("status-indicator")).toHaveText("IDLE", {
+      timeout: 10000,
+    });
     const genBtn = page.getByTestId("generator-play-stop");
     await genBtn.click();
     await expect(genBtn).toHaveText(/stop/i, { timeout: 10000 });
@@ -288,6 +296,10 @@ test.describe("Active Playback Source", () => {
   }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
+    // ✅ FIX: Wait for backend health check to resolve before interacting.
+    await expect(page.getByTestId("status-indicator")).toHaveText("IDLE", {
+      timeout: 10000,
+    });
     const genBtn = page.getByTestId("generator-play-stop");
     await genBtn.click();
     await expect(genBtn).toHaveText(/stop/i, { timeout: 10000 });
@@ -333,6 +345,10 @@ test.describe("Transport", () => {
   test("play → stop cycle should reset UI state", async ({ page }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
+    // This test already had the guard – keep it.
+    await expect(page.getByTestId("status-indicator")).toHaveText("IDLE", {
+      timeout: 10000,
+    });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
     await expect(track1.getByTestId("track-name")).toBeVisible({
@@ -368,6 +384,10 @@ test.describe("Transport", () => {
   }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
+    // ✅ FIX: Wait for backend health check to resolve before interacting.
+    await expect(page.getByTestId("status-indicator")).toHaveText("IDLE", {
+      timeout: 10000,
+    });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
     await expect(track1.getByTestId("track-name")).toBeVisible({

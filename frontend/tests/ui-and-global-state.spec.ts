@@ -162,6 +162,10 @@ test.describe("Header Status", () => {
   }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
+    // ✅ FIX: Wait for backend health check to resolve before interacting.
+    await expect(page.getByTestId("status-indicator")).toHaveText("IDLE", {
+      timeout: 10000,
+    });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
     await expect(track1.getByTestId("track-name")).toBeVisible({
@@ -200,6 +204,10 @@ test.describe("Header Status", () => {
   }) => {
     await setupAllMocks(page, { scenario: "always-processing" });
     await page.goto("/", { waitUntil: "networkidle" });
+    // ✅ FIX: Wait for backend health check to resolve before interacting.
+    await expect(page.getByTestId("status-indicator")).toHaveText("IDLE", {
+      timeout: 10000,
+    });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
     await expect(track1.getByTestId("track-name")).toBeVisible({

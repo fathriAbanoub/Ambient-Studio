@@ -1,28 +1,45 @@
 /**
  * export-and-jobs.spec.ts – Production‑ready Playwright test suite for Ambient Studio
  * Focus: Loop analysis, preview seam, audio/video export, job cancellation, and error handling.
+ *
+ * ✅ FIX (response-based waits): Tests that assert on post-completion UI text
+ * now wait for the completion API response BEFORE asserting the UI. Previously
+ * they polled for text with a 20s timeout, racing the component's 2-second
+ * setInterval. Now: waitForResponse(cause) → expect(effect). Deterministic.
  */
 
 import { test, expect, FIXTURE_WAV } from "./helpers/base-test";
-import { setupAllMocks } from "./helpers/mocks";
+import { setupAllMocks, API_BASE } from "./helpers/mocks";
 
 // ──────────────────────────────────────────────────────────────────────────────
 
 test.describe("Loop Analysis", () => {
-  test("should perform successful loop analysis and display results", async ({ page }) => {
+  test("should perform successful loop analysis and display results", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await page.getByTestId("export-tab").click();
     await page.getByTestId("analyze-loop").click();
-    await expect(page.getByTestId("analysis-result")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("analysis-result")).toBeVisible({
+      timeout: 15000,
+    });
     await expect(page.getByTestId("analysis-score")).toHaveText(/91\.0%/);
-    await expect(page.getByTestId("analysis-loop-start")).toHaveText(/4\.2\s*s/);
+    await expect(page.getByTestId("analysis-loop-start")).toHaveText(
+      /4\.2\s*s/,
+    );
     await expect(page.getByTestId("analysis-loop-end")).toHaveText(/32\.8\s*s/);
-    await expect(page.getByTestId("analysis-candidates")).toHaveText(/1 candidate/);
-    await expect(page.getByTestId("analysis-alternatives")).toHaveText(/1 alternative/);
+    await expect(page.getByTestId("analysis-candidates")).toHaveText(
+      /1 candidate/,
+    );
+    await expect(page.getByTestId("analysis-alternatives")).toHaveText(
+      /1 alternative/,
+    );
   });
 
   test("should show warning for low-score analysis", async ({ page }) => {
@@ -30,22 +47,33 @@ test.describe("Loop Analysis", () => {
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await page.getByTestId("export-tab").click();
     await page.getByTestId("analyze-loop").click();
-    await expect(page.getByTestId("low-score-warning")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("low-score-warning")).toBeVisible({
+      timeout: 15000,
+    });
     await expect(page.getByTestId("analysis-score")).toHaveText(/55\.0%/);
   });
 
   test("should handle analysis failure gracefully", async ({ page }) => {
-    await setupAllMocks(page, { analyzeStatus: 500, analyzeBody: "Internal Server Error" });
+    await setupAllMocks(page, {
+      analyzeStatus: 500,
+      analyzeBody: "Internal Server Error",
+    });
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await page.getByTestId("export-tab").click();
     await page.getByTestId("analyze-loop").click();
-    await expect(page.getByTestId("analysis-error")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("analysis-error")).toBeVisible({
+      timeout: 15000,
+    });
   });
 });
 
@@ -55,18 +83,26 @@ test.describe("Preview Seam", () => {
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await page.getByTestId("export-tab").click();
     await page.getByTestId("analyze-loop").click();
-    await expect(page.getByTestId("analysis-result")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("analysis-result")).toBeVisible({
+      timeout: 15000,
+    });
     const previewBtn = page.getByTestId("preview-seam");
     await expect(previewBtn).toBeVisible();
     await previewBtn.click();
     await page.getByTestId("console-tab").click();
-    await expect(page.getByText("Previewing loop seam...")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Previewing loop seam...")).toBeVisible({
+      timeout: 5000,
+    });
   });
 
-  test("should not show Preview Seam button without analysis", async ({ page }) => {
+  test("should not show Preview Seam button without analysis", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     await page.getByTestId("export-tab").click();
@@ -75,18 +111,46 @@ test.describe("Preview Seam", () => {
 });
 
 test.describe("Audio Export", () => {
-  test("should submit audio export job and show progress then completion", async ({ page }) => {
+  test("should submit audio export job and show progress then completion", async ({
+    page,
+  }) => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await page.getByTestId("export-tab").click();
     await page.getByTestId("export-wav").click();
-    await expect(page.getByTestId("export-progress-label")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("export-progress-label")).toBeVisible({
+      timeout: 10000,
+    });
+
+    // ✅ FIX: Wait for the completion poll response (the cause) before
+    // asserting the UI text (the effect).
+    await page.waitForResponse(
+      async (resp) => {
+        if (!resp.url().includes("/progress") || resp.status() !== 200)
+          return false;
+        try {
+          const json = await resp.json();
+          return json.status === "completed";
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 20000 },
+    );
+
+    // ✅ FIX: Click the Console tab to make the log message visible.
+    await page.getByTestId("console-tab").click();
+
     await expect(
-      page.getByText(/Audio rendered successfully|Audio render completed/).first()
-    ).toBeVisible({ timeout: 20000 });
+      page
+        .getByText(/Audio rendered successfully|Audio render completed/)
+        .first(),
+    ).toBeVisible({ timeout: 5000 });
   });
 
   test("should show progress updates during rendering", async ({ page }) => {
@@ -94,10 +158,14 @@ test.describe("Audio Export", () => {
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await page.getByTestId("export-tab").click();
     await page.getByTestId("export-wav").click();
-    await expect(page.getByTestId("export-progress-bar")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("export-progress-bar")).toBeVisible({
+      timeout: 10000,
+    });
   });
 
   test("should disable export when no tracks loaded", async ({ page }) => {
@@ -141,13 +209,40 @@ test.describe("Video Export", () => {
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await page.getByTestId("export-tab").click();
     await page.getByTestId("render-video").click();
-    await expect(page.getByTestId("export-progress-label")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("export-progress-label")).toBeVisible({
+      timeout: 10000,
+    });
+
+    // ✅ FIX: Wait for the completion poll response (the cause)
+    await page.waitForResponse(
+      async (resp) => {
+        if (!resp.url().includes("/progress") || resp.status() !== 200)
+          return false;
+        try {
+          const json = await resp.json();
+          return json.status === "completed";
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 20000 },
+    );
+
+    // ✅ FIX: The completion message is in the Console tab (hidden by default).
+    // Click the tab to make it visible before asserting.
+    await page.getByTestId("console-tab").click();
     await expect(
-      page.getByText(/Video saved successfully|Video render completed|Render finished/).first()
-    ).toBeVisible({ timeout: 20000 });
+      page
+        .getByText(
+          /Video saved successfully|Video render completed|Render finished/,
+        )
+        .first(),
+    ).toBeVisible({ timeout: 5000 });
   });
 
   test("should toggle visualizer ON/OFF", async ({ page }) => {
@@ -180,7 +275,9 @@ test.describe("Video Export", () => {
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await page.getByTestId("export-tab").click();
     const previewBtn = page.getByRole("button", { name: /preview/i });
     await expect(previewBtn).toBeEnabled();
@@ -200,14 +297,18 @@ test.describe("Job Cancellation", () => {
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await page.getByTestId("export-tab").click();
     await page.getByTestId("export-wav").click();
     const cancelBtn = page.getByTestId("cancel-render");
     await expect(cancelBtn).toBeVisible({ timeout: 10000 });
     await cancelBtn.click();
     await page.getByTestId("console-tab").click();
-    await expect(page.getByText("Render cancelled").first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Render cancelled").first()).toBeVisible({
+      timeout: 5000,
+    });
   });
 
   test("should cancel a queued job", async ({ page }) => {
@@ -215,14 +316,18 @@ test.describe("Job Cancellation", () => {
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await page.getByTestId("export-tab").click();
     await page.getByTestId("export-wav").click();
     const cancelBtn = page.getByTestId("cancel-render");
     await expect(cancelBtn).toBeVisible({ timeout: 10000 });
     await cancelBtn.click();
     await page.getByTestId("console-tab").click();
-    await expect(page.getByText("Render cancelled").first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Render cancelled").first()).toBeVisible({
+      timeout: 5000,
+    });
   });
 });
 
@@ -232,20 +337,48 @@ test.describe("Error Handling", () => {
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await page.getByTestId("export-tab").click();
     await page.getByTestId("export-wav").click();
-    await expect(page.getByTestId("export-error")).toBeVisible({ timeout: 20000 });
+
+    // ✅ FIX: Wait for the failed poll response (the cause) before asserting
+    // the error UI (the effect).
+    await page.waitForResponse(
+      async (resp) => {
+        if (!resp.url().includes("/progress") || resp.status() !== 200)
+          return false;
+        try {
+          const json = await resp.json();
+          return json.status === "failed";
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 20000 },
+    );
+
+    await expect(page.getByTestId("export-error")).toBeVisible({
+      timeout: 5000,
+    });
   });
 
   test("should handle analysis failure gracefully", async ({ page }) => {
-    await setupAllMocks(page, { analyzeStatus: 500, analyzeBody: "Analysis service unavailable" });
+    await setupAllMocks(page, {
+      analyzeStatus: 500,
+      analyzeBody: "Analysis service unavailable",
+    });
     await page.goto("/", { waitUntil: "networkidle" });
     const track1 = page.getByTestId("track-1");
     await track1.getByTestId("file-input").setInputFiles(FIXTURE_WAV);
-    await expect(track1.getByTestId("track-name")).toBeVisible({ timeout: 10000 });
+    await expect(track1.getByTestId("track-name")).toBeVisible({
+      timeout: 10000,
+    });
     await page.getByTestId("export-tab").click();
     await page.getByTestId("analyze-loop").click();
-    await expect(page.getByTestId("analysis-error")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("analysis-error")).toBeVisible({
+      timeout: 15000,
+    });
   });
 });
