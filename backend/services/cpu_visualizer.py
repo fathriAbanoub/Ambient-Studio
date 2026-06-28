@@ -11,6 +11,7 @@ Performance: 5-min video in ~90-120s (vs 395s with showfreqs)
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import subprocess
 import time
@@ -273,12 +274,167 @@ def create_ffmpeg_encoder(
     
     logger.info(f"Starting FFmpeg encoder: {' '.join(cmd[:15])}...")
     
+    # ponytail: stderr is DEVNULL to avoid pipe buffer deadlock on long renders.
+    # Ceiling: We lose FFmpeg's diagnostic output on failure.
+    # Upgrade path: If we need stderr for debugging, drain it in a background
+    # thread or write it to a per-job log file instead of capturing via pipe.
     return subprocess.Popen(
         cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
     )
+
+
+def _render_cpu_blocking(
+    audio_path: Path,
+    background_path: Path,
+    output_path: Path,
+    settings: "Settings",
+    fps: int,
+    n_bars: int,
+    job_id: Optional[str],
+    job_manager,
+    start_time: float,
+) -> None:
+    """Synchronous CPU render — called from a thread via asyncio.to_thread."""
+
+    def log_with_time(message):
+        elapsed = time.time() - start_time
+        timestamp_msg = f"[{elapsed:.2f}s] {message}"
+        logger.info(timestamp_msg)
+        if job_manager and job_id:
+            job_manager.update_progress(
+                job_id,
+                job_manager.jobs[job_id]["progress"],
+                {"log_message": timestamp_msg}
+            )
+
+    # Step 1: Pre-compute audio features
+    log_with_time(f"🎵 Analyzing audio ({n_bars} bars @ {fps} fps)...")
+    bar_data = precompute_audio_features(audio_path, fps=fps, n_bars=n_bars)
+    num_frames = len(bar_data)
+    log_with_time(f"✓ Audio analysis complete ({num_frames} frames)")
+
+    # Step 2: Initialize CPU renderer
+    log_with_time("💻 Initializing CPU renderer...")
+    renderer = None
+    try:
+        renderer = CPUVisualizerRenderer(
+            background_path,
+            width=settings.VIDEO_WIDTH,
+            height=settings.VIDEO_HEIGHT,
+            bar_height_scale=0.30,
+        )
+    except Exception as e:
+        log_with_time(f"❌ CPU renderer initialization failed: {e}")
+        raise
+    log_with_time("✓ CPU renderer ready")
+
+    # Step 3: Start FFmpeg encoder
+    log_with_time("🎬 Starting encoder...")
+    ffmpeg_proc = None
+    render_success = False
+    try:
+        ffmpeg_proc = create_ffmpeg_encoder(
+            output_path,
+            audio_path,
+            fps=fps,
+            width=settings.VIDEO_WIDTH,
+            height=settings.VIDEO_HEIGHT,
+            use_nvenc=True,
+        )
+    except Exception as e:
+        log_with_time(f"❌ Encoder startup failed: {e}")
+        raise
+    log_with_time("✓ Encoder started")
+
+    # Step 4: Render loop
+    log_with_time(f"🎨 Rendering {num_frames} frames...")
+    render_start = time.time()
+
+    # Grab the stop event for cooperative cancellation
+    stop_event = job_manager.job_stop_events.get(job_id) if job_manager and job_id else None
+
+    try:
+        for frame_idx in range(num_frames):
+            # Check cancellation before rendering each frame
+            if stop_event and stop_event.is_set():
+                log_with_time(f"⏹️ Job {job_id} cancelled during CPU render")
+                ffmpeg_proc.terminate()
+                try:
+                    ffmpeg_proc.wait(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    ffmpeg_proc.kill()
+                    ffmpeg_proc.wait()
+                raise RuntimeError("Job cancelled by user")
+
+            # Get bar heights for this frame
+            bar_heights = bar_data[frame_idx]
+
+            # Calculate zoom based on bass energy
+            zoom = compute_zoom_factor(
+                bar_heights,
+                zoom_start=settings.ZOOM_START,
+                zoom_end=settings.ZOOM_END,
+            )
+
+            # Render frame on CPU
+            frame_bytes = renderer.render_frame(bar_heights, zoom)
+
+            # Write to FFmpeg stdin, handle sudden encoder death (cross-platform)
+            try:
+                ffmpeg_proc.stdin.write(frame_bytes)
+            except OSError as e:
+                # FFmpeg died mid-render; wait for exit to get return code
+                ffmpeg_proc.wait()
+                raise RuntimeError(
+                    f"FFmpeg died mid-render (exit code {ffmpeg_proc.returncode})"
+                ) from e
+
+            # Progress update every 50 frames
+            if frame_idx % 50 == 0 and job_manager and job_id:
+                progress = int((frame_idx / num_frames) * 100)
+                job_manager.update_progress(job_id, progress, {})
+
+        # Mark success before cleanup
+        render_success = True
+
+    except Exception as e:
+        log_with_time(f"❌ Render loop error: {e}")
+        raise
+    finally:
+        if ffmpeg_proc is not None:
+            try:
+                ffmpeg_proc.stdin.close()
+            except OSError:
+                pass
+
+            if not render_success:
+                try:
+                    ffmpeg_proc.terminate()
+                    ffmpeg_proc.wait(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    ffmpeg_proc.kill()
+                    ffmpeg_proc.wait()
+                except OSError:
+                    pass
+
+    # If we reach here, render_success is True
+    render_elapsed = time.time() - render_start
+    log_with_time(f"✓ Rendering complete ({render_elapsed:.2f}s, {num_frames/render_elapsed:.1f} fps)")
+
+    # Wait for FFmpeg to finish encoding
+    log_with_time("⏳ Waiting for encoder to finish...")
+    returncode = ffmpeg_proc.wait()
+
+    if returncode != 0:
+        logger.error(f"FFmpeg encoding failed with exit code {returncode}")
+        raise RuntimeError(f"FFmpeg encoding failed (exit code {returncode})")
+
+    total_elapsed = time.time() - start_time
+    file_size = output_path.stat().st_size / (1024 * 1024)  # MB
+    log_with_time(f"✅ Complete! Total: {total_elapsed:.2f}s | Size: {file_size:.1f}MB")
 
 
 async def render_video_cpu(
@@ -295,105 +451,22 @@ async def render_video_cpu(
     """
     Main entry point for CPU-optimized video rendering.
     
-    Args:
-        audio_path: Path to audio file
-        background_path: Path to background image
-        output_path: Output video path
-        settings: Application settings
-        fps: Target video frame rate (10 recommended for CPU)
-        n_bars: Number of frequency bars
-        job_id: Optional job ID for progress tracking
-        job_manager: Optional job manager for progress updates
-        start_time: Optional start time for logging
+    Offloads all blocking CPU + FFmpeg work to a thread so the
+    asyncio event loop stays responsive for health checks, progress
+    polls, and cancellation requests.
     """
     if start_time is None:
         start_time = time.time()
-    
-    def log_with_time(message):
-        elapsed = time.time() - start_time
-        timestamp_msg = f"[{elapsed:.2f}s] {message}"
-        logger.info(timestamp_msg)
-        if job_manager and job_id:
-            job_manager.update_progress(
-                job_id,
-                job_manager.jobs[job_id]["progress"],
-                {"log_message": timestamp_msg}
-            )
-    
-    try:
-        # Step 1: Pre-compute audio features
-        log_with_time(f"🎵 Analyzing audio ({n_bars} bars @ {fps} fps)...")
-        bar_data = precompute_audio_features(audio_path, fps=fps, n_bars=n_bars)
-        num_frames = len(bar_data)
-        log_with_time(f"✓ Audio analysis complete ({num_frames} frames)")
-        
-        # Step 2: Initialize CPU renderer
-        log_with_time("💻 Initializing CPU renderer...")
-        renderer = CPUVisualizerRenderer(
-            background_path,
-            width=settings.VIDEO_WIDTH,
-            height=settings.VIDEO_HEIGHT,
-            bar_height_scale=0.30,
-        )
-        log_with_time("✓ CPU renderer ready")
-        
-        # Step 3: Start FFmpeg encoder
-        log_with_time("🎬 Starting encoder...")
-        ffmpeg_proc = create_ffmpeg_encoder(
-            output_path,
-            audio_path,
-            fps=fps,
-            width=settings.VIDEO_WIDTH,
-            height=settings.VIDEO_HEIGHT,
-            use_nvenc=True,
-        )
-        log_with_time("✓ Encoder started")
-        
-        # Step 4: Render loop
-        log_with_time(f"🎨 Rendering {num_frames} frames...")
-        render_start = time.time()
-        
-        for frame_idx in range(num_frames):
-            # Get bar heights for this frame
-            bar_heights = bar_data[frame_idx]
-            
-            # Calculate zoom based on bass energy
-            zoom = compute_zoom_factor(
-                bar_heights,
-                zoom_start=settings.ZOOM_START,
-                zoom_end=settings.ZOOM_END,
-            )
-            
-            # Render frame on CPU
-            frame_bytes = renderer.render_frame(bar_heights, zoom)
-            
-            # Write to FFmpeg stdin
-            ffmpeg_proc.stdin.write(frame_bytes)
-            
-            # Progress update every 50 frames
-            if frame_idx % 50 == 0 and job_manager and job_id:
-                progress = int((frame_idx / num_frames) * 100)
-                job_manager.update_progress(job_id, progress, {})
-        
-        # Close stdin to signal end of video
-        ffmpeg_proc.stdin.close()
-        
-        render_elapsed = time.time() - render_start
-        log_with_time(f"✓ Rendering complete ({render_elapsed:.2f}s, {num_frames/render_elapsed:.1f} fps)")
-        
-        # Wait for FFmpeg to finish encoding
-        log_with_time("⏳ Waiting for encoder to finish...")
-        stderr = ffmpeg_proc.stderr.read().decode('utf-8', errors='replace')
-        returncode = ffmpeg_proc.wait()
-        
-        if returncode != 0:
-            logger.error(f"FFmpeg encoding failed:\n{stderr[-500:]}")
-            raise RuntimeError(f"FFmpeg encoding failed: {stderr[-500:]}")
-        
-        total_elapsed = time.time() - start_time
-        file_size = output_path.stat().st_size / (1024 * 1024)  # MB
-        log_with_time(f"✅ Complete! Total: {total_elapsed:.2f}s | Size: {file_size:.1f}MB")
-        
-    except Exception as e:
-        logger.error(f"CPU render failed: {e}", exc_info=True)
-        raise
+
+    await asyncio.to_thread(
+        _render_cpu_blocking,
+        audio_path,
+        background_path,
+        output_path,
+        settings,
+        fps,
+        n_bars,
+        job_id,
+        job_manager,
+        start_time,
+    )
