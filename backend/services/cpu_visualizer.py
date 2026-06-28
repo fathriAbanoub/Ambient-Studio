@@ -318,24 +318,35 @@ def _render_cpu_blocking(
 
     # Step 2: Initialize CPU renderer
     log_with_time("💻 Initializing CPU renderer...")
-    renderer = CPUVisualizerRenderer(
-        background_path,
-        width=settings.VIDEO_WIDTH,
-        height=settings.VIDEO_HEIGHT,
-        bar_height_scale=0.30,
-    )
+    renderer = None
+    try:
+        renderer = CPUVisualizerRenderer(
+            background_path,
+            width=settings.VIDEO_WIDTH,
+            height=settings.VIDEO_HEIGHT,
+            bar_height_scale=0.30,
+        )
+    except Exception as e:
+        log_with_time(f"❌ CPU renderer initialization failed: {e}")
+        raise
     log_with_time("✓ CPU renderer ready")
 
     # Step 3: Start FFmpeg encoder
     log_with_time("🎬 Starting encoder...")
-    ffmpeg_proc = create_ffmpeg_encoder(
-        output_path,
-        audio_path,
-        fps=fps,
-        width=settings.VIDEO_WIDTH,
-        height=settings.VIDEO_HEIGHT,
-        use_nvenc=True,
-    )
+    ffmpeg_proc = None
+    render_success = False
+    try:
+        ffmpeg_proc = create_ffmpeg_encoder(
+            output_path,
+            audio_path,
+            fps=fps,
+            width=settings.VIDEO_WIDTH,
+            height=settings.VIDEO_HEIGHT,
+            use_nvenc=True,
+        )
+    except Exception as e:
+        log_with_time(f"❌ Encoder startup failed: {e}")
+        raise
     log_with_time("✓ Encoder started")
 
     # Step 4: Render loop
@@ -349,7 +360,7 @@ def _render_cpu_blocking(
         for frame_idx in range(num_frames):
             # Check cancellation before rendering each frame
             if stop_event and stop_event.is_set():
-                logger.info(f"Job {job_id} cancelled during CPU render")
+                log_with_time(f"⏹️ Job {job_id} cancelled during CPU render")
                 ffmpeg_proc.terminate()
                 try:
                     ffmpeg_proc.wait(timeout=2.0)
@@ -374,24 +385,42 @@ def _render_cpu_blocking(
             # Write to FFmpeg stdin, handle sudden encoder death (cross-platform)
             try:
                 ffmpeg_proc.stdin.write(frame_bytes)
-            except OSError:  # BrokenPipeError on Unix, WinError on Windows
+            except OSError as e:
                 # FFmpeg died mid-render; wait for exit to get return code
                 ffmpeg_proc.wait()
                 raise RuntimeError(
                     f"FFmpeg died mid-render (exit code {ffmpeg_proc.returncode})"
-                )
+                ) from e
 
             # Progress update every 50 frames
             if frame_idx % 50 == 0 and job_manager and job_id:
                 progress = int((frame_idx / num_frames) * 100)
                 job_manager.update_progress(job_id, progress, {})
-    finally:
-        # Swallow errors on close; the pipe may already be broken
-        try:
-            ffmpeg_proc.stdin.close()
-        except OSError:
-            pass
 
+        # Mark success before cleanup
+        render_success = True
+
+    except Exception as e:
+        log_with_time(f"❌ Render loop error: {e}")
+        raise
+    finally:
+        if ffmpeg_proc is not None:
+            try:
+                ffmpeg_proc.stdin.close()
+            except OSError:
+                pass
+
+            if not render_success:
+                try:
+                    ffmpeg_proc.terminate()
+                    ffmpeg_proc.wait(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    ffmpeg_proc.kill()
+                    ffmpeg_proc.wait()
+                except OSError:
+                    pass
+
+    # If we reach here, render_success is True
     render_elapsed = time.time() - render_start
     log_with_time(f"✓ Rendering complete ({render_elapsed:.2f}s, {num_frames/render_elapsed:.1f} fps)")
 

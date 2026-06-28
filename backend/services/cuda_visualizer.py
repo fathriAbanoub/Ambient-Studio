@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -28,6 +29,9 @@ if TYPE_CHECKING:
     from config import Settings
 
 logger = logging.getLogger(__name__)
+
+# Serialize CUDA renders to avoid device resets stepping on each other
+_cuda_lock = threading.Lock()
 
 
 def precompute_audio_features(
@@ -319,110 +323,149 @@ def _render_cuda_blocking(
     start_time: float,
 ) -> None:
     """Synchronous CUDA render — called from a thread via asyncio.to_thread."""
-
-    def log_with_time(message):
-        elapsed = time.time() - start_time
-        timestamp_msg = f"[{elapsed:.2f}s] {message}"
-        logger.info(timestamp_msg)
-        if job_manager and job_id:
-            job_manager.update_progress(
-                job_id,
-                job_manager.jobs[job_id]["progress"],
-                {"log_message": timestamp_msg}
-            )
-
-    # Step 1: Pre-compute audio features
-    log_with_time(f"🎵 Analyzing audio ({n_bars} bars @ {fps} fps)...")
-    bar_data = precompute_audio_features(audio_path, fps=fps, n_bars=n_bars)
-    num_frames = len(bar_data)
-    log_with_time(f"✓ Audio analysis complete ({num_frames} frames)")
-
-    # Step 2: Initialize GPU renderer
-    log_with_time("🚀 Initializing CUDA renderer...")
-    renderer = CudaVisualizerRenderer(
-        background_path,
-        width=settings.VIDEO_WIDTH,
-        height=settings.VIDEO_HEIGHT,
-        bar_height_scale=0.30,
-    )
-    log_with_time("✓ CUDA renderer ready")
-
-    # Step 3: Start FFmpeg encoder
-    log_with_time("🎬 Starting NVENC encoder...")
-    ffmpeg_proc = create_ffmpeg_encoder(
-        output_path,
-        audio_path,
-        fps=fps,
-        width=settings.VIDEO_WIDTH,
-        height=settings.VIDEO_HEIGHT,
-        use_nvenc=True,
-    )
-    log_with_time("✓ Encoder started")
-
-    # Step 4: Render loop
-    log_with_time(f"🎨 Rendering {num_frames} frames...")
-    render_start = time.time()
-
-    # Grab the stop event for cooperative cancellation
-    stop_event = job_manager.job_stop_events.get(job_id) if job_manager and job_id else None
-
-    try:
-        for frame_idx in range(num_frames):
-            # Check cancellation before rendering each frame
-            if stop_event and stop_event.is_set():
-                logger.info(f"Job {job_id} cancelled during CUDA render")
-                ffmpeg_proc.terminate()
-                try:
-                    ffmpeg_proc.wait(timeout=2.0)
-                except subprocess.TimeoutExpired:
-                    ffmpeg_proc.kill()
-                    ffmpeg_proc.wait()
-                raise RuntimeError("Job cancelled by user")
-
-            bar_heights = bar_data[frame_idx]
-
-            zoom = compute_zoom_factor(
-                bar_heights,
-                zoom_start=settings.ZOOM_START,
-                zoom_end=settings.ZOOM_END,
-            )
-
-            frame = renderer.render_frame(bar_heights, zoom)
-            # Write to FFmpeg stdin, handle sudden encoder death (cross-platform)
-            try:
-                ffmpeg_proc.stdin.write(frame.tobytes())
-            except OSError:  # BrokenPipeError on Unix, WinError on Windows
-                # FFmpeg died mid-render; wait for exit to get return code
-                ffmpeg_proc.wait()
-                raise RuntimeError(
-                    f"FFmpeg died mid-render (exit code {ffmpeg_proc.returncode})"
+    # Serialize CUDA renders to avoid device resets interfering with each other.
+    with _cuda_lock:
+        def log_with_time(message):
+            elapsed = time.time() - start_time
+            timestamp_msg = f"[{elapsed:.2f}s] {message}"
+            logger.info(timestamp_msg)
+            if job_manager and job_id:
+                job_manager.update_progress(
+                    job_id,
+                    job_manager.jobs[job_id]["progress"],
+                    {"log_message": timestamp_msg}
                 )
 
-            if frame_idx % 100 == 0 and job_manager and job_id:
-                progress = int((frame_idx / num_frames) * 100)
-                job_manager.update_progress(job_id, progress, {})
-    finally:
-        # Swallow errors on close; the pipe may already be broken
+        # Step 1: Pre-compute audio features
+        log_with_time(f"🎵 Analyzing audio ({n_bars} bars @ {fps} fps)...")
+        bar_data = precompute_audio_features(audio_path, fps=fps, n_bars=n_bars)
+        num_frames = len(bar_data)
+        log_with_time(f"✓ Audio analysis complete ({num_frames} frames)")
+
+        # Step 2: Initialize GPU renderer
+        log_with_time("🚀 Initializing CUDA renderer...")
+        renderer = None
         try:
-            ffmpeg_proc.stdin.close()
-        except OSError:
-            pass
-        renderer.cleanup()
+            renderer = CudaVisualizerRenderer(
+                background_path,
+                width=settings.VIDEO_WIDTH,
+                height=settings.VIDEO_HEIGHT,
+                bar_height_scale=0.30,
+            )
+        except Exception as e:
+            log_with_time(f"❌ CUDA renderer initialization failed: {e}")
+            raise
+        log_with_time("✓ CUDA renderer ready")
 
-    render_elapsed = time.time() - render_start
-    log_with_time(f"✓ Rendering complete ({render_elapsed:.2f}s, {num_frames/render_elapsed:.1f} fps)")
+        # Step 3: Start FFmpeg encoder
+        log_with_time("🎬 Starting NVENC encoder...")
+        ffmpeg_proc = None
+        render_success = False
+        try:
+            ffmpeg_proc = create_ffmpeg_encoder(
+                output_path,
+                audio_path,
+                fps=fps,
+                width=settings.VIDEO_WIDTH,
+                height=settings.VIDEO_HEIGHT,
+                use_nvenc=True,
+            )
+        except Exception as e:
+            log_with_time(f"❌ FFmpeg encoder startup failed: {e}")
+            raise
+        log_with_time("✓ Encoder started")
 
-    # Wait for FFmpeg to finish encoding
-    log_with_time("⏳ Waiting for encoder to finish...")
-    returncode = ffmpeg_proc.wait()
+        # Step 4: Render loop
+        log_with_time(f"🎨 Rendering {num_frames} frames...")
+        render_start = time.time()
 
-    if returncode != 0:
-        logger.error(f"FFmpeg encoding failed with exit code {returncode}")
-        raise RuntimeError(f"FFmpeg encoding failed (exit code {returncode})")
+        # Grab the stop event for cooperative cancellation
+        stop_event = job_manager.job_stop_events.get(job_id) if job_manager and job_id else None
 
-    total_elapsed = time.time() - start_time
-    file_size = output_path.stat().st_size / (1024 * 1024)  # MB
-    log_with_time(f"✅ Complete! Total: {total_elapsed:.2f}s | Size: {file_size:.1f}MB")
+        try:
+            for frame_idx in range(num_frames):
+                # Check cancellation before rendering each frame
+                if stop_event and stop_event.is_set():
+                    log_with_time(f"⏹️ Job {job_id} cancelled during CUDA render")
+                    ffmpeg_proc.terminate()
+                    try:
+                        ffmpeg_proc.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        ffmpeg_proc.kill()
+                        ffmpeg_proc.wait()
+                    raise RuntimeError("Job cancelled by user")
+
+                bar_heights = bar_data[frame_idx]
+
+                zoom = compute_zoom_factor(
+                    bar_heights,
+                    zoom_start=settings.ZOOM_START,
+                    zoom_end=settings.ZOOM_END,
+                )
+
+                frame = renderer.render_frame(bar_heights, zoom)
+                # Write to FFmpeg stdin, handle sudden encoder death (cross-platform)
+                try:
+                    ffmpeg_proc.stdin.write(frame.tobytes())
+                except OSError as e:
+                    # FFmpeg died mid-render; wait for exit to get return code
+                    ffmpeg_proc.wait()
+                    raise RuntimeError(
+                        f"FFmpeg died mid-render (exit code {ffmpeg_proc.returncode})"
+                    ) from e
+
+                if frame_idx % 100 == 0 and job_manager and job_id:
+                    progress = int((frame_idx / num_frames) * 100)
+                    job_manager.update_progress(job_id, progress, {})
+
+            # Mark success before cleanup
+            render_success = True
+
+        except Exception as e:
+            # Log the error but re-raise after cleanup
+            log_with_time(f"❌ Render loop error: {e}")
+            raise
+        finally:
+            if ffmpeg_proc is not None:
+                try:
+                    ffmpeg_proc.stdin.close()
+                except OSError:
+                    pass
+
+                if not render_success:
+                    # Render failed: terminate FFmpeg and clean up CUDA immediately
+                    try:
+                        ffmpeg_proc.terminate()
+                        ffmpeg_proc.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        ffmpeg_proc.kill()
+                        ffmpeg_proc.wait()
+                    except OSError:
+                        pass
+
+                    # Safe to reset CUDA context now because FFmpeg is dead
+                    if renderer is not None:
+                        renderer.cleanup()
+
+        # If we reach here, render_success is True (otherwise exception propagated)
+        render_elapsed = time.time() - render_start
+        log_with_time(f"✓ Rendering complete ({render_elapsed:.2f}s, {num_frames/render_elapsed:.1f} fps)")
+
+        # Wait for FFmpeg to finish encoding
+        log_with_time("⏳ Waiting for encoder to finish...")
+        returncode = ffmpeg_proc.wait()
+
+        # NOW clean up CUDA resources, after FFmpeg is completely done
+        if renderer is not None:
+            renderer.cleanup()
+
+        if returncode != 0:
+            logger.error(f"FFmpeg encoding failed with exit code {returncode}")
+            raise RuntimeError(f"FFmpeg encoding failed (exit code {returncode})")
+
+        total_elapsed = time.time() - start_time
+        file_size = output_path.stat().st_size / (1024 * 1024)  # MB
+        log_with_time(f"✅ Complete! Total: {total_elapsed:.2f}s | Size: {file_size:.1f}MB")
 
 
 async def render_video_cuda(
