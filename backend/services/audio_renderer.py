@@ -121,7 +121,7 @@ class AudioRenderer:
                         "pan",
                         "stereo",
                         c0=f"{left_gain}*c0",
-                        c1=f"{right_gain}*c0",
+                        c1=f"{right_gain}*c1",
                     )
                 inputs.append(stream)
 
@@ -146,10 +146,11 @@ class AudioRenderer:
                 gain_db = eq_gains[i] if i < len(eq_gains) else 0.0
                 if abs(gain_db) < 0.1:
                     continue
+                eq_type = "h" if band["type"] == "highshelf" else ("l" if band["type"] == "lowshelf" else "o")
                 mixed = mixed.filter(
                     "equalizer",
                     f=band["freq"],
-                    t="o",  # peaking filter type
+                    t=eq_type,
                     w=1.0,  # bandwidth in octaves
                     g=gain_db,
                 )
@@ -285,7 +286,7 @@ class AudioRenderer:
                     "pan",
                     "stereo",
                     c0=f"{left_gain}*c0",
-                    c1=f"{right_gain}*c0",
+                    c1=f"{right_gain}*c1",
                 )
             inputs.append(stream)
 
@@ -307,10 +308,11 @@ class AudioRenderer:
             gain_db = eq_gains[i] if i < len(eq_gains) else 0.0
             if abs(gain_db) < 0.1:
                 continue
+            eq_type = "h" if band["type"] == "highshelf" else ("l" if band["type"] == "lowshelf" else "o")
             mixed = mixed.filter(
                 "equalizer",
                 f=band["freq"],
-                t="o",
+                t=eq_type,
                 w=1.0,
                 g=gain_db,
             )
