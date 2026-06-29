@@ -87,34 +87,6 @@ export interface RenderAudioParams {
   loopEnd?: number;     // seconds
 }
 
-export async function renderAudio(params: RenderAudioParams): Promise<Blob> {
-  const formData = new FormData();
-
-  params.files.forEach((file) => {
-    formData.append("files", file);
-  });
-
-  formData.append("duration", String(params.duration));
-  formData.append("volumes", params.volumes.map((v) => v.toFixed(2)).join(","));
-  formData.append("pans", params.pans.map((p) => p.toFixed(2)).join(","));
-  formData.append("muted", params.muted.map((m) => (m ? "1" : "0")).join(","));
-  formData.append("solo", params.solo.map((s) => (s ? "1" : "0")).join(","));
-  formData.append("master_gain", String(params.masterGain));
-  formData.append("eq_gains", params.eqGains.join(","));
-
-  const res = await fetch(`${API_BASE}/render-audio`, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`Audio render failed: ${errorText}`);
-  }
-
-  return await res.blob();
-}
-
 export interface RenderAudioJobResponse {
   status: string;
   job_id: string;
@@ -168,36 +140,6 @@ export async function downloadJobOutput(jobId: string): Promise<Blob> {
   return await res.blob();
 }
 
-// ── Render Video ──────────────────────────────────────────────────────────────
-
-export interface RenderVideoParams {
-  audio: Blob;
-  duration: number;
-  backgroundImage?: File;
-}
-
-export async function renderVideo(params: RenderVideoParams): Promise<Blob> {
-  const formData = new FormData();
-
-  formData.append("audio", params.audio, "mix.wav");
-  formData.append("duration", String(params.duration));
-
-  if (params.backgroundImage) {
-    formData.append("background_image", params.backgroundImage);
-  }
-
-  const res = await fetch(`${API_BASE}/render-video`, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`Video render failed: ${errorText}`);
-  }
-
-  return await res.blob();
-}
 
 // ── Render Video Full (Audio + Video pipeline) ────────────────────────────────
 

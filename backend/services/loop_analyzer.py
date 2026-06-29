@@ -37,7 +37,7 @@ def _clamp01(value: float) -> float:
     return float(min(1.0, max(0.0, value)))
 
 
-@lru_cache(maxsize=8)
+@lru_cache(maxsize=2)  # ponytail: was 8 (~420 MB worst case). Cleared in analyze_loop().
 def _load_mono_audio(audio_path: str) -> tuple[np.ndarray, int]:
     audio, sample_rate = librosa.load(audio_path, sr=None, mono=False)
     if audio.ndim > 1:
@@ -313,95 +313,98 @@ def analyze_loop(input_path: Path) -> dict[str, Any]:
         RuntimeError: For other analysis failures.
     """
     try:
-        looper = MusicLooper(str(input_path))
-    except Exception as e:
-        raise RuntimeError(f"Failed to load audio file: {e}") from e
+        try:
+            looper = MusicLooper(str(input_path))
+        except Exception as e:
+            raise RuntimeError(f"Failed to load audio file: {e}") from e
 
-    try:
-        loop_pairs = looper.find_loop_pairs()
-    except LoopNotFoundError as e:
-        raise ValueError(f"No loop points found in '{input_path.name}': {e}") from e
-    except Exception as e:
-        raise RuntimeError(f"Loop analysis failed: {e}") from e
+        try:
+            loop_pairs = looper.find_loop_pairs()
+        except LoopNotFoundError as e:
+            raise ValueError(f"No loop points found in '{input_path.name}': {e}") from e
+        except Exception as e:
+            raise RuntimeError(f"Loop analysis failed: {e}") from e
 
-    if not loop_pairs:
-        raise ValueError(f"No loop points found in '{input_path.name}'")
+        if not loop_pairs:
+            raise ValueError(f"No loop points found in '{input_path.name}'")
 
-    top_n_candidates = sorted(loop_pairs, key=lambda pair: pair.score, reverse=True)[:5]
-    validated_candidates: list[dict[str, Any]] = []
+        top_n_candidates = sorted(loop_pairs, key=lambda pair: pair.score, reverse=True)[:5]
+        validated_candidates: list[dict[str, Any]] = []
 
-    for index, candidate in enumerate(top_n_candidates, start=1):
-        loop_start_ms = int(looper.samples_to_seconds(candidate.loop_start) * 1000)
-        loop_end_ms = int(looper.samples_to_seconds(candidate.loop_end) * 1000)
-        loop_duration_ms = max(1, loop_end_ms - loop_start_ms)
-        crossfade_ms = min(4000, max(250, int(loop_duration_ms * 0.07)))
-        crossfade_samples = looper.mlaudio.seconds_to_samples(crossfade_ms / 1000.0)
+        for index, candidate in enumerate(top_n_candidates, start=1):
+            loop_start_ms = int(looper.samples_to_seconds(candidate.loop_start) * 1000)
+            loop_end_ms = int(looper.samples_to_seconds(candidate.loop_end) * 1000)
+            loop_duration_ms = max(1, loop_end_ms - loop_start_ms)
+            crossfade_ms = min(4000, max(250, int(loop_duration_ms * 0.07)))
+            crossfade_samples = looper.mlaudio.seconds_to_samples(crossfade_ms / 1000.0)
 
-        validation_scores = validate_loop_candidate(candidate, looper.mlaudio, crossfade_samples)
-        repetition_salience_score = _compute_repetition_salience(
-            input_path,
-            loop_start_ms,
-            loop_end_ms,
+            validation_scores = validate_loop_candidate(candidate, looper.mlaudio, crossfade_samples)
+            repetition_salience_score = _compute_repetition_salience(
+                input_path,
+                loop_start_ms,
+                loop_end_ms,
+            )
+            canonical_duration_ms = max(1, loop_duration_ms - crossfade_ms)
+
+            validated_candidates.append(
+                {
+                    "segment_id": f"candidate_{index:02d}",
+                    "source_path": str(input_path.resolve()),
+                    "loop_start_ms": loop_start_ms,
+                    "loop_end_ms": loop_end_ms,
+                    "canonical_duration_ms": canonical_duration_ms,
+                    "play_duration_ms": canonical_duration_ms,
+                    "crossfade_duration_ms": crossfade_ms,
+                    "trim_tail_ms": 0,
+                    "raw_analyzer_score": float(candidate.score),
+                    "validator_score": validation_scores["validator_score"],
+                    "repetition_salience_score": repetition_salience_score,
+                    "validation_metrics": validation_scores,
+                }
+            )
+
+        validated_candidates.sort(key=lambda candidate: candidate["validator_score"], reverse=True)
+        selected_candidates = validated_candidates[: min(5, max(1, len(validated_candidates)))]
+        best_candidate = selected_candidates[0]
+
+        logger.info(
+            "Loop analysis complete: start=%sms, end=%sms, raw_score=%.3f, validator_score=%.3f, crossfade=%sms, salience=%.3f",
+            best_candidate["loop_start_ms"],
+            best_candidate["loop_end_ms"],
+            best_candidate["raw_analyzer_score"],
+            best_candidate["validator_score"],
+            best_candidate["crossfade_duration_ms"],
+            best_candidate["repetition_salience_score"],
         )
-        canonical_duration_ms = max(1, loop_duration_ms - crossfade_ms)
 
-        validated_candidates.append(
-            {
-                "segment_id": f"candidate_{index:02d}",
-                "source_path": str(input_path.resolve()),
-                "loop_start_ms": loop_start_ms,
-                "loop_end_ms": loop_end_ms,
-                "canonical_duration_ms": canonical_duration_ms,
-                "play_duration_ms": canonical_duration_ms,
-                "crossfade_duration_ms": crossfade_ms,
-                "trim_tail_ms": 0,
-                "raw_analyzer_score": float(candidate.score),
-                "validator_score": validation_scores["validator_score"],
-                "repetition_salience_score": repetition_salience_score,
-                "validation_metrics": validation_scores,
-            }
-        )
-
-    validated_candidates.sort(key=lambda candidate: candidate["validator_score"], reverse=True)
-    selected_candidates = validated_candidates[: min(5, max(1, len(validated_candidates)))]
-    best_candidate = selected_candidates[0]
-
-    logger.info(
-        "Loop analysis complete: start=%sms, end=%sms, raw_score=%.3f, validator_score=%.3f, crossfade=%sms, salience=%.3f",
-        best_candidate["loop_start_ms"],
-        best_candidate["loop_end_ms"],
-        best_candidate["raw_analyzer_score"],
-        best_candidate["validator_score"],
-        best_candidate["crossfade_duration_ms"],
-        best_candidate["repetition_salience_score"],
-    )
-
-    return {
-        "loop_start_ms": best_candidate["loop_start_ms"],
-        "loop_end_ms": best_candidate["loop_end_ms"],
-        "score": best_candidate["validator_score"],
-        "crossfade_ms": best_candidate["crossfade_duration_ms"],
-        "duration_ms": int(looper.mlaudio.total_duration * 1000),
-        "raw_analyzer_score": best_candidate["raw_analyzer_score"],
-        "candidates": [
-            {
-                key: value
-                for key, value in candidate.items()
-                if key != "validation_metrics"
-            }
-            for candidate in selected_candidates
-        ],
-        "alternatives": [
-            {
-                "segment_id": candidate["segment_id"],
-                "loop_start_ms": candidate["loop_start_ms"],
-                "loop_end_ms": candidate["loop_end_ms"],
-                "crossfade_ms": candidate["crossfade_duration_ms"],
-                "raw_analyzer_score": candidate["raw_analyzer_score"],
-                "validator_score": candidate["validator_score"],
-                "repetition_salience_score": candidate["repetition_salience_score"],
-                "validation_metrics": candidate["validation_metrics"],
-            }
-            for candidate in selected_candidates[1:]
-        ],
-    }
+        return {
+            "loop_start_ms": best_candidate["loop_start_ms"],
+            "loop_end_ms": best_candidate["loop_end_ms"],
+            "score": best_candidate["validator_score"],
+            "crossfade_ms": best_candidate["crossfade_duration_ms"],
+            "duration_ms": int(looper.mlaudio.total_duration * 1000),
+            "raw_analyzer_score": best_candidate["raw_analyzer_score"],
+            "candidates": [
+                {
+                    key: value
+                    for key, value in candidate.items()
+                    if key != "validation_metrics"
+                }
+                for candidate in selected_candidates
+            ],
+            "alternatives": [
+                {
+                    "segment_id": candidate["segment_id"],
+                    "loop_start_ms": candidate["loop_start_ms"],
+                    "loop_end_ms": candidate["loop_end_ms"],
+                    "crossfade_ms": candidate["crossfade_duration_ms"],
+                    "raw_analyzer_score": candidate["raw_analyzer_score"],
+                    "validator_score": candidate["validator_score"],
+                    "repetition_salience_score": candidate["repetition_salience_score"],
+                    "validation_metrics": candidate["validation_metrics"],
+                }
+                for candidate in selected_candidates[1:]
+            ],
+        }
+    finally:
+        _load_mono_audio.cache_clear()
