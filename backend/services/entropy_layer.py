@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -110,6 +111,10 @@ class SlowDriftProcessor:
         linear_gain = _edge_taper(linear_gain, taper_samples)
         return linear_gain.astype(np.float32)
 
+    # ponytail: 2h hard cap. 8h render at 44.1kHz stereo float32 ≈ 10 GB RAM.
+    # Upgrade path: rewrite as FFmpeg filter chain to avoid loading to numpy entirely.
+    MAX_ENTROPY_SECONDS = 7200
+
     def process(
         self,
         audio_path: Path,
@@ -118,6 +123,12 @@ class SlowDriftProcessor:
         sample_rate: int,
     ) -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with AudioFile(str(audio_path)) as probe:
+            duration_seconds = probe.frames / max(probe.samplerate, 1)
+        if duration_seconds > self.MAX_ENTROPY_SECONDS:
+            shutil.copy2(audio_path, output_path)
+            return
 
         with AudioFile(str(audio_path)).resampled_to(sample_rate) as source_file:
             audio = source_file.read(source_file.frames)

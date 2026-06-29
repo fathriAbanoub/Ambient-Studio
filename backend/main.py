@@ -102,6 +102,10 @@ class JobManager:
         self.active_count = 0
         self.max_concurrent = 2
         self.history_file = Path(__file__).parent / "jobs_history.json"
+        # ponytail: protects self.jobs dict mutations from thread pool workers
+        # (audio_renderer progress_callback, cuda_visualizer render loop).
+        # Ceiling: global lock; fine because mutations are fast dict writes.
+        self._lock = threading.Lock()
         self._load_history()
 
     def _load_history(self):
@@ -126,82 +130,89 @@ class JobManager:
     def create_job(self, duration: int) -> str:
         """Create a new job and return its ID."""
         job_id = str(uuid.uuid4())[:8]
-        self.jobs[job_id] = {
-            "id": job_id,
-            "status": "queued",
-            "progress": 0,
-            "duration": duration,
-            "started_at": None,
-            "finished_at": None,
-            "error": None,
-            "output_path": None,
-            "filename": None,
-            "file_size": None,
-            "queue_position": len(self.queue) + 1,
-            "logs": [],  # Initialize logs array
-        }
-        self.job_stop_events[job_id] = threading.Event()
-        self.queue.append(job_id)
+        with self._lock:
+            self.jobs[job_id] = {
+                "id": job_id,
+                "status": "queued",
+                "progress": 0,
+                "duration": duration,
+                "started_at": None,
+                "finished_at": None,
+                "error": None,
+                "output_path": None,
+                "filename": None,
+                "file_size": None,
+                "queue_position": len(self.queue) + 1,
+                "logs": [],  # Initialize logs array
+            }
+            self.job_stop_events[job_id] = threading.Event()
+            self.queue.append(job_id)
         return job_id
 
     def start_job(self, job_id: str):
         """Mark job as started."""
-        if job_id in self.jobs:
-            self.jobs[job_id]["status"] = "processing"
-            self.jobs[job_id]["started_at"] = datetime.now().isoformat()
-            self.jobs[job_id]["queue_position"] = 0
-            self.active_count += 1
-            if job_id in self.queue:
-                self.queue.remove(job_id)
+        with self._lock:
+            if job_id in self.jobs:
+                self.jobs[job_id]["status"] = "processing"
+                self.jobs[job_id]["started_at"] = datetime.now().isoformat()
+                self.jobs[job_id]["queue_position"] = 0
+                self.active_count += 1
+                if job_id in self.queue:
+                    self.queue.remove(job_id)
 
-    def update_progress(self, job_id: str, progress: int, time_info: dict = None):
+    def update_progress(
+        self, job_id: str, progress: int, time_info: Optional[dict] = None
+    ):
         """Update job progress."""
-        if job_id in self.jobs:
-            self.jobs[job_id]["progress"] = progress
-            if time_info:
-                self.jobs[job_id]["time_info"] = time_info
-                # Store log message if provided
-                if "log_message" in time_info:
-                    if "logs" not in self.jobs[job_id]:
-                        self.jobs[job_id]["logs"] = []
-                    self.jobs[job_id]["logs"].append(time_info["log_message"])
+        with self._lock:
+            if job_id in self.jobs:
+                self.jobs[job_id]["progress"] = progress
+                if time_info:
+                    self.jobs[job_id]["time_info"] = time_info
+                    # Store log message if provided
+                    if "log_message" in time_info:
+                        if "logs" not in self.jobs[job_id]:
+                            self.jobs[job_id]["logs"] = []
+                        self.jobs[job_id]["logs"].append(time_info["log_message"])
 
     def complete_job(
         self, job_id: str, output_path: str, filename: str, file_size: int
     ):
         """Mark job as completed."""
-        if job_id in self.jobs:
-            self.jobs[job_id]["status"] = "completed"
-            self.jobs[job_id]["progress"] = 100
-            self.jobs[job_id]["finished_at"] = datetime.now().isoformat()
-            self.jobs[job_id]["output_path"] = output_path
-            self.jobs[job_id]["filename"] = filename
-            self.jobs[job_id]["file_size"] = file_size
-            self.active_count -= 1
+        with self._lock:
+            if job_id in self.jobs:
+                self.jobs[job_id]["status"] = "completed"
+                self.jobs[job_id]["progress"] = 100
+                self.jobs[job_id]["finished_at"] = datetime.now().isoformat()
+                self.jobs[job_id]["output_path"] = output_path
+                self.jobs[job_id]["filename"] = filename
+                self.jobs[job_id]["file_size"] = file_size
+                self.active_count -= 1
 
-            # Add to history
-            job = self.jobs[job_id]
-            self.history.append(
-                {
-                    "job_id": job_id,
-                    "filename": filename,
-                    "duration": self.jobs[job_id]["duration"],
-                    "file_size": file_size,
-                    "timestamp": job["finished_at"],
-                    "file_path": output_path,
-                }
-            )
-            self._save_history()
+                # Add to history
+                job = self.jobs[job_id]
+                self.history.append(
+                    {
+                        "job_id": job_id,
+                        "filename": filename,
+                        "duration": self.jobs[job_id]["duration"],
+                        "file_size": file_size,
+                        "timestamp": job["finished_at"],
+                        "file_path": output_path,
+                    }
+                )
+                self._save_history()
 
     def fail_job(self, job_id: str, error: str):
         """Mark job as failed."""
-        if job_id in self.jobs:
-            self.jobs[job_id]["status"] = "failed"
-            self.jobs[job_id]["error"] = error
-            self.jobs[job_id]["finished_at"] = datetime.now().isoformat()
-            self.active_count -= 1
-            if job_id in self.queue:
-                self.queue.remove(job_id)
+        with self._lock:
+            if job_id in self.jobs:
+                self.jobs[job_id]["status"] = "failed"
+                self.jobs[job_id]["error"] = error
+                self.jobs[job_id]["finished_at"] = datetime.now().isoformat()
+                self.active_count -= 1
+                if job_id in self.queue:
+                    self.queue.remove(job_id)
 
     async def cancel_job(self, job_id: str) -> bool:
         """Cancel a running job."""
@@ -256,14 +267,23 @@ class JobManager:
                 pass
 
         # Update job status
-        was_processing = job.get("status") == "processing"
-        job["status"] = "cancelled"
-        job["finished_at"] = datetime.now().isoformat()
-        if was_processing and self.active_count > 0:
-            self.active_count -= 1
+        with self._lock:
+            # Recheck status — task may have completed/failed during the
+            # await asyncio.shield(task) above, in which case complete_job
+            # or fail_job already set the terminal state and we must not
+            # overwrite it.
+            current_status = job.get("status")
+            if current_status in ("completed", "failed", "cancelled"):
+                return True
 
-        if job_id in self.queue:
-            self.queue.remove(job_id)
+            was_processing = current_status == "processing"
+            job["status"] = "cancelled"
+            job["finished_at"] = datetime.now().isoformat()
+            if was_processing and self.active_count > 0:
+                self.active_count -= 1
+
+            if job_id in self.queue:
+                self.queue.remove(job_id)
 
         return True
 
@@ -1490,243 +1510,6 @@ async def cancel_job_endpoint(job_id: str):
     else:
         raise HTTPException(500, "Failed to cancel job")
 
-
-@app.post("/render-audio")
-async def render_audio(
-    duration: int = Form(
-        ..., description="Output duration in seconds", gt=0, le=settings.MAX_DURATION
-    ),
-    files: list[UploadFile] = File(..., description="One or more audio track files"),
-    volumes: str = Form("", description="Comma-separated float volumes (0.0–1.5) per track"),
-    pans: str = Form("", description="Comma-separated float pans (-1.0 to 1.0) per track"),
-    muted: str = Form("", description="Comma-separated booleans per track (0/1)"),
-    solo: str = Form("", description="Comma-separated booleans per track (0/1)"),
-    master_gain: float = Form(1.0, description="Master gain multiplier (0.0–2.0)"),
-    eq_gains: str = Form("", description="Comma-separated EQ band gains in dB (7 bands)"),
-):
-    """
-    Render a multi-track audio mix server-side.
-
-    Accepts multiple uploaded audio files, applies per-track volume / pan / mute / solo,
-    a 7-band EQ, and a master gain, then returns a rendered WAV file.
-    """
-    # Duration cap (explicit check)
-    if duration > settings.MAX_DURATION:
-        raise HTTPException(400, f"Duration exceeds maximum of {settings.MAX_DURATION}s")
-
-    # Validate files
-    for f in files:
-        validate_audio_file(f)
-        await validate_file_size(f)
-
-    job_id = str(uuid.uuid4())[:8]
-    job_dir = Path(settings.TMP_DIR) / job_id
-    job_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        def debug_audio_stage(label: str, path: Path):
-            if not settings.AUDIO_DEBUG:
-                return
-
-            def _sink(msg: str):
-                logger.info("AUDIO_DEBUG render-audio %s | %s", label, msg)
-
-            try:
-                log_audio_debug(path, log_fn=_sink)
-            except Exception as exc:
-                logger.warning(
-                    "AUDIO_DEBUG render-audio %s failed: %s",
-                    label,
-                    exc,
-                )
-
-        # 1. Save uploaded files to disk
-        track_paths: list[Path] = []
-        for i, upload in enumerate(files):
-            ext = Path(upload.filename).suffix or ".audio"
-            dest = job_dir / f"track_{i:02d}{ext}"
-            with dest.open("wb") as f:
-                shutil.copyfileobj(upload.file, f)
-            track_paths.append(dest)
-
-        # 2. Parse per-track parameters
-        def parse_floats(s: str, count: int, default: float) -> list[float]:
-            parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
-            result = [float(p) for p in parts]
-            while len(result) < count:
-                result.append(default)
-            return result[:count]
-
-        def parse_bools(s: str, count: int) -> list[bool]:
-            parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
-            invalid = [p for p in parts if p not in {"0", "1"}]
-            if invalid:
-                raise ValueError(f"Invalid boolean form values: {', '.join(invalid)}")
-            result = [p == "1" for p in parts]
-            while len(result) < count:
-                result.append(False)
-            return result[:count]
-
-        n = len(track_paths)
-        vol_list = parse_floats(volumes, n, 1.0)
-        pan_list = parse_floats(pans, n, 0.0)
-        muted_list = parse_bools(muted, n)
-        solo_list = parse_bools(solo, n)
-        eq_list = parse_floats(eq_gains, 7, 0.0)
-
-        # 3. Render (with semaphore to limit concurrency)
-        renderer = AudioRenderer(settings)
-        output_path = job_dir / "mix.wav"
-
-        start_time = time.time()
-        async with render_semaphore:
-            await asyncio.to_thread(
-                renderer.render,
-                track_paths=track_paths,
-                output_path=output_path,
-                duration_seconds=duration,
-                volumes=vol_list,
-                pans=pan_list,
-                muted=muted_list,
-                solo=solo_list,
-                master_gain=master_gain,
-                eq_gains=eq_list,
-                render_source_once=True,
-            )
-        render_time = time.time() - start_time
-        await asyncio.to_thread(debug_audio_stage, "mix.wav", output_path)
-
-        # Analyze loop points
-        logger.info("Analyzing loop points for render-audio...")
-        analysis = await asyncio.to_thread(analyze_loop, output_path)
-        resolved_loop_start = analysis["loop_start_ms"] / 1000.0
-        resolved_loop_end = analysis["loop_end_ms"] / 1000.0
-        resolved_crossfade_seconds = max(0.5, analysis["crossfade_ms"] / 1000.0)
-
-        # Apply seamless loop crossfade
-        looped_path = job_dir / "mix_loop.wav"
-        await asyncio.to_thread(
-            make_loop,
-            output_path,
-            looped_path,
-            crossfade_seconds=resolved_crossfade_seconds,
-            loop_start_seconds=resolved_loop_start,
-            loop_end_seconds=resolved_loop_end,
-        )
-        await asyncio.to_thread(debug_audio_stage, "mix_loop.wav", looped_path)
-
-        # Extend loop to full duration with seamless crossfading
-        final_audio_path = job_dir / "mix_loop_filled.wav"
-        await asyncio.to_thread(
-            extend_loop_seamless,
-            looped_path,
-            final_audio_path,
-            float(duration),
-            crossfade_seconds=resolved_crossfade_seconds,
-        )
-        await asyncio.to_thread(
-            debug_audio_stage, "mix_loop_filled.wav", final_audio_path
-        )
-
-        log_render(duration, n, render_time, True)
-
-        # Schedule cleanup
-        async def cleanup():
-            await asyncio.sleep(30)
-            shutil.rmtree(job_dir, ignore_errors=True)
-
-        task = asyncio.create_task(cleanup())
-        _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
-
-        from fastapi.responses import FileResponse
-
-        return FileResponse(
-            path=str(final_audio_path),
-            media_type="audio/wav",
-            filename=f"ambient_mix_{duration}s.wav",
-        )
-
-    except Exception as exc:
-        shutil.rmtree(job_dir, ignore_errors=True)
-        log_render(duration, len(files), 0, False, str(exc))
-        raise HTTPException(status_code=500, detail=f"Audio render failed: {exc}") from exc
-
-
-@app.post("/render-video")
-async def render_video(
-    audio: UploadFile = File(..., description="Pre-rendered WAV/MP3 audio file"),
-    duration: int = Form(
-        ..., description="Duration in seconds", gt=0, le=settings.MAX_DURATION
-    ),
-    background_image: UploadFile | None = File(
-        None, description="Optional custom background image"
-    ),
-):
-    """
-    Combine an audio file with a (optionally custom) background image to produce
-    an MP4 video with a slow Ken Burns / zoom-pan effect.
-    """
-    job_id = str(uuid.uuid4())[:8]
-    job_dir = Path(settings.TMP_DIR) / job_id
-    job_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        # 1. Save audio
-        audio_ext = Path(audio.filename).suffix or ".wav"
-        audio_path = job_dir / f"audio{audio_ext}"
-        with audio_path.open("wb") as f:
-            shutil.copyfileobj(audio.file, f)
-
-        # 2. Resolve background
-        if background_image:
-            img_ext = Path(background_image.filename).suffix or ".jpg"
-            bg_path = job_dir / f"background{img_ext}"
-            with bg_path.open("wb") as f:
-                shutil.copyfileobj(background_image.file, f)
-        else:
-            bg_path = Path(settings.DEFAULT_BACKGROUND)
-            if not bg_path.exists():
-                raise HTTPException(
-                    status_code=404,
-                    detail="No default background image found at assets/background.jpg.",
-                )
-
-        # 3. Render
-        renderer = VideoRenderer(settings)
-        output_path = job_dir / "ambient_video.mp4"
-
-        await asyncio.to_thread(
-            renderer.render,
-            audio_path=audio_path,
-            background_path=bg_path,
-            output_path=output_path,
-            duration_seconds=duration,
-        )
-
-        # Schedule cleanup
-        async def cleanup():
-            await asyncio.sleep(30)
-            shutil.rmtree(job_dir, ignore_errors=True)
-
-        task = asyncio.create_task(cleanup())
-        _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
-
-        from fastapi.responses import FileResponse
-
-        return FileResponse(
-            path=str(output_path),
-            media_type="video/mp4",
-            filename="ambient_video.mp4",
-        )
-
-    except HTTPException:
-        shutil.rmtree(job_dir, ignore_errors=True)
-        raise
-    except Exception as exc:
-        shutil.rmtree(job_dir, ignore_errors=True)
-        raise HTTPException(status_code=500, detail=f"Video render failed: {exc}") from exc
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

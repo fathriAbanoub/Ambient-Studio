@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import re
 import subprocess
 from pathlib import Path
@@ -112,7 +113,6 @@ class AudioRenderer:
                 # Apply pan (-1.0 to 1.0 → pan filter)
                 if abs(pan) > 0.01:
                     # Convert pan to left/right gains
-                    import math
 
                     angle = (pan + 1.0) / 2.0 * (math.pi / 2.0)
                     left_gain = math.cos(angle)
@@ -225,148 +225,3 @@ class AudioRenderer:
         logger.info("Audio rendered → %s", output_path)
         if getattr(self.settings, "AUDIO_DEBUG", False):
             logger.info("AUDIO_DEBUG mixed %s", ffprobe_audio_summary(output_path))
-
-    async def render_async(
-        self,
-        *,
-        track_paths: list[Path],
-        output_path: Path,
-        duration_seconds: int,
-        volumes: list[float],
-        pans: list[float],
-        muted: list[bool],
-        solo: list[bool],
-        master_gain: float,
-        eq_gains: list[float],
-        progress_callback: Optional[Callable[[int], None]] = None,
-        render_source_once: bool = False,
-    ) -> Optional[asyncio.subprocess.Process]:
-        """
-        Render audio mix asynchronously with progress tracking.
-        
-        Args:
-            render_source_once: If True, render each track once without looping.
-                                Used when building a loop unit for later extension.
-        
-        Returns the subprocess for potential cancellation.
-        """
-        is_solo_active = any(solo)
-
-        # Filter to active tracks only
-        active = []
-        for i, path in enumerate(track_paths):
-            vol = volumes[i] if i < len(volumes) else 1.0
-            is_mut = muted[i] if i < len(muted) else False
-            is_sol = solo[i] if i < len(solo) else False
-            eff = 0.0 if (is_mut or (is_solo_active and not is_sol)) else vol
-            if eff > 0.0:
-                active.append((path, eff, pans[i] if i < len(pans) else 0.0))
-
-        if not active:
-            raise ValueError("No active tracks to render")
-
-        # Build ffmpeg command using ffmpeg-python
-        inputs = []
-        for path, vol, pan in active:
-            if render_source_once:
-                stream = ffmpeg.input(str(path))
-            else:
-                stream = ffmpeg.input(
-                    str(path),
-                    stream_loop=-1,
-                    t=duration_seconds,
-                )
-            stream = stream.filter("volume", vol)
-            if abs(pan) > 0.01:
-                import math
-                angle = (pan + 1.0) / 2.0 * (math.pi / 2.0)
-                left_gain = math.cos(angle)
-                right_gain = math.sin(angle)
-                stream = stream.filter(
-                    "pan",
-                    "stereo",
-                    c0=f"{left_gain}*c0",
-                    c1=f"{right_gain}*c1",
-                )
-            inputs.append(stream)
-
-        if len(inputs) == 1:
-            mixed = inputs[0]
-        else:
-            mixed = ffmpeg.filter(
-                inputs,
-                "amix",
-                inputs=len(inputs),
-                duration="longest",
-                normalize=0,
-            )
-
-        mixed = mixed.filter("volume", master_gain)
-
-        bands = self.settings.EQ_BANDS
-        for i, band in enumerate(bands):
-            gain_db = eq_gains[i] if i < len(eq_gains) else 0.0
-            if abs(gain_db) < 0.1:
-                continue
-            eq_type = "h" if band["type"] == "highshelf" else ("l" if band["type"] == "lowshelf" else "o")
-            mixed = mixed.filter(
-                "equalizer",
-                f=band["freq"],
-                t=eq_type,
-                w=1.0,
-                g=gain_db,
-            )
-
-        # Build command
-        output_kwargs = {
-            "ar": self.settings.SAMPLE_RATE,
-            "ac": self.settings.CHANNELS,
-            "acodec": "pcm_s16le",
-        }
-        if not render_source_once:
-            output_kwargs["t"] = duration_seconds
-        
-        cmd = (
-            mixed.output(str(output_path), **output_kwargs)
-            .overwrite_output()
-            .compile()
-        )
-
-        logger.info(f"Running ffmpeg audio command: {' '.join(cmd)}")
-
-        # Run as subprocess
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        # Monitor stderr for progress
-        stderr_buffer = []
-        while True:
-            line = await process.stderr.readline()
-            if not line:
-                break
-            line_str = line.decode("utf-8", errors="replace")
-            stderr_buffer.append(line_str)
-
-            # Parse progress from stderr
-            if progress_callback and duration_seconds > 0:
-                time_match = re.search(r"time=(\d+):(\d+):(\d+\.?\d*)", line_str)
-                if time_match:
-                    hours = int(time_match.group(1))
-                    minutes = int(time_match.group(2))
-                    seconds = float(time_match.group(3))
-                    current_time = hours * 3600 + minutes * 60 + seconds
-                    progress = min(100, int((current_time / duration_seconds) * 100))
-                    progress_callback(progress)
-
-        await process.wait()
-
-        if process.returncode != 0:
-            stderr = "".join(stderr_buffer)
-            logger.error("FFmpeg audio error:\n%s", stderr)
-            raise RuntimeError(f"FFmpeg audio failed: {stderr[-500:]}")
-
-        logger.info("Audio rendered → %s", output_path)
-        return process
