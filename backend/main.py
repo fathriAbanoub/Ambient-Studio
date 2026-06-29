@@ -160,7 +160,9 @@ class JobManager:
                 if job_id in self.queue:
                     self.queue.remove(job_id)
 
-    def update_progress(self, job_id: str, progress: int, time_info: dict = None):
+    def update_progress(
+        self, job_id: str, progress: int, time_info: Optional[dict] = None
+    ):
         """Update job progress."""
         with self._lock:
             if job_id in self.jobs:
@@ -266,7 +268,15 @@ class JobManager:
 
         # Update job status
         with self._lock:
-            was_processing = job.get("status") == "processing"
+            # Recheck status — task may have completed/failed during the
+            # await asyncio.shield(task) above, in which case complete_job
+            # or fail_job already set the terminal state and we must not
+            # overwrite it.
+            current_status = job.get("status")
+            if current_status in ("completed", "failed", "cancelled"):
+                return True
+
+            was_processing = current_status == "processing"
             job["status"] = "cancelled"
             job["finished_at"] = datetime.now().isoformat()
             if was_processing and self.active_count > 0:
