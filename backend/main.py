@@ -262,8 +262,13 @@ class JobManager:
         if job_id in self.job_tasks:
             task = self.job_tasks[job_id]
             try:
-                await asyncio.shield(task)
-            except asyncio.CancelledError:
+                # ponytail: 10s ceiling on cancel — if the task is stuck in a blocking
+                # to_thread call without stop_event checks, we abandon waiting and let
+                # the task's finally block clean up in the background.
+                # Upgrade path: register ALL subprocesses with job_manager and add
+                # stop_event checks inside every to_thread target.
+                await asyncio.wait_for(asyncio.shield(task), timeout=10.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
 
         # Update job status
@@ -436,6 +441,27 @@ async def validate_file_size(file: UploadFile) -> int:
     return size
 
 
+def _parse_floats(s: str, count: int, default: float) -> list[float]:
+    """Parse comma-separated floats, padding with default to reach count."""
+    parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
+    result = [float(p) for p in parts]
+    while len(result) < count:
+        result.append(default)
+    return result[:count]
+
+
+def _parse_bools(s: str, count: int) -> list[bool]:
+    """Parse comma-separated '0'/'1' booleans, padding with False to reach count."""
+    parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
+    invalid = [p for p in parts if p not in {"0", "1"}]
+    if invalid:
+        raise ValueError(f"Invalid boolean form values: {', '.join(invalid)}")
+    result = [p == "1" for p in parts]
+    while len(result) < count:
+        result.append(False)
+    return result[:count]
+
+
 # ── Progress Parser ────────────────────────────────────────────────────────────
 def parse_ffmpeg_progress(stderr_line: str, total_duration: int) -> Optional[dict]:
     """Parse ffmpeg stderr for progress information."""
@@ -590,30 +616,13 @@ async def render_video_full(
             track_paths.append(dest)
 
         # Parse parameters
-        def parse_floats(s, count, default):
-            parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
-            result = [float(p) for p in parts]
-            while len(result) < count:
-                result.append(default)
-            return result[:count]
-
-        def parse_bools(s, count):
-            parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
-            invalid = [p for p in parts if p not in {"0", "1"}]
-            if invalid:
-                raise ValueError(f"Invalid boolean form values: {', '.join(invalid)}")
-            result = [p == "1" for p in parts]
-            while len(result) < count:
-                result.append(False)
-            return result[:count]
-
         n = len(track_paths)
         try:
-            vol_list = parse_floats(volumes, n, 1.0)
-            pan_list = parse_floats(pans, n, 0.0)
-            muted_list = parse_bools(muted, n)
-            solo_list = parse_bools(solo, n)
-            eq_list = parse_floats(eq_gains, 7, 0.0)
+            vol_list = _parse_floats(volumes, n, 1.0)
+            pan_list = _parse_floats(pans, n, 0.0)
+            muted_list = _parse_bools(muted, n)
+            solo_list = _parse_bools(solo, n)
+            eq_list = _parse_floats(eq_gains, 7, 0.0)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=f"Invalid numeric form values: {exc}") from exc
         show_viz = show_visualizer == "1"
@@ -1052,30 +1061,13 @@ async def render_audio_job(
                 shutil.copyfileobj(upload.file, f)
             track_paths.append(dest)
 
-        def parse_floats(s, count, default):
-            parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
-            result = [float(p) for p in parts]
-            while len(result) < count:
-                result.append(default)
-            return result[:count]
-
-        def parse_bools(s, count):
-            parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
-            invalid = [p for p in parts if p not in {"0", "1"}]
-            if invalid:
-                raise ValueError(f"Invalid boolean form values: {', '.join(invalid)}")
-            result = [p == "1" for p in parts]
-            while len(result) < count:
-                result.append(False)
-            return result[:count]
-
         n = len(track_paths)
         try:
-            vol_list = parse_floats(volumes, n, 1.0)
-            pan_list = parse_floats(pans, n, 0.0)
-            muted_list = parse_bools(muted, n)
-            solo_list = parse_bools(solo, n)
-            eq_list = parse_floats(eq_gains, 7, 0.0)
+            vol_list = _parse_floats(volumes, n, 1.0)
+            pan_list = _parse_floats(pans, n, 0.0)
+            muted_list = _parse_bools(muted, n)
+            solo_list = _parse_bools(solo, n)
+            eq_list = _parse_floats(eq_gains, 7, 0.0)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=f"Invalid numeric form values: {exc}") from exc
 
