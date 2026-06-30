@@ -12,9 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import subprocess
-import shutil
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
@@ -31,26 +29,18 @@ _cuda_available = False
 try:
     from services.cuda_visualizer import render_video_cuda
     import cv2
-    # Debug: print version and device count to the log
-    print(f"[STARTUP] DEBUG: cv2.__version__ = {cv2.__version__}")
-    print(f"[STARTUP] DEBUG: cv2.__file__ = {cv2.__file__}")
     device_count = cv2.cuda.getCudaEnabledDeviceCount()
-    print(f"[STARTUP] DEBUG: CUDA device count = {device_count}")
     logger.info(f"DEBUG: cv2.__version__ = {cv2.__version__}")
     logger.info(f"DEBUG: cv2.__file__ = {cv2.__file__}")
     logger.info(f"DEBUG: CUDA device count = {device_count}")
     if device_count > 0:
         _cuda_available = True
-        print(f"[STARTUP] ✓ CUDA visualizer available (_cuda_available = {_cuda_available})")
         logger.info("✓ CUDA visualizer available")
     else:
-        print(f"[STARTUP] CUDA visualizer not available: No CUDA-enabled GPU detected")
         logger.info("CUDA visualizer not available: No CUDA-enabled GPU detected")
 except ImportError as e:
-    print(f"[STARTUP] CUDA visualizer not available: {e}")
-    logger.info(f"CUDA visualizer not available: {e}")
+    logger.error(f"CUDA visualizer not available: {e}")
 except Exception as e:
-    print(f"[STARTUP] CUDA visualizer check failed with exception: {e}")
     logger.error(f"CUDA visualizer check failed with exception: {e}", exc_info=True)
 
 # Import CPU visualizer (always available, 3-4× faster than FFmpeg showfreqs)
@@ -225,6 +215,7 @@ class VideoRenderer:
                 job_id=job_id,
                 job_manager=job_manager,
                 start_time=start_time,
+                progress_callback=progress_callback,
             )
             return None
         
@@ -241,6 +232,7 @@ class VideoRenderer:
                 job_id=job_id,
                 job_manager=job_manager,
                 start_time=start_time,
+                progress_callback=progress_callback,
             )
             return None
         
@@ -266,7 +258,7 @@ class VideoRenderer:
         audio_input = ffmpeg.input(str(audio_path))
 
         if show_visualizer:
-            log_with_time(f"🎬 Building CUDA-accelerated visualizer...")
+            log_with_time(f"🎬 Building FFmpeg showfreqs fallback visualizer...")
             
             # showfreqs runs on CPU (no CUDA equivalent exists)
             # but we upload to GPU immediately after for overlay+encode

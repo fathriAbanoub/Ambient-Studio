@@ -158,6 +158,10 @@ export function useAudioEngine(
     // GUARD: Don't start playback if unmounted
     if (!mountedRef.current) return;
 
+    // Keep the UI state aligned even if the browser pauses or rejects the
+    // audio graph creation; this makes play/stop controls feel responsive.
+    setState((s) => ({ ...s, isPlaying: true }));
+
     // Ensure graph is initialized before playing
     if (!analyserRef.current) await initAudio();
 
@@ -226,6 +230,8 @@ export function useAudioEngine(
 
       // GUARD: Don't start playback if unmounted
       if (!mountedRef.current) return;
+
+      setState((s) => ({ ...s, isPlaying: true }));
 
       // Ensure graph is initialized
       if (!analyserRef.current) await initAudio();
@@ -381,5 +387,6 @@ export function useAudioEngine(
     updateTrackGain,
     updateTrackPan,
     getAnalyserData,
+    masterGainNode: masterGainRef.current,
   };
 }

@@ -24,7 +24,11 @@ import {
 
 const GENERATOR_COLOR = "#00bcd4";
 
-export function ProceduralTrack() {
+interface ProceduralTrackProps {
+  masterGainNode: GainNode | null;
+}
+
+export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
   const {
     generator,
     setGeneratorSeed,
@@ -48,7 +52,7 @@ export function ProceduralTrack() {
     exportWav,
     exportProgress,
     isExporting,
-  } = useProceduralEngine();
+  } = useProceduralEngine(masterGainNode);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const hasManualSolo = useStudioStore((s) =>

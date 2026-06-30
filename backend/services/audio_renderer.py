@@ -204,18 +204,10 @@ class AudioRenderer:
                     logger.error("FFmpeg audio error:\n%s", stderr)
                     raise RuntimeError(f"FFmpeg audio failed: {stderr[-500:]}")
             else:
-                # Run without progress monitoring
-                (
-                    mixed.output(
-                        str(output_path),
-                        t=duration_seconds,
-                        ar=self.settings.SAMPLE_RATE,
-                        ac=self.settings.CHANNELS,
-                        acodec="pcm_s16le",
-                    )
-                    .overwrite_output()
-                    .run(capture_stdout=True, capture_stderr=True)
-                )
+                # Reuse the cmd built above — it already respects render_source_once.
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise RuntimeError(f"FFmpeg audio failed: {result.stderr[-500:]}")
 
         except ffmpeg.Error as exc:
             stderr = exc.stderr.decode("utf-8", errors="replace") if exc.stderr else ""

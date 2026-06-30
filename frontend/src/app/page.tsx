@@ -45,7 +45,7 @@ export default function StudioPage() {
 
       <div className="flex-1 flex gap-4 p-4 min-h-0">
         <div className="flex-1 flex flex-col gap-2 overflow-y-auto">
-          <ProceduralTrack />
+          <ProceduralTrack masterGainNode={engine.masterGainNode} />
           {tracks.map((track, index) => (
             <TrackCard key={track.id} track={track} index={index} />
           ))}

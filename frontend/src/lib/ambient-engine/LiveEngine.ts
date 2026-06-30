@@ -82,7 +82,7 @@ export class LiveEngine {
   // ✅ FIX: Starting flag to prevent concurrent start() calls
   private starting = false;
 
-  constructor(params: EngineParams, injectedCtx?: AudioContext) {
+  constructor(params: EngineParams, injectedCtx?: AudioContext, masterDestination?: AudioNode | null) {
     // Use injected context if provided, otherwise use shared singleton
     this.ctx = injectedCtx || getSharedAudioContext();
     this.params = { ...params };
@@ -107,7 +107,7 @@ export class LiveEngine {
     this.fb.connect(this.delay);
     this.delay.connect(this.out);
     this.filter.connect(this.out);
-    this.out.connect(this.ctx.destination);
+    this.out.connect(masterDestination || this.ctx.destination);
 
     // ── Drum bus ──
     this.drumBus = this.ctx.createGain();
