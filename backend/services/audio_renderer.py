@@ -140,20 +140,39 @@ class AudioRenderer:
             # Apply master gain
             mixed = mixed.filter("volume", master_gain)
 
-            # Apply 7-band EQ using equalizer filter
+            # Apply 7-band EQ using appropriate filters
+            # FFmpeg's `equalizer` is strictly a peaking filter; shelves need `bass` and `treble`.
             bands = self.settings.EQ_BANDS
             for i, band in enumerate(bands):
                 gain_db = eq_gains[i] if i < len(eq_gains) else 0.0
                 if abs(gain_db) < 0.1:
                     continue
-                eq_type = "h" if band["type"] == "highshelf" else ("l" if band["type"] == "lowshelf" else "o")
-                mixed = mixed.filter(
-                    "equalizer",
-                    f=band["freq"],
-                    t=eq_type,
-                    w=1.0,  # bandwidth in octaves
-                    g=gain_db,
-                )
+
+                # Route to the correct FFmpeg filter based on band type
+                if band["type"] == "lowshelf":
+                    mixed = mixed.filter(
+                        "bass",
+                        f=band["freq"],
+                        t="o",      # width type: octaves
+                        w=0.5,      # shelf transition steep (FFmpeg default for shelves)
+                        g=gain_db,
+                    )
+                elif band["type"] == "highshelf":
+                    mixed = mixed.filter(
+                        "treble",
+                        f=band["freq"],
+                        t="o",
+                        w=0.5,
+                        g=gain_db,
+                    )
+                else:  # peaking
+                    mixed = mixed.filter(
+                        "equalizer",
+                        f=band["freq"],
+                        t="o",      # width type: octaves
+                        w=1.0,      # bandwidth in octaves
+                        g=gain_db,
+                    )
 
             # Build command
             # When render_source_once=True, don't limit duration - let it render the natural length
