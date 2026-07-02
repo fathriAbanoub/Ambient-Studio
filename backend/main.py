@@ -15,6 +15,7 @@ Features:
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -181,6 +182,10 @@ class JobManager:
         """Mark job as completed."""
         with self._lock:
             if job_id in self.jobs:
+                # ✅ FIX: Idempotent guard. Prevents late-running tasks from
+                # overwriting cancelled state and double-decrementing active_count.
+                if self.jobs[job_id]["status"] in ("completed", "failed", "cancelled"):
+                    return
                 self.jobs[job_id]["status"] = "completed"
                 self.jobs[job_id]["progress"] = 100
                 self.jobs[job_id]["finished_at"] = datetime.now().isoformat()
@@ -207,6 +212,9 @@ class JobManager:
         """Mark job as failed."""
         with self._lock:
             if job_id in self.jobs:
+                # ✅ FIX: Idempotent guard (see complete_job).
+                if self.jobs[job_id]["status"] in ("completed", "failed", "cancelled"):
+                    return
                 self.jobs[job_id]["status"] = "failed"
                 self.jobs[job_id]["error"] = error
                 self.jobs[job_id]["finished_at"] = datetime.now().isoformat()
@@ -442,21 +450,34 @@ async def validate_file_size(file: UploadFile) -> int:
 
 
 def _parse_floats(s: str, count: int, default: float) -> list[float]:
-    """Parse comma-separated floats, padding with default to reach count."""
-    parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
-    result = [float(p) for p in parts]
+    """Parse comma-separated floats, preserving empty fields as positional placeholders."""
+    # FIX: Removed `if x.strip()` so empty fields are preserved as positional placeholders.
+    parts = [x.strip() for x in s.split(",")] if s else []
+    result = []
+    for p in parts:
+        if not p:
+            result.append(default)
+        else:
+            value = float(p)  # Raises ValueError on "abc", caught by route handler for 422
+            if not math.isfinite(value):
+                raise ValueError(f"Invalid finite float value: {p}")
+            result.append(value)
     while len(result) < count:
         result.append(default)
     return result[:count]
 
 
 def _parse_bools(s: str, count: int) -> list[bool]:
-    """Parse comma-separated '0'/'1' booleans, padding with False to reach count."""
-    parts = [x.strip() for x in s.split(",") if x.strip()] if s else []
-    invalid = [p for p in parts if p not in {"0", "1"}]
-    if invalid:
-        raise ValueError(f"Invalid boolean form values: {', '.join(invalid)}")
-    result = [p == "1" for p in parts]
+    """Parse comma-separated '0'/'1' booleans, preserving empty fields as False."""
+    parts = [x.strip() for x in s.split(",")] if s else []
+    result = []
+    for p in parts:
+        if p == "":
+            result.append(False)
+        elif p not in {"0", "1"}:
+            raise ValueError(f"Invalid boolean form value: '{p}'")
+        else:
+            result.append(p == "1")
     while len(result) < count:
         result.append(False)
     return result[:count]
@@ -945,7 +966,7 @@ async def render_video_full(
                     job_manager=job_manager,
                     start_time=start_time,
                     progress_callback=lambda p: job_manager.update_progress(
-                        job_id, 55 + int(p * 0.45)
+                        job_id, 55 + int(p * 0.35)  # Maps 0-100 to 55-90 (leaves room for 95% finalize)
                     ),
                 )
 
