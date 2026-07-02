@@ -202,6 +202,10 @@ class VideoRenderer:
                                  (6× faster than FFmpeg showfreqs filter)
                                  Falls back to CPU visualizer (3-4× faster) if CUDA unavailable
         """
+        # ✅ FIX: Resolve NVENC availability once for the visualizer paths.
+        # If use_gpu=False or NVENC is unavailable, fall back to libx264.
+        use_nvenc = use_gpu and _check_nvenc()
+
         # Use CUDA visualizer if requested, available, and visualizer is enabled
         if show_visualizer and use_cuda_visualizer and _cuda_available:
             logger.info("🚀 Using CUDA-accelerated visualizer")
@@ -216,6 +220,7 @@ class VideoRenderer:
                 job_manager=job_manager,
                 start_time=start_time,
                 progress_callback=progress_callback,
+                use_nvenc=use_nvenc,
             )
             return None
         
@@ -233,6 +238,7 @@ class VideoRenderer:
                 job_manager=job_manager,
                 start_time=start_time,
                 progress_callback=progress_callback,
+                use_nvenc=use_nvenc,
             )
             return None
         
@@ -273,37 +279,55 @@ class VideoRenderer:
                 colors='0x00e5ff|0x7c4dff|0x00e676',
             )
             
-            # Upload both streams to GPU and convert to nv12 format
-            # First convert yuva420p to yuv420p (remove alpha) before GPU upload
-            viz_cuda = (
-                visualizer
-                .filter('format', 'yuv420p')  # Remove alpha channel before GPU upload
-                .filter('hwupload_cuda')
-                .filter('scale_cuda', s.VIDEO_WIDTH, int(s.VIDEO_HEIGHT * 0.30), format='nv12')
-            )
-            bg_cuda = (
-                video_input
-                .filter('scale', s.VIDEO_WIDTH, s.VIDEO_HEIGHT)
-                .filter('hwupload_cuda')
-                .filter('scale_cuda', s.VIDEO_WIDTH, s.VIDEO_HEIGHT, format='nv12')
-            )
-            
-            # Overlay and encode entirely on GPU
-            video_stream = ffmpeg.filter(
-                [bg_cuda, viz_cuda],
-                'overlay_cuda',
-                x=0,
-                y=s.VIDEO_HEIGHT - int(s.VIDEO_HEIGHT * 0.30),
-            )
-            
-            output_fps = 10
-            log_with_time(f"🎬 Starting CUDA encode ({codec} @ {output_fps}fps)...")
+            if use_gpu:
+                # Upload both streams to GPU and convert to nv12 format
+                # First convert yuva420p to yuv420p (remove alpha) before GPU upload
+                viz_cuda = (
+                    visualizer
+                    .filter('format', 'yuv420p')  # Remove alpha channel before GPU upload
+                    .filter('hwupload_cuda')
+                    .filter('scale_cuda', s.VIDEO_WIDTH, int(s.VIDEO_HEIGHT * 0.30), format='nv12')
+                )
+                bg_cuda = (
+                    video_input
+                    .filter('scale', s.VIDEO_WIDTH, s.VIDEO_HEIGHT)
+                    .filter('hwupload_cuda')
+                    .filter('scale_cuda', s.VIDEO_WIDTH, s.VIDEO_HEIGHT, format='nv12')
+                )
+
+                # Overlay and encode entirely on GPU
+                video_stream = ffmpeg.filter(
+                    [bg_cuda, viz_cuda],
+                    'overlay_cuda',
+                    x=0,
+                    y=s.VIDEO_HEIGHT - int(s.VIDEO_HEIGHT * 0.30),
+                )
+
+                output_fps = 10
+                log_with_time(f"🎬 Starting CUDA encode ({codec} @ {output_fps}fps)...")
+            else:
+                # Pure CPU pipeline fallback (no hwupload_cuda / overlay_cuda)
+                scaled_bg = video_input.filter('scale', s.VIDEO_WIDTH, s.VIDEO_HEIGHT)
+                alpha_viz = visualizer.filter('colorchannelmixer', aa=0.7)
+                video_stream = ffmpeg.overlay(
+                    scaled_bg,
+                    alpha_viz,
+                    x=0,
+                    y=s.VIDEO_HEIGHT - int(s.VIDEO_HEIGHT * 0.30),
+                    format='auto',
+                    shortest=1,
+                )
+
+                output_fps = 10
+                log_with_time(f"🎬 Starting CPU encode ({codec} @ {output_fps}fps)...")
         else:
             video_stream = video_input.filter('scale', s.VIDEO_WIDTH, s.VIDEO_HEIGHT)
             output_fps = 1
             log_with_time(f"🎬 Starting ffmpeg encode ({codec})...")
 
-        # NVENC reads nv12 directly from GPU memory — no pix_fmt needed for CUDA path
+        # NVENC reads nv12 directly from GPU memory — no pix_fmt needed for CUDA path.
+        # CPU paths (no visualizer, or CPU visualizer fallback) need explicit yuv420p
+        # for compatibility with downstream players.
         output_kwargs = dict(
             vcodec=codec,
             acodec=s.AUDIO_CODEC,
@@ -313,7 +337,7 @@ class VideoRenderer:
             r=output_fps,
             **codec_kwargs,
         )
-        if not show_visualizer:
+        if not show_visualizer or not use_gpu:
             # CPU path needs explicit yuv420p for compatibility
             output_kwargs["pix_fmt"] = "yuv420p"
 

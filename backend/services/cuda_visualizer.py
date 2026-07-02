@@ -156,8 +156,6 @@ class CudaVisualizerRenderer:
         cv2.cuda.resetDevice()
 
 
-
-
 def _render_cuda_blocking(
     audio_path: Path,
     background_path: Path,
@@ -169,6 +167,7 @@ def _render_cuda_blocking(
     job_manager,
     start_time: float,
     progress_callback: Optional[Callable[[int], None]] = None,
+    use_nvenc: bool = True,
 ) -> None:
     """Synchronous CUDA render — called from a thread via asyncio.to_thread."""
     # Serialize CUDA renders to avoid device resets interfering with each other.
@@ -216,7 +215,7 @@ def _render_cuda_blocking(
                 fps=fps,
                 width=settings.VIDEO_WIDTH,
                 height=settings.VIDEO_HEIGHT,
-                use_nvenc=True,
+                use_nvenc=use_nvenc,
                 input_pix_fmt="bgr24",
             )
         except Exception as e:
@@ -242,7 +241,10 @@ def _render_cuda_blocking(
                     except subprocess.TimeoutExpired:
                         ffmpeg_proc.kill()
                         ffmpeg_proc.wait()
-                    raise RuntimeError("Job cancelled by user")
+                    # ✅ FIX: Raise asyncio.CancelledError so the parent task's
+                    # except asyncio.CancelledError block handles it as a
+                    # cancellation, not a generic render failure.
+                    raise asyncio.CancelledError()
 
                 bar_heights = bar_data[frame_idx]
 
@@ -333,6 +335,7 @@ async def render_video_cuda(
     job_manager = None,
     start_time: Optional[float] = None,
     progress_callback: Optional[Callable[[int], None]] = None,
+    use_nvenc: bool = True,
 ) -> None:
     """
     Main entry point for CUDA-accelerated video rendering.
@@ -356,4 +359,5 @@ async def render_video_cuda(
         job_manager,
         start_time,
         progress_callback,
+        use_nvenc,
     )
