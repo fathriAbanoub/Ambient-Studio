@@ -202,8 +202,7 @@ class VideoRenderer:
                                  (6× faster than FFmpeg showfreqs filter)
                                  Falls back to CPU visualizer (3-4× faster) if CUDA unavailable
         """
-        # ✅ FIX: Resolve NVENC availability once for the visualizer paths.
-        # If use_gpu=False or NVENC is unavailable, fall back to libx264.
+        # Resolve NVENC availability once for all paths.
         use_nvenc = use_gpu and _check_nvenc()
 
         # Use CUDA visualizer if requested, available, and visualizer is enabled
@@ -267,7 +266,7 @@ class VideoRenderer:
             log_with_time(f"🎬 Building FFmpeg showfreqs fallback visualizer...")
             
             # showfreqs runs on CPU (no CUDA equivalent exists)
-            # but we upload to GPU immediately after for overlay+encode
+            # but we upload to GPU immediately after for overlay+encode if NVENC is available.
             visualizer = audio_input.filter(
                 'showfreqs',
                 s=f'{s.VIDEO_WIDTH}x{int(s.VIDEO_HEIGHT * 0.30)}',
@@ -279,9 +278,10 @@ class VideoRenderer:
                 colors='0x00e5ff|0x7c4dff|0x00e676',
             )
             
-            if use_gpu:
-                # Upload both streams to GPU and convert to nv12 format
-                # First convert yuva420p to yuv420p (remove alpha) before GPU upload
+            # ✅ FIX: Only use CUDA filters when NVENC is actually available.
+            # Otherwise fall back to CPU overlay to avoid feeding GPU frames
+            # into libx264 or failing when CUDA filters aren't available.
+            if use_nvenc:
                 viz_cuda = (
                     visualizer
                     .filter('format', 'yuv420p')  # Remove alpha channel before GPU upload
@@ -337,8 +337,9 @@ class VideoRenderer:
             r=output_fps,
             **codec_kwargs,
         )
-        if not show_visualizer or not use_gpu:
-            # CPU path needs explicit yuv420p for compatibility
+        # ✅ FIX: Use use_nvenc to decide whether to force yuv420p.
+        if not show_visualizer or not use_nvenc:
+            # CPU path or non-NVENC encode needs explicit yuv420p for compatibility
             output_kwargs["pix_fmt"] = "yuv420p"
 
         cmd = (
