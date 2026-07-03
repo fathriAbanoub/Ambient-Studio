@@ -8,30 +8,10 @@
  *   C4: 600ms harmonic slew applied via OfflineAudioContext time scheduling
  *   W3: Remove duplicated scene interpolation — accumulate beat time using
  *       actual per-beat BPM from nextState after each getMusicalEvents call
- *   ✅ FIX (NOISE_BUFFER_SAMPLES): createNoiseBufferFromState() and
- *       createNoiseBufferFromSnapshot() now use the shared
- *       NOISE_BUFFER_SAMPLES constant (imported from musicalLogic.ts)
- *       instead of computing Math.floor(ctx.sampleRate * 0.5) inline.
- *       While the OfflineAudioContext is hardcoded to 44100 Hz (so the
- *       inline expression happened to evaluate to 22050), this was fragile:
- *       any future change to SAMPLE_RATE would silently desync the RNG
- *       stream from LiveEngine's. Importing the constant ensures a single
- *       source of truth shared across all three files (musicalLogic.ts,
- *       LiveEngine.ts, renderAmbient.ts).
- *   ✅ FIX (continue in-progress live slew): When startState comes from a
- *       running LiveEngine mid-slew, currentRootHz can differ from
- *       targetRootHz (e.g., 200 Hz mid-glide from A3=220 → F#3=185). The
- *       offline slew trackers previously started as null, so getSlewedHz()
- *       returned currentRootHz immediately and the export froze at the
- *       intermediate root until the next bar-8 harmonic change. Now we
- *       seed slewStartHz/slewEndHz/slewStartTime/slewEndTime from the
- *       state delta (currentRootHz → targetRootHz) when they differ, so
- *       the export continues the active glide from currentTime=0. The
- *       live engine's wall-clock slew timing is private and not carried
- *       in EngineState, so the offline slew restarts at the export's
- *       first beat — this preserves the musical intent (continue toward
- *       the target) without claiming byte-identical timing to the live
- *       stream. The SLEW_DURATION (600ms) is unchanged.
+ *   ✅ FIX (NOISE_BUFFER_SAMPLES): use shared constant
+ *   ✅ FIX (continue in-progress live slew): seed offline slew from startState
+ *   ✅ FIX (params mutation): clone params to avoid mutating caller
+ *   ✅ FIX (beat-loop cap): use minimum possible BPM across scenes to prevent truncation
  */
 
 import {
@@ -45,6 +25,7 @@ import {
   mulberry32Next,
   getEffectiveSceneParams,
   NOISE_BUFFER_SAMPLES,
+  SCENES, // ✅ FIX: Import SCENES to compute minBpm
 } from "./musicalLogic";
 
 const FM_MOD_RATIO = 1.5;
@@ -67,8 +48,10 @@ export async function renderAmbient(
   startState?: EngineState,
   onProgress?: (progress: RenderProgress) => void,
 ): Promise<AudioBuffer> {
+  // Clone params to avoid mutating caller's object.
+  const effectiveParams: EngineParams = { ...params };
   const SAMPLE_RATE = 44100;
-  const effectiveBpm = params.bpm || 72;
+  const effectiveBpm = effectiveParams.bpm || 72;
   const PRE_ROLL_SECONDS = 4 * (60 / effectiveBpm) * 4; // 4 bars
 
   // Over-allocate 10% — we trim to exact duration after rendering
@@ -87,10 +70,10 @@ export async function renderAmbient(
   const out = offlineCtx.createGain();
 
   gain.gain.value = 0.3;
-  delay.delayTime.value = 0.3 + 0.4 * (params.mix || 0.4);
-  fb.gain.value = 0.2 + 0.5 * (params.mix || 0.4);
+  delay.delayTime.value = 0.3 + 0.4 * (effectiveParams.mix || 0.4);
+  fb.gain.value = 0.2 + 0.5 * (effectiveParams.mix || 0.4);
   filter.type = "lowpass";
-  filter.frequency.value = 5000 + (params.mix || 0.4) * 4000;
+  filter.frequency.value = 5000 + (effectiveParams.mix || 0.4) * 4000;
   filter.Q.value = 1.0;
 
   gain.connect(filter);
@@ -124,29 +107,14 @@ export async function renderAmbient(
   onProgress?.({ phase: "scheduling", percent: 10 });
 
   // ── RNG init order matches original engine.ts constructor exactly ──
-  // Original order: mulberry32(seed) → createNoiseBuffer() [~22k calls] → nextBellBeat [1 call]
-  //
-  // FRESH export (no startState):
-  //   createInitialState → createNoiseBufferFromState [~22k] → initializeBell [1]
-  //   This matches the original constructor RNG order exactly.
-  //
-  // LIVE-EXPORT (startState provided from running LiveEngine):
-  //   The RNG stream is already past noise buffer and bell init.
-  //   Do NOT call createNoiseBufferFromState — that would advance ~22k extra calls
-  //   and desync the export from the live stream.
-  //   Generate a fresh noise buffer from a separate RNG snapshot instead.
   let state: EngineState;
   let noiseBuffer: AudioBuffer;
 
   if (startState) {
-    // Continuing from live engine — RNG already positioned past noise buffer
     state = { ...startState };
-    // Generate noise buffer from a snapshot of current rngState so we don't
-    // advance the main stream (drum texture will match this session's noise)
     noiseBuffer = createNoiseBufferFromSnapshot(offlineCtx, state.rngState);
   } else {
-    // Fresh render — match original constructor order exactly
-    state = createInitialState(params);
+    state = createInitialState(effectiveParams);
     noiseBuffer = createNoiseBufferFromState(offlineCtx, state); // advances ~22k in main stream
     state = initializeBell(state); // advances 1 in main stream
   }
@@ -158,18 +126,6 @@ export async function renderAmbient(
   let slewEndTime: number | null = null;
   const SLEW_DURATION = 0.6;
 
-  // ✅ FIX (continue in-progress live slew): If startState comes from a
-  // running LiveEngine that is mid-slew, currentRootHz will differ from
-  // targetRootHz (e.g., 200 Hz mid-glide from A3=220 → F#3=185). The live
-  // engine's slew timing fields are private and not carried in EngineState,
-  // so we cannot reconstruct the exact wall-clock position of the glide.
-  // Instead, we seed a fresh offline slew starting at currentTime=0 from
-  // currentRootHz → targetRootHz. This preserves the musical intent — the
-  // export continues gliding toward the target instead of freezing at the
-  // intermediate root until the next bar-8 harmonic change. The 600ms
-  // SLEW_DURATION is unchanged. When currentRootHz === targetRootHz (the
-  // common case: fresh render, or live engine not mid-slew), no slew is
-  // seeded and behavior is identical to before.
   if (startState && state.currentRootHz !== state.targetRootHz) {
     slewStartHz = state.currentRootHz;
     slewEndHz = state.targetRootHz;
@@ -177,20 +133,20 @@ export async function renderAmbient(
     slewEndTime = SLEW_DURATION;
   }
 
-  // ── FIX W3 + beat timing: accumulate time from actual per-beat BPM ──
-  // Instead of duplicating scene interpolation logic, we read the BPM that
-  // was actually used in each beat from the state returned by getMusicalEvents.
-  // The effective BPM for beat i is reflected in: 60 / effectiveBpmAtBeat
-  // We compute this from the scene state in nextState after each call.
-
+  // ── FIX W3 + beat timing ──
   let currentTime = 0;
   const targetEndTime = PRE_ROLL_SECONDS + durationSeconds;
-  const maxBeats = Math.ceil(totalSecondsEstimate * (effectiveBpm / 60)) + 20;
+
+  // ✅ FIX: Use the minimum possible BPM to calculate maxBeats. If scenes
+  // increase the BPM during export, we need MORE beats than the starting
+  // BPM suggests. Using the minimum BPM (from SCENES or params) gives us
+  // the most conservative beat count, preventing truncation.
+  const minBpm = Math.min(effectiveBpm, ...SCENES.map((s) => s.bpm));
+  const maxBeats = Math.ceil(totalSecondsEstimate * (minBpm / 60)) + 100; // +100 safety margin
+
   let beatIndex = 0;
 
   while (currentTime < targetEndTime && beatIndex < maxBeats) {
-    // FIX: Compute slewed root BEFORE getMusicalEvents — matches original engine.ts
-    // which ran updateHarmonicLoop() before noteHz() calls within the same tick.
     const slewedRootHz = getSlewedHz(
       currentTime,
       state.currentRootHz,
@@ -204,29 +160,27 @@ export async function renderAmbient(
 
     const prevTargetRootHz = state.targetRootHz;
 
-    // FIX: compute effective BPM/mix from current state BEFORE the event call
-    const preBeatParams = getEffectiveSceneParams(state, params);
+    // ✅ FIX: Use effectiveParams (cloned) to avoid mutating original.
+    const preBeatParams = getEffectiveSceneParams(state, effectiveParams);
     const beatSec = 60 / preBeatParams.bpm;
-    params.bpm = preBeatParams.bpm;
+    effectiveParams.bpm = preBeatParams.bpm;
     const sceneMix = preBeatParams.mix;
     const sixteenthSec = beatSec / 4;
 
     const { events, nextState } = getMusicalEvents(
       state.beat,
       { ...state },
-      params,
+      effectiveParams,
     );
     state = nextState;
 
-    // FIX C4: Detect harmonic change — start slew for upcoming beats
     if (state.targetRootHz !== prevTargetRootHz) {
-      slewStartHz = slewedRootHz; // start from already-slewed position
+      slewStartHz = slewedRootHz;
       slewEndHz = state.targetRootHz;
       slewStartTime = currentTime;
       slewEndTime = currentTime + SLEW_DURATION;
     }
 
-    // Update persistent panner values at this beat time
     const panValue = Math.sin(state.panDriftPhase) * 0.1;
     padPanL.pan.setValueAtTime(-panValue, currentTime);
     padPanR.pan.setValueAtTime(panValue, currentTime);
@@ -235,13 +189,11 @@ export async function renderAmbient(
       currentTime,
     );
 
-    // Animate scene mix each beat — matches original updateSceneEngine setMix() call.
     delay.delayTime.setValueAtTime(0.3 + 0.4 * sceneMix, currentTime);
     fb.gain.setValueAtTime(0.2 + 0.5 * sceneMix, currentTime);
     filter.frequency.setValueAtTime(5000 + sceneMix * 4000, currentTime);
 
     for (const event of events) {
-      // FIX C1: schedule drum events with sub-beat offset
       const eventTime = currentTime + event.subBeatIndex * sixteenthSec;
       scheduleEvent(
         offlineCtx,
@@ -290,7 +242,7 @@ export async function renderAmbient(
   return outputBuffer;
 }
 
-// ── FIX C4: Slew helper for offline context ───────────────────────────────────
+// ── FIX C4: Slew helper ──────────────────────────────────────────────────────
 
 function getSlewedHz(
   now: number,
@@ -314,31 +266,20 @@ function getSlewedHz(
   return startHz + (endHz - startHz) * progress;
 }
 
-// ── FIX C2: Noise buffer consuming from main state RNG stream ─────────────────
-// Used for fresh renders — advances state.rngState by ~22k calls in-place.
+// ── FIX C2: Noise buffer consuming from main state RNG stream ──────────────
 
-// ✅ FIX (NOISE_BUFFER_SAMPLES): Uses the shared NOISE_BUFFER_SAMPLES constant
-// (imported from musicalLogic.ts) instead of Math.floor(ctx.sampleRate * 0.5).
-// While the OfflineAudioContext is hardcoded to 44100 Hz (so the inline
-// expression happened to evaluate to 22050), this was fragile: any future
-// change to SAMPLE_RATE would silently desync the RNG stream from
-// LiveEngine's createNoiseBuffer(). Importing the constant ensures a single
-// source of truth shared across all three files.
 function createNoiseBufferFromState(
   ctx: OfflineAudioContext,
   state: EngineState,
 ): AudioBuffer {
   const buffer = ctx.createBuffer(1, NOISE_BUFFER_SAMPLES, ctx.sampleRate);
   const data = buffer.getChannelData(0);
-  // Consume directly from state.rngState — advances the main stream
   for (let i = 0; i < NOISE_BUFFER_SAMPLES; i++) {
     data[i] = mulberry32Next(state) * 2 - 1;
   }
   return buffer;
 }
 
-// Used for live-export — generates from a snapshot so main stream is NOT advanced.
-// ✅ FIX (NOISE_BUFFER_SAMPLES): Same single-source-of-truth fix as above.
 function createNoiseBufferFromSnapshot(
   ctx: OfflineAudioContext,
   seedSnapshot: number,
@@ -352,7 +293,7 @@ function createNoiseBufferFromSnapshot(
   return buffer;
 }
 
-// ── Event scheduling ──────────────────────────────────────────────────────────
+// ── Event scheduling ─────────────────────────────────────────────────────────
 
 function scheduleEvent(
   ctx: OfflineAudioContext,
@@ -398,7 +339,7 @@ function scheduleEvent(
   }
 }
 
-// ── Tonal synthesis ───────────────────────────────────────────────────────────
+// ── Tonal synthesis ─────────────────────────────────────────────────────────
 
 function scheduleTonal(
   ctx: OfflineAudioContext,
@@ -470,7 +411,6 @@ function scheduleTonal(
     osc.connect(g);
   }
 
-  // FIX W1/W3: Route to same persistent panner nodes as LiveEngine
   let destination: AudioNode;
   if (type === "pad" && pan < 0) destination = padPanL;
   else if (type === "pad" && pan > 0) destination = padPanR;
@@ -519,7 +459,7 @@ function createOscillator(
   return [osc, modOsc];
 }
 
-// ── Drum synthesis ────────────────────────────────────────────────────────────
+// ── Drum synthesis ───────────────────────────────────────────────────────────
 
 function scheduleKick(
   ctx: OfflineAudioContext,

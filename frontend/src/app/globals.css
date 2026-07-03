@@ -52,6 +52,7 @@
   --accent2: #7c4dff;
   --accent3: #00e676;
   --warn: #ff6b35;
+  --warning: var(--warn); /* ✅ FIX: Alias for components using --warning */
   --text: #c8d8e8;
   --text-dim: #4a6a8a;
   --text-bright: #eaf4ff;

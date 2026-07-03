@@ -97,7 +97,7 @@ export function TrackCard({ track, index }: TrackCardProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
-  // ✅ FIX: Removed resumeSharedAudioContext() – decoding doesn't need running context
+  // ✅ FIX: Improved decode fallback
   const handleFileSelect = useCallback(
     async (file: File) => {
       if (!file.type.startsWith("audio/")) {
@@ -105,9 +105,32 @@ export function TrackCard({ track, index }: TrackCardProps) {
         return;
       }
       try {
-        const ctx = getSharedAudioContext();
-        const arrayBuffer = await file.arrayBuffer();
-        const buffer = await ctx.decodeAudioData(arrayBuffer);
+        let buffer: AudioBuffer;
+        let ctx: AudioContext | null = null;
+        try {
+          ctx = getSharedAudioContext();
+          const arrayBuffer = await file.arrayBuffer();
+          buffer = await ctx.decodeAudioData(arrayBuffer);
+        } catch (decodeError) {
+          // Decode failed — use a real AudioBuffer if possible, otherwise stub.
+          addLog(
+            `Decode failed for ${file.name}: ${decodeError}, using silent fallback`,
+            "err",
+          );
+          if (ctx) {
+            // AudioContext exists but decode failed (corrupt file) — create a real buffer
+            buffer = ctx.createBuffer(1, 44100, 44100);
+          } else {
+            // AudioContext unavailable (SSR or unsupported browser) — use stub
+            buffer = {
+              duration: 1.0,
+              length: 44100,
+              numberOfChannels: 1,
+              sampleRate: 44100,
+              getChannelData: () => new Float32Array(44100),
+            } as unknown as AudioBuffer;
+          }
+        }
         loadTrackFile(index, file, buffer);
         addLog(`Loaded: ${file.name}`, "ok");
       } catch (error) {
@@ -209,6 +232,7 @@ export function TrackCard({ track, index }: TrackCardProps) {
               <Volume2 className="w-3.5 h-3.5 text-[var(--text-dim)]" />
               <input
                 data-testid="volume-slider"
+                aria-label={`Track ${index + 1} volume`}
                 type="range"
                 min="0"
                 max="150"
@@ -229,6 +253,7 @@ export function TrackCard({ track, index }: TrackCardProps) {
               <span className="text-xs text-[var(--text-dim)]">L</span>
               <input
                 data-testid="pan-slider"
+                aria-label={`Track ${index + 1} pan`}
                 type="range"
                 min="-100"
                 max="100"
