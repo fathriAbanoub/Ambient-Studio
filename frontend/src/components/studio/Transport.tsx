@@ -33,9 +33,18 @@ export function Transport({ engine }: { engine: TransportEngine }) {
     setIsPlaying,
     setActivePlaybackSource,
     activePlaybackSource,
+    isPlaying: storeIsPlaying,
   } = useStudioStore();
 
-  const { isPlaying, play, stop, getAnalyserData, initAudio } = engine;
+  const {
+    isPlaying: engineIsPlaying,
+    play,
+    stop,
+    getAnalyserData,
+    initAudio,
+  } = engine;
+
+  const isPlaybackActive = storeIsPlaying || engineIsPlaying;
 
   const timerRef = useRef<HTMLDivElement>(null);
   const vuBarsRef = useRef<(HTMLDivElement | null)[]>([]);
@@ -51,7 +60,13 @@ export function Transport({ engine }: { engine: TransportEngine }) {
   const resumePendingRef = useRef(false);
 
   const update = useCallback(() => {
-    const ctx = getSharedAudioContext();
+    // ✅ FIX: Guard against AudioContext unavailability
+    let ctx: AudioContext | null = null;
+    try {
+      ctx = getSharedAudioContext();
+    } catch {
+      ctx = null;
+    }
     if (ctx && ctx.state !== "closed") {
       if (ctx.state === "suspended") {
         if (!resumePendingRef.current) {
@@ -98,7 +113,7 @@ export function Transport({ engine }: { engine: TransportEngine }) {
   }, []);
 
   useEffect(() => {
-    if (isPlaying) {
+    if (isPlaybackActive) {
       update();
     } else {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
@@ -116,28 +131,32 @@ export function Transport({ engine }: { engine: TransportEngine }) {
     return () => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [isPlaying, update]);
+  }, [isPlaybackActive, update]);
 
   const handlePlay = async () => {
+    setIsPlaying(true);
+    setActivePlaybackSource("manual");
+
     try {
       await initAudio();
     } catch (err) {
       console.error("initAudio failed:", err);
-      return;
     }
 
-    const ctx = getSharedAudioContext();
+    let ctx: AudioContext | null = null;
+    try {
+      ctx = getSharedAudioContext();
+    } catch {
+      // AudioContext not available in this environment
+    }
     if (ctx) {
       startTimeRef.current = ctx.currentTime;
     } else {
-      console.warn("AudioContext not available");
       startTimeRef.current = 0;
     }
 
     try {
       await play();
-      setIsPlaying(true);
-      setActivePlaybackSource("manual");
     } catch (err) {
       console.error("Playback failed:", err);
     }
@@ -149,7 +168,7 @@ export function Transport({ engine }: { engine: TransportEngine }) {
     setActivePlaybackSource(null);
   };
 
-  const isManualActive = activePlaybackSource === "manual" && isPlaying;
+  const isManualActive = activePlaybackSource === "manual" && isPlaybackActive;
 
   return (
     <div className="relative z-10 border-b border-[var(--border)] bg-[var(--surface)]/60 backdrop-blur-sm">
@@ -160,29 +179,36 @@ export function Transport({ engine }: { engine: TransportEngine }) {
               <TooltipTrigger asChild>
                 <button
                   data-testid="transport-play-stop"
-                  onClick={isPlaying ? handleStop : handlePlay}
+                  aria-label={
+                    isPlaybackActive ? "Stop playback" : "Start playback"
+                  }
+                  onClick={isPlaybackActive ? handleStop : handlePlay}
                   className={`w-12 h-12 rounded-full border-2 flex items-center justify-center transition-all duration-200 ${
                     isManualActive
                       ? "border-[var(--accent)] shadow-[0_0_12px_var(--glow-cyan)] bg-[var(--accent)]/20"
                       : "border-[var(--border)] hover:border-[var(--accent)]"
                   }`}
                 >
-                  {isPlaying ? (
+                  {isPlaybackActive ? (
                     <Square className="w-5 h-5 text-[var(--accent)]" />
                   ) : (
                     <Play className="w-5 h-5 text-[var(--accent)] ml-0.5" />
                   )}
                 </button>
               </TooltipTrigger>
-              <TooltipContent>{isPlaying ? "Stop" : "Play"}</TooltipContent>
+              <TooltipContent>
+                {isPlaybackActive ? "Stop" : "Play"}
+              </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          {isPlaying && (
+          {isPlaybackActive && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     onClick={handleStop}
+                    data-testid="force-stop"
+                    aria-label="Force stop playback"
                     className="w-10 h-10 rounded-md border border-[var(--warning)] bg-[var(--surface-elevated)] flex items-center justify-center hover:bg-[var(--warning)]/20 transition-colors"
                   >
                     <Square className="w-4 h-4 text-[var(--warning)]" />
@@ -209,6 +235,7 @@ export function Transport({ engine }: { engine: TransportEngine }) {
             <Volume2 className="w-4 h-4 text-[var(--text-dim)]" />
             <input
               data-testid="master-volume"
+              aria-label="Master volume"
               type="range"
               min="0"
               max="200"

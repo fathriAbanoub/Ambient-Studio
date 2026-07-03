@@ -57,6 +57,8 @@ export function VideoPreview({ backgroundImage }: VideoPreviewProps) {
     const img = new Image();
     img.onload = () => {
       bgImageRef.current = img;
+      // ✅ FIX: Redraw canvas immediately after image loads
+      requestAnimationFrame(drawFrame);
     };
     img.src = url;
     return () => URL.revokeObjectURL(url);
