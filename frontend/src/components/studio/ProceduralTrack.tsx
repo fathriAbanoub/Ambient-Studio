@@ -24,7 +24,11 @@ import {
 
 const GENERATOR_COLOR = "#00bcd4";
 
-export function ProceduralTrack() {
+interface ProceduralTrackProps {
+  masterGainNode: GainNode | null;
+}
+
+export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
   const {
     generator,
     setGeneratorSeed,
@@ -48,7 +52,7 @@ export function ProceduralTrack() {
     exportWav,
     exportProgress,
     isExporting,
-  } = useProceduralEngine();
+  } = useProceduralEngine(masterGainNode);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const hasManualSolo = useStudioStore((s) =>
@@ -63,8 +67,13 @@ export function ProceduralTrack() {
   // Previously start() swallowed errors internally, so this catch never fired
   // and setActivePlaybackSource("generator") was called unconditionally —
   // showing a generator glow even when the engine wasn't actually running.
-  // Now we only set the active source after a confirmed success, and run
-  // stop() + setActivePlaybackSource(null) cleanup on failure.
+  // Now we only set the active source after a confirmed success.
+  //
+  // ponytail: Removed the `else { stop(); }` branch on failure. start() already
+  // runs cleanupStartedEngine() on failure internally. Calling stop() here
+  // would tear down a newer engine if the user clicked Stop -> Play while the
+  // first start was still pending (Start A's failure resolution would call
+  // stop() and destroy Start B's newly running engine).
   const handlePlayStop = async () => {
     if (isRunning) {
       stop();
@@ -73,10 +82,8 @@ export function ProceduralTrack() {
       const success = await start();
       if (success) {
         setActivePlaybackSource("generator");
-      } else {
-        stop();
-        setActivePlaybackSource(null);
       }
+      // No else branch — start() handles its own cleanup on failure.
     }
   };
 

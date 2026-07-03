@@ -10,7 +10,7 @@ import type {
 import { LiveEngine } from "@ambient-engine/LiveEngine";
 import { renderAndDownloadWav } from "@ambient-engine/renderAmbient";
 
-export function useProceduralEngine() {
+export function useProceduralEngine(masterDestination: AudioNode | null = null) {
   const engineRef = useRef<LiveEngine | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const scenePollRef = useRef<number | null>(null);
@@ -119,7 +119,7 @@ export function useProceduralEngine() {
 
     try {
       // ✅ FIX: Use a const for TypeScript narrowing across the await boundary
-      const newEngine = new LiveEngine(buildParams());
+      const newEngine = new LiveEngine(buildParams(), undefined, masterDestination);
 
       // Assign to the outer let so cleanupStartedEngine can still access it
       engine = newEngine;
@@ -186,6 +186,7 @@ export function useProceduralEngine() {
     addLog,
     showToast,
     setGeneratorScene,
+    masterDestination,
   ]);
 
   const stop = useCallback(() => {

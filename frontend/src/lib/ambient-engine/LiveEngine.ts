@@ -18,6 +18,40 @@
  *   ✅ FIX (CodeRabbit): start() guard now also checks `starting` so concurrent
  *       calls cannot both pass the gate and double-tick. A monotonic start token
  *       would additionally cover start→stop→start; left as a future improvement.
+ *   ✅ FIX (monotonic token): Replaced the `starting` boolean with a monotonic
+ *       `startToken` counter. Each start() call captures the current token and
+ *       re-checks it after `await this.ctx.resume()`. stop() and dispose()
+ *       increment the token, invalidating any older in-flight start. This closes
+ *       the start→stop→start race where the shared `starting` flag could be
+ *       reused by a newer start(), letting the older start() pass the post-resume
+ *       guard and double-tick. The `starting` field is removed entirely because
+ *       the token subsumes both the concurrent-start guard and the race guard.
+ *   ✅ FIX (NOISE_BUFFER_SAMPLES): createNoiseBuffer() now uses the shared
+ *       NOISE_BUFFER_SAMPLES constant (imported from musicalLogic.ts) instead
+ *       of computing bufferSize from this.ctx.sampleRate. The live AudioContext
+ *       may run at 48000 Hz (24000 samples) while the offline renderer
+ *       hardcodes 44100 Hz (22050 samples), causing mulberry32Next to advance
+ *       by different amounts and desyncing all downstream RNG-dependent
+ *       decisions (drum patterns, melody intervals, harmonic changes). With
+ *       the fixed sample count, the RNG stream advances identically in live
+ *       and offline modes. The buffer is still created at this.ctx.sampleRate
+ *       so it plays at the correct speed — only the sample COUNT is fixed.
+ *       The constant is imported (not redefined locally) so there is a single
+ *       source of truth shared with renderAmbient.ts.
+ *   ✅ FIX (look-ahead scheduler): Replaced chained window.setTimeout in tick()
+ *       with a look-ahead scheduler. start() initializes nextBeatTime and
+ *       starts a setInterval polling at LOOKAHEAD_INTERVAL (25ms); each poll
+ *       schedules any beats that fall within SCHEDULE_AHEAD_TIME (100ms) of
+ *       ctx.currentTime. tick() now takes an absolute time argument instead
+ *       of reading ctx.currentTime fresh each call. This is immune to
+ *       background-tab setTimeout throttling (which can delay ticks to ≥1s
+ *       with no catch-up) and keeps the beat grid locked to AudioContext
+ *       time, which is the spec-correct anchor for Web Audio scheduling.
+ *   ✅ FIX (masterDestination): Constructor accepts an optional
+ *       masterDestination: AudioNode | null. When provided (e.g. by
+ *       useAudioEngine routing the output through a shared master gain),
+ *       this.out connects to it instead of ctx.destination. Falls back to
+ *       ctx.destination to preserve existing behaviour when omitted.
  */
 
 import {
@@ -31,6 +65,7 @@ import {
   getSceneName,
   getEffectiveSceneParams,
   mulberry32Next,
+  NOISE_BUFFER_SAMPLES,
 } from "./musicalLogic";
 
 import { getSharedAudioContext } from "@/lib/audioContext";
@@ -67,7 +102,15 @@ export class LiveEngine {
   running = false;
   params: EngineParams;
   private state: EngineState;
-  private schedulerId: number | null = null;
+
+  // ✅ FIX (look-ahead scheduler): Replaces the chained-setTimeout id. The
+  // scheduler now polls on a fixed short interval and schedules upcoming
+  // beats against ctx.currentTime, rather than each tick re-arming a
+  // setTimeout anchored to "now". Immune to background-tab throttling.
+  private schedulerTimerId: number | null = null;
+  private nextBeatTime: number = 0;
+  private readonly SCHEDULE_AHEAD_TIME = 0.1; // Schedule 100ms ahead
+  private readonly LOOKAHEAD_INTERVAL = 25; // Check every 25ms
 
   // FIX C4: Harmonic slew tracking (wall-clock, not beat-relative)
   private harmonicSlewStartHz: number | null = null;
@@ -79,10 +122,20 @@ export class LiveEngine {
   // D1: Disposed flag to prevent reuse after cleanup
   private disposed = false;
 
-  // ✅ FIX: Starting flag to prevent concurrent start() calls
-  private starting = false;
+  // ✅ FIX (monotonic token): Replaces the `starting` boolean. Each start()
+  // call increments this counter and captures the new value. After
+  // `await this.ctx.resume()`, the call checks whether its captured token
+  // still matches this.startToken. If stop() or dispose() was called in the
+  // interim (or a newer start() superseded it), the token will have been
+  // incremented and the older start() bails out without setting running or
+  // calling tick(). This closes the start→stop→start race.
+  private startToken = 0;
 
-  constructor(params: EngineParams, injectedCtx?: AudioContext) {
+  constructor(
+    params: EngineParams,
+    injectedCtx?: AudioContext,
+    masterDestination?: AudioNode | null,
+  ) {
     // Use injected context if provided, otherwise use shared singleton
     this.ctx = injectedCtx || getSharedAudioContext();
     this.params = { ...params };
@@ -107,7 +160,12 @@ export class LiveEngine {
     this.fb.connect(this.delay);
     this.delay.connect(this.out);
     this.filter.connect(this.out);
-    this.out.connect(this.ctx.destination);
+
+    // ✅ FIX (masterDestination): Connect to the provided master destination
+    // (e.g. from useAudioEngine) so external mixers/meters can tap the engine
+    // output. Falls back to ctx.destination when omitted, preserving the
+    // previous behaviour for callers that don't supply a destination.
+    this.out.connect(masterDestination || this.ctx.destination);
 
     // ── Drum bus ──
     this.drumBus = this.ctx.createGain();
@@ -146,31 +204,82 @@ export class LiveEngine {
   }
 
   async start(): Promise<void> {
-    // ✅ FIX (CodeRabbit): include `starting` so concurrent start() calls cannot
-    // both pass the guard and double-tick. For the rarer start→stop→start race,
-    // a monotonic start token would be more robust (see review), but this closes
-    // the common concurrent case.
-    if (this.running || this.starting || this.disposed) return;
-    this.starting = true;
+    if (this.disposed || this.running) return;
 
-    try {
-      await this.ctx.resume();
-      // Guard: re-check disposed status and starting flag after async resume
-      if (this.disposed || !this.starting) return;
+    // ✅ FIX (monotonic token): Capture a per-call token. stop() and dispose()
+    // increment this.startToken, as does any newer start() call. After the
+    // await below, we re-check: if our token no longer matches, someone
+    // invalidated us and we must NOT set running or call tick().
+    const myToken = ++this.startToken;
 
-      this.running = true;
-      this.tick();
-    } finally {
-      this.starting = false;
-    }
+    await this.ctx.resume();
+
+    // Only the latest start() should proceed. If stop(), dispose(), or a
+    // newer start() was called during the await, myToken will be stale.
+    if (this.disposed || myToken !== this.startToken) return;
+
+    this.running = true;
+
+    // ✅ FIX (look-ahead scheduler): Initialize the absolute beat grid to
+    // ctx.currentTime and start the look-ahead poller. The scheduler will
+    // catch up any beats that fall within SCHEDULE_AHEAD_TIME on each tick,
+    // so a delayed setInterval firing (e.g. background tab) does not cause
+    // drift — it simply schedules the missed beats against the now-current
+    // ctx.currentTime. This replaces the old `this.tick()` call.
+    this.nextBeatTime = this.ctx.currentTime;
+    this.schedulerTimerId = window.setInterval(
+      () => this.scheduler(),
+      this.LOOKAHEAD_INTERVAL,
+    );
   }
 
   stop(): void {
-    if (!this.running && !this.starting) return;
-    this.starting = false; // cancel any in-flight start
-    if (this.schedulerId !== null) window.clearTimeout(this.schedulerId);
-    this.schedulerId = null;
+    // ✅ FIX (monotonic token): Increment the token to invalidate any
+    // in-flight start() that captured an older value. That start() will
+    // see the mismatch after resume() and bail out without calling tick().
+    ++this.startToken;
+
+    // ✅ FIX (look-ahead scheduler): Clear the look-ahead scheduler
+    // interval instead of a single setTimeout id. No in-flight beats will
+    // be cancelled (they're already scheduled on ctx.currentTime), but no
+    // further beats will be queued.
+    if (this.schedulerTimerId !== null) {
+      window.clearInterval(this.schedulerTimerId);
+      this.schedulerTimerId = null;
+    }
     this.running = false;
+  }
+
+  /**
+   * ✅ FIX (look-ahead scheduler): Polls every LOOKAHEAD_INTERVAL ms and
+   * schedules any beats that fall within SCHEDULE_AHEAD_TIME of
+   * ctx.currentTime. Each beat is scheduled at its absolute time on the
+   * AudioContext clock, so background-tab throttling of setInterval only
+   * delays the *scheduling* — once scheduled, the Web Audio engine fires
+   * the beat on time regardless of tab visibility. If the tab was
+   * throttled and many beats slipped into the look-ahead window, they
+   * are all scheduled in one pass (no drift, no skip).
+   *
+   * ✅ FIX (fresh beatSec): beatSec is recomputed INSIDE the loop, after
+   * tick() returns. tick() may update this.params.bpm via the scene engine
+   * (scene transitions, tempo overrides) and we want the very next beat to
+   * use the new tempo. Computing beatSec once before the loop would apply
+   * the BPM change one beat late — a real problem when multiple beats fall
+   * inside SCHEDULE_AHEAD_TIME (e.g. 100ms window at 120 BPM schedules
+   * ~2 beats per pass, and a scene change on beat 1 would not affect the
+   * spacing of beat 2 within the same pass).
+   */
+  private scheduler(): void {
+    if (this.disposed || !this.running) return;
+    while (
+      this.nextBeatTime <
+      this.ctx.currentTime + this.SCHEDULE_AHEAD_TIME
+    ) {
+      this.tick(this.nextBeatTime);
+      // ✅ FIX: Recalculate beatSec AFTER tick() so scene-driven BPM changes
+      // take effect immediately on the very next beat, not one beat late.
+      this.nextBeatTime += 60 / this.params.bpm;
+    }
   }
 
   /**
@@ -181,10 +290,8 @@ export class LiveEngine {
     if (this.disposed) return;
     this.disposed = true;
 
-    // Cancel any pending start
-    this.starting = false;
-
-    // Stop any ongoing playback and clear scheduler
+    // ✅ FIX (monotonic token): stop() increments the token, invalidating
+    // any in-flight start(). No separate `starting = false` needed.
     this.stop();
 
     // Disconnect all audio nodes from the graph (this is sufficient for cleanup)
@@ -257,9 +364,16 @@ export class LiveEngine {
     return getSceneName(this.state);
   }
 
-  private tick(): void {
+  /**
+   * ✅ FIX (look-ahead scheduler): tick() now takes an absolute AudioContext
+   * time `t0` (the beat's scheduled playback time) instead of reading
+   * ctx.currentTime itself. This decouples event scheduling from "now" so
+   * the look-ahead scheduler can queue future beats deterministically.
+   * The self-arming `window.setTimeout` at the end has been removed — the
+   * scheduler() poller is now the only thing that calls tick().
+   */
+  private tick(t0: number): void {
     if (this.disposed || !this.running) return;
-    const t0 = this.ctx.currentTime;
 
     const preTickParams = getEffectiveSceneParams(this.state, this.params);
     this.params.bpm = preTickParams.bpm;
@@ -300,7 +414,10 @@ export class LiveEngine {
       this.scheduleSynthEvent(event, eventTime);
     }
 
-    this.schedulerId = window.setTimeout(() => this.tick(), beatSec * 1000);
+    // ✅ FIX (look-ahead scheduler): No self-scheduling setTimeout here.
+    // The scheduler() poller owns beat spacing; it calls tick() with the
+    // absolute time for the next beat. Removing this also eliminates the
+    // last setTimeout-based drift source in the engine.
   }
 
   private getSlewedRootHz(now: number): number {
@@ -463,11 +580,24 @@ export class LiveEngine {
     return [osc, modOsc];
   }
 
+  // ✅ FIX (NOISE_BUFFER_SAMPLES): Uses the shared NOISE_BUFFER_SAMPLES
+  // constant (imported from musicalLogic.ts) instead of
+  // Math.floor(this.ctx.sampleRate * 0.5). The live AudioContext may run at
+  // 48000 Hz (yielding 24000 samples) while the offline renderer hardcodes
+  // 44100 Hz (yielding 22050 samples). This mismatch caused mulberry32Next
+  // to advance by different amounts, desyncing the RNG stream between live
+  // and offline modes. The buffer is still created at this.ctx.sampleRate
+  // so it plays at the correct speed — only the sample COUNT is fixed.
+  // Importing (rather than redefining) ensures a single source of truth
+  // shared with renderAmbient.ts.
   private createNoiseBuffer(): AudioBuffer {
-    const bufferSize = Math.floor(this.ctx.sampleRate * 0.5);
-    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const buffer = this.ctx.createBuffer(
+      1,
+      NOISE_BUFFER_SAMPLES,
+      this.ctx.sampleRate,
+    );
     const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
+    for (let i = 0; i < NOISE_BUFFER_SAMPLES; i++) {
       data[i] = mulberry32Next(this.state) * 2 - 1;
     }
     return buffer;
