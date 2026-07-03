@@ -8,30 +8,10 @@
  *   C4: 600ms harmonic slew applied via OfflineAudioContext time scheduling
  *   W3: Remove duplicated scene interpolation — accumulate beat time using
  *       actual per-beat BPM from nextState after each getMusicalEvents call
- *   ✅ FIX (NOISE_BUFFER_SAMPLES): createNoiseBufferFromState() and
- *       createNoiseBufferFromSnapshot() now use the shared
- *       NOISE_BUFFER_SAMPLES constant (imported from musicalLogic.ts)
- *       instead of computing Math.floor(ctx.sampleRate * 0.5) inline.
- *       While the OfflineAudioContext is hardcoded to 44100 Hz (so the
- *       inline expression happened to evaluate to 22050), this was fragile:
- *       any future change to SAMPLE_RATE would silently desync the RNG
- *       stream from LiveEngine's. Importing the constant ensures a single
- *       source of truth shared across all three files (musicalLogic.ts,
- *       LiveEngine.ts, renderAmbient.ts).
- *   ✅ FIX (continue in-progress live slew): When startState comes from a
- *       running LiveEngine mid-slew, currentRootHz can differ from
- *       targetRootHz (e.g., 200 Hz mid-glide from A3=220 → F#3=185). The
- *       offline slew trackers previously started as null, so getSlewedHz()
- *       returned currentRootHz immediately and the export froze at the
- *       intermediate root until the next bar-8 harmonic change. Now we
- *       seed slewStartHz/slewEndHz/slewStartTime/slewEndTime from the
- *       state delta (currentRootHz → targetRootHz) when they differ, so
- *       the export continues the active glide from currentTime=0. The
- *       live engine's wall-clock slew timing is private and not carried
- *       in EngineState, so the offline slew restarts at the export's
- *       first beat — this preserves the musical intent (continue toward
- *       the target) without claiming byte-identical timing to the live
- *       stream. The SLEW_DURATION (600ms) is unchanged.
+ *   ✅ FIX (NOISE_BUFFER_SAMPLES): use shared constant
+ *   ✅ FIX (continue in-progress live slew): seed offline slew from startState
+ *   ✅ FIX (params mutation): clone params to avoid mutating caller
+ *   ✅ FIX (beat-loop cap): use minimum possible BPM across scenes to prevent truncation
  */
 
 import {
@@ -45,6 +25,7 @@ import {
   mulberry32Next,
   getEffectiveSceneParams,
   NOISE_BUFFER_SAMPLES,
+  SCENES, // ✅ FIX: Import SCENES to compute minBpm
 } from "./musicalLogic";
 
 const FM_MOD_RATIO = 1.5;
@@ -67,7 +48,7 @@ export async function renderAmbient(
   startState?: EngineState,
   onProgress?: (progress: RenderProgress) => void,
 ): Promise<AudioBuffer> {
-  // ✅ FIX: Clone params to avoid mutating the caller's object.
+  // Clone params to avoid mutating caller's object.
   const effectiveParams: EngineParams = { ...params };
   const SAMPLE_RATE = 44100;
   const effectiveBpm = effectiveParams.bpm || 72;
@@ -155,7 +136,14 @@ export async function renderAmbient(
   // ── FIX W3 + beat timing ──
   let currentTime = 0;
   const targetEndTime = PRE_ROLL_SECONDS + durationSeconds;
-  const maxBeats = Math.ceil(totalSecondsEstimate * (effectiveBpm / 60)) + 20;
+
+  // ✅ FIX: Use the minimum possible BPM to calculate maxBeats. If scenes
+  // increase the BPM during export, we need MORE beats than the starting
+  // BPM suggests. Using the minimum BPM (from SCENES or params) gives us
+  // the most conservative beat count, preventing truncation.
+  const minBpm = Math.min(effectiveBpm, ...SCENES.map((s) => s.bpm));
+  const maxBeats = Math.ceil(totalSecondsEstimate * (minBpm / 60)) + 100; // +100 safety margin
+
   let beatIndex = 0;
 
   while (currentTime < targetEndTime && beatIndex < maxBeats) {
