@@ -70,11 +70,11 @@ ok "Backend dependencies installed"
 # ── Frontend setup ────────────────────────────────────────────────────────────
 log "Setting up frontend..."
 
-log "Installing frontend dependencies..."
+log "Installing frontend dependencies (workspace)..."
 if [ "$PKG_MGR" = "bun" ]; then
-    bun install --cwd "$FRONTEND_DIR" --silent
+    bun install --cwd "$SCRIPT_DIR" --silent
 else
-    npm install --prefix "$FRONTEND_DIR" --silent
+    npm install --silent
 fi
 ok "Frontend dependencies installed"
 

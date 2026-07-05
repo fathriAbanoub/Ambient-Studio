@@ -1,1 +1,5 @@
-{"name":"ambient-studio-root","private":true}
+{
+  "name": "ambient-studio",
+  "private": true,
+  "workspaces": ["frontend"]
+}
