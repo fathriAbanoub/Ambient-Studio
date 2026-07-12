@@ -58,6 +58,7 @@ import {
   type EngineParams,
   type EngineState,
   type MusicalEvent,
+  type ScaleName,
   type TimbreMode,
   getMusicalEvents,
   createInitialState,
@@ -65,6 +66,7 @@ import {
   getSceneName,
   getEffectiveSceneParams,
   mulberry32Next,
+  MAX_DRONE_LAYERS,
   NOISE_BUFFER_SAMPLES,
 } from "./musicalLogic";
 
@@ -78,6 +80,7 @@ const ADSR_PAD_L = { a: 0.5, d: 0.8, s: 0.7, r: 0.8 };
 const ADSR_PAD_R = { a: 0.6, d: 0.8, s: 0.7, r: 0.9 };
 const ADSR_BASS = { a: 0.005, d: 0.15, s: 0.25, r: 0.2 };
 const ADSR_BELL = { a: 0.01, d: 0.1, s: 0.2, r: 0.15 };
+const DRONE_FADE_SEC = 1.0;
 
 export class LiveEngine {
   ctx: AudioContext;
@@ -94,6 +97,15 @@ export class LiveEngine {
   private padPanL: StereoPannerNode;
   private padPanR: StereoPannerNode;
   private bellPan: StereoPannerNode;
+
+  // ponytail: fixed 8-layer drone cap; raising it later requires increasing
+  // MAX_DRONE_LAYERS and preallocating matching persistent nodes here/offline.
+  private dronePans: StereoPannerNode[] = [];
+  private droneGains: GainNode[] = [];
+  private droneFilters: BiquadFilterNode[] = [];
+  private droneOscs: Array<OscillatorNode | null> = [];
+  private droneModOscs: Array<OscillatorNode | null> = [];
+  private droneLfos: Array<OscillatorNode | null> = [];
 
   // FIX W2: Melody buses for visual analysis routing
   melodyBuses: GainNode[] = [];
@@ -188,6 +200,26 @@ export class LiveEngine {
     this.padPanR.connect(this.gain);
     this.bellPan.connect(this.gain);
 
+    for (let i = 0; i < MAX_DRONE_LAYERS; i++) {
+      const pan = this.ctx.createStereoPanner();
+      const g = this.ctx.createGain();
+      const filter = this.ctx.createBiquadFilter();
+      pan.pan.value = 0;
+      g.gain.value = 0;
+      filter.type = "lowpass";
+      filter.frequency.value = 3600;
+      filter.Q.value = 0.7;
+      filter.connect(g);
+      g.connect(pan);
+      pan.connect(this.gain);
+      this.dronePans.push(pan);
+      this.droneGains.push(g);
+      this.droneFilters.push(filter);
+      this.droneOscs.push(null);
+      this.droneModOscs.push(null);
+      this.droneLfos.push(null);
+    }
+
     // FIX W2: Melody buses
     for (let i = 0; i < 3; i++) {
       const bus = this.ctx.createGain();
@@ -247,6 +279,7 @@ export class LiveEngine {
       window.clearInterval(this.schedulerTimerId);
       this.schedulerTimerId = null;
     }
+    this.stopDroneLayers(this.ctx.currentTime);
     this.running = false;
   }
 
@@ -306,6 +339,9 @@ export class LiveEngine {
       this.padPanL,
       this.padPanR,
       this.bellPan,
+      ...this.dronePans,
+      ...this.droneGains,
+      ...this.droneFilters,
       ...this.melodyBuses,
     ];
 
@@ -321,15 +357,34 @@ export class LiveEngine {
     // The engine instance will be garbage collected when references are dropped.
   }
 
-  setMix(mix: number): void {
+  /**
+   * B1: setMix now accepts an optional absolute AudioContext time `t0`.
+   * When called from tick(t0), pass the beat's scheduled time so the ramp
+   * is pinned to the beat grid rather than ctx.currentTime (which may be
+   * up to SCHEDULE_AHEAD_TIME earlier than the scheduled beat due to the
+   * look-ahead scheduler). External callers that omit t0 fall back to
+   * ctx.currentTime, preserving the previous behavior.
+   *
+   * ponytail: live keeps a 0.5s linearRampToValueAtTime for filter cutoff
+   * to avoid zipper noise during continuous scene transitions; offline
+   * (renderAmbient) uses instant setValueAtTime per beat. Unifying would
+   * mean either scheduling per-beat ramp segments offline (more complex
+   * automation bookkeeping) or accepting zipper noise live (worse audio).
+   * Accept the divergence — both shells already diverge similarly on
+   * drone-fade shape, see renderAmbient.scheduleDrone.
+   */
+  setMix(mix: number, t0?: number): void {
     if (this.disposed) return;
     this.params.mix = mix;
-    const t0 = this.ctx.currentTime;
-    this.delay.delayTime.setValueAtTime(0.3 + 0.4 * mix, t0);
-    this.fb.gain.setValueAtTime(0.2 + 0.5 * mix, t0);
+    const startTime = t0 ?? this.ctx.currentTime;
+    this.delay.delayTime.setValueAtTime(0.3 + 0.4 * mix, startTime);
+    this.fb.gain.setValueAtTime(0.2 + 0.5 * mix, startTime);
     const cutoff = 5000 + mix * 4000;
-    this.filter.frequency.setValueAtTime(this.filter.frequency.value, t0);
-    this.filter.frequency.linearRampToValueAtTime(cutoff, t0 + 0.5);
+    this.filter.frequency.setValueAtTime(
+      this.filter.frequency.value,
+      startTime,
+    );
+    this.filter.frequency.linearRampToValueAtTime(cutoff, startTime + 0.5);
   }
 
   setBpm(bpm: number): void {
@@ -338,7 +393,7 @@ export class LiveEngine {
   setComplexity(c: number): void {
     if (!this.disposed) this.params.complexity = c;
   }
-  setScale(s: "majorPent" | "minorPent"): void {
+  setScale(s: ScaleName): void {
     if (!this.disposed) this.params.scale = s;
   }
   setRootHz(hz: number): void {
@@ -361,7 +416,7 @@ export class LiveEngine {
   }
 
   getCurrentSceneName(): string {
-    return getSceneName(this.state);
+    return getSceneName(this.state, this.params);
   }
 
   /**
@@ -377,7 +432,14 @@ export class LiveEngine {
 
     const preTickParams = getEffectiveSceneParams(this.state, this.params);
     this.params.bpm = preTickParams.bpm;
-    this.setMix(preTickParams.mix);
+    // B2: sync scene-interpolated scale and complexity back into this.params
+    // so engine.getParams() reflects what's actually playing during a scene
+    // transition. density/timbre live on EngineState (currentDensity/
+    // currentTimbre) and are already updated via nextState assignment below.
+    this.params.scale = preTickParams.scale;
+    this.params.complexity = preTickParams.complexity;
+    // B1: anchor the mix ramp to the beat's scheduled time, not ctx.currentTime.
+    this.setMix(preTickParams.mix, t0);
 
     const prevTargetRootHz = this.state.targetRootHz;
     const stateBeforeSlew = { ...this.state };
@@ -451,6 +513,9 @@ export class LiveEngine {
       case "hihat":
         this.playHat(t0, event.amp, event.isClosed ?? true);
         break;
+      case "drone":
+        this.playDrone(event, t0);
+        break;
       case "melody":
         this.playTonal(event, t0, true);
         break;
@@ -459,6 +524,81 @@ export class LiveEngine {
       case "bell":
         this.playTonal(event, t0, false);
         break;
+    }
+  }
+
+  private playDrone(event: MusicalEvent, t0: number): void {
+    if (this.disposed || event.hz === undefined) return;
+    const layerIndex = event.droneLayerIndex ?? 0;
+    if (layerIndex < 0 || layerIndex >= MAX_DRONE_LAYERS) return;
+
+    const pan = this.dronePans[layerIndex];
+    const gain = this.droneGains[layerIndex];
+    const filter = this.droneFilters[layerIndex];
+    pan.pan.setTargetAtTime(event.pan, t0, 0.25);
+    filter.frequency.setTargetAtTime(3600, t0, 0.5);
+
+    if (!this.droneOscs[layerIndex]) {
+      const [osc, modOsc] = this.createOscillator(
+        event.hz,
+        event.timbre ?? "sine",
+      );
+      osc.detune.setValueAtTime(event.detuneCents ?? 0, t0);
+      osc.connect(filter);
+      if (modOsc) {
+        modOsc.start(t0);
+        this.droneModOscs[layerIndex] = modOsc;
+      }
+
+      if (event.sweepSec) {
+        // ponytail: naive sine filter sweep only; upgrading means a real per-layer
+        // modulation matrix shared by live and offline renderers.
+        const lfo = this.ctx.createOscillator();
+        const lfoGain = this.ctx.createGain();
+        lfo.frequency.value = 1 / event.sweepSec;
+        lfoGain.gain.value = 800;
+        lfo.connect(lfoGain).connect(filter.frequency);
+        lfo.start(t0);
+        this.droneLfos[layerIndex] = lfo;
+      }
+
+      osc.start(t0);
+      this.droneOscs[layerIndex] = osc;
+    } else {
+      this.droneOscs[layerIndex]?.frequency.setTargetAtTime(event.hz, t0, 0.5);
+      this.droneOscs[layerIndex]?.detune.setTargetAtTime(
+        event.detuneCents ?? 0,
+        t0,
+        0.5,
+      );
+    }
+
+    gain.gain.setTargetAtTime(event.amp, t0, DRONE_FADE_SEC / 3);
+  }
+
+  private stopDroneLayers(t0: number): void {
+    for (let i = 0; i < MAX_DRONE_LAYERS; i++) {
+      this.droneGains[i]?.gain.setTargetAtTime(0, t0, 0.1);
+      for (const osc of [
+        this.droneOscs[i],
+        this.droneModOscs[i],
+        this.droneLfos[i],
+      ]) {
+        if (!osc) continue;
+        try {
+          osc.stop(t0 + 0.25);
+        } catch {
+          // Ignore already-stopped drone nodes.
+        }
+        try {
+          osc.disconnect();
+        } catch {
+          // Ignore already-disconnected drone nodes.
+        }
+      }
+      this.droneOscs[i] = null;
+      this.droneModOscs[i] = null;
+      this.droneLfos[i] = null;
     }
   }
 
