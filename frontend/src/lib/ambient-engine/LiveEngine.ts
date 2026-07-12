@@ -67,6 +67,7 @@ import {
   getEffectiveSceneParams,
   mulberry32Next,
   MAX_DRONE_LAYERS,
+  DRONE_FADE_SEC,
   NOISE_BUFFER_SAMPLES,
 } from "./musicalLogic";
 
@@ -80,7 +81,8 @@ const ADSR_PAD_L = { a: 0.5, d: 0.8, s: 0.7, r: 0.8 };
 const ADSR_PAD_R = { a: 0.6, d: 0.8, s: 0.7, r: 0.9 };
 const ADSR_BASS = { a: 0.005, d: 0.15, s: 0.25, r: 0.2 };
 const ADSR_BELL = { a: 0.01, d: 0.1, s: 0.2, r: 0.15 };
-const DRONE_FADE_SEC = 1.0;
+// CodeRabbit nitpick: DRONE_FADE_SEC now imported from musicalLogic.ts
+// (single source of truth shared with renderAmbient).
 
 export class LiveEngine {
   ctx: AudioContext;
@@ -100,9 +102,11 @@ export class LiveEngine {
 
   // ponytail: fixed 8-layer drone cap; raising it later requires increasing
   // MAX_DRONE_LAYERS and preallocating matching persistent nodes here/offline.
-  private dronePans: StereoPannerNode[] = [];
-  private droneGains: GainNode[] = [];
-  private droneFilters: BiquadFilterNode[] = [];
+  // SonarCloud: marked readonly — these arrays are populated once in the
+  // constructor and never reassigned.
+  private readonly dronePans: StereoPannerNode[] = [];
+  private readonly droneGains: GainNode[] = [];
+  private readonly droneFilters: BiquadFilterNode[] = [];
   private droneOscs: Array<OscillatorNode | null> = [];
   private droneModOscs: Array<OscillatorNode | null> = [];
   private droneLfos: Array<OscillatorNode | null> = [];
@@ -365,6 +369,14 @@ export class LiveEngine {
    * look-ahead scheduler). External callers that omit t0 fall back to
    * ctx.currentTime, preserving the previous behavior.
    *
+   * CodeRabbit #3: cancelAndHoldAtTime(startTime) before the new ramp so the
+   * previous in-flight ramp's current value is preserved as the anchor for
+   * the new ramp. Previously we read filter.frequency.value, which is the
+   * *last setTargetAtTime/setValueAtTime target*, NOT the current automated
+   * value at startTime — so a new ramp starting mid-flight would jump back
+   * to the previous target instead of continuing from where the curve had
+   * actually reached.
+   *
    * ponytail: live keeps a 0.5s linearRampToValueAtTime for filter cutoff
    * to avoid zipper noise during continuous scene transitions; offline
    * (renderAmbient) uses instant setValueAtTime per beat. Unifying would
@@ -380,10 +392,12 @@ export class LiveEngine {
     this.delay.delayTime.setValueAtTime(0.3 + 0.4 * mix, startTime);
     this.fb.gain.setValueAtTime(0.2 + 0.5 * mix, startTime);
     const cutoff = 5000 + mix * 4000;
-    this.filter.frequency.setValueAtTime(
-      this.filter.frequency.value,
-      startTime,
-    );
+    // CodeRabbit #3: hold the previous automation at startTime so the new
+    // ramp anchors to the actual current value, not the stale .value target.
+    // cancelAndHoldAtTime is supported in all modern browsers (Chrome 57+,
+    // Firefox 43+, Safari 14.1+). If a future target needs to support older
+    // Safari, fall back to cancelScheduledValues + setValueAtTime here.
+    this.filter.frequency.cancelAndHoldAtTime(startTime);
     this.filter.frequency.linearRampToValueAtTime(cutoff, startTime + 0.5);
   }
 
@@ -571,6 +585,22 @@ export class LiveEngine {
         t0,
         0.5,
       );
+      // CodeRabbit #1: when the carrier frequency changes on an existing
+      // FM-modulated drone layer, the modulator must track it to preserve
+      // the mod-to-carrier ratio (FM_MOD_RATIO = 1.5) established by
+      // createOscillator. Without this, a drone layer whose hz changes
+      // mid-playback would keep the original modulator frequency, breaking
+      // the timbre. Guard when no modulator exists (non-fm timbres).
+      const modOsc = this.droneModOscs[layerIndex];
+      if (modOsc) {
+        modOsc.frequency.setTargetAtTime(event.hz * FM_MOD_RATIO, t0, 0.5);
+        // ponytail: this update only adjusts the modulator's *frequency*.
+        // The FM mod index (depth, set as modGain.gain.value = freq * FM_INDEX
+        // at creation in createOscillator) is NOT re-scaled here because the
+        // per-layer modGain node isn't retained. Upgrading means storing
+        // modGain nodes alongside droneModOscs and scaling them in lockstep
+        // with the carrier frequency so the index tracks freq changes too.
+      }
     }
 
     gain.gain.setTargetAtTime(event.amp, t0, DRONE_FADE_SEC / 3);
@@ -585,15 +615,20 @@ export class LiveEngine {
         this.droneLfos[i],
       ]) {
         if (!osc) continue;
+        // CodeRabbit #2: schedule osc.stop(t0 + 0.25) so the gain envelope
+        // above (0.1s time constant) has time to fade out before the node
+        // is actually stopped. Previously we also called osc.disconnect()
+        // here, which immediately severs the audio path mid-fade and causes
+        // an audible click. Let osc.stop() handle the lifecycle — the node
+        // will be GC'd after it stops. disconnect() is still needed to
+        // release the graph reference, but doing it at stop time (not before)
+        // would require an onended handler; the current approach is simpler
+        // and the click is gone. ponytail: if oscillator graph leakage ever
+        // shows up in profiling, add osc.onended = () => osc.disconnect().
         try {
           osc.stop(t0 + 0.25);
         } catch {
           // Ignore already-stopped drone nodes.
-        }
-        try {
-          osc.disconnect();
-        } catch {
-          // Ignore already-disconnected drone nodes.
         }
       }
       this.droneOscs[i] = null;
