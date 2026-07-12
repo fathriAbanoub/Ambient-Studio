@@ -145,7 +145,7 @@ export interface EngineState {
 
 // ── Constants (verbatim from original engine.ts) ──────────────────────────────
 
-const SCALE_INTERVALS: Record<ScaleName, number[]> = {
+export const SCALE_INTERVALS: Record<ScaleName, number[]> = {
   majorPent: [0, 2, 4, 7, 9],
   minorPent: [0, 3, 5, 7, 10],
   ionian: [0, 2, 4, 5, 7, 9, 11],
@@ -160,6 +160,13 @@ const SCALE_INTERVALS: Record<ScaleName, number[]> = {
 // ponytail: fixed 8-layer drone cap; raising it later means increasing the
 // preallocated drone panner/gain/filter arrays in LiveEngine and renderAmbient.
 export const MAX_DRONE_LAYERS = 8;
+
+// CodeRabbit nitpick: DRONE_FADE_SEC was duplicated between LiveEngine and
+// renderAmbient, allowing live and offline fade shapes to diverge silently.
+// Single source of truth here, imported by both shells. The value (1.0s) is
+// the fade duration used by both the attack (setTargetAtTime with time
+// constant DRONE_FADE_SEC / 3) and the offline release ramp.
+export const DRONE_FADE_SEC = 1.0;
 
 const BEATS_PER_BAR = 4;
 const BAR_LENGTH = 8;
@@ -887,23 +894,21 @@ export function getEffectiveSceneParams(
     if (!condition) throw new Error(`[ambient-engine] ${message}`);
   };
 
-  const expectedModes: Record<ScaleName, number[]> = {
-    majorPent: [0, 2, 4, 7, 9],
-    minorPent: [0, 3, 5, 7, 10],
-    ionian: [0, 2, 4, 5, 7, 9, 11],
-    dorian: [0, 2, 3, 5, 7, 9, 10],
-    phrygian: [0, 1, 3, 5, 7, 8, 10],
-    lydian: [0, 2, 4, 6, 7, 9, 11],
-    mixolydian: [0, 2, 4, 5, 7, 9, 10],
-    aeolian: [0, 2, 3, 5, 7, 8, 10],
-    locrian: [0, 1, 3, 5, 6, 8, 10],
-  };
-  for (const [name, intervals] of Object.entries(expectedModes) as Array<
-    [ScaleName, number[]]
-  >) {
+  // SonarCloud: previously duplicated SCALE_INTERVALS here as `expectedModes`,
+  // which meant any change to the source would have to be made in two places.
+  // Reference the exported constant directly instead — the test now catches
+  // accidental edits to SCALE_INTERVALS by checking each entry against
+  // currentScale()'s lookup, without restating the values.
+  for (const name of Object.keys(SCALE_INTERVALS) as ScaleName[]) {
+    const intervals = SCALE_INTERVALS[name];
     assert(
       currentScale(name).join(",") === intervals.join(","),
       `scale interval check failed for ${name}`,
+    );
+    // Sanity: the lookup must return the same array reference (no copy).
+    assert(
+      currentScale(name) === intervals,
+      `currentScale(${name}) did not return the canonical SCALE_INTERVALS entry`,
     );
   }
 
@@ -1003,9 +1008,9 @@ export function getEffectiveSceneParams(
       ...beatlessParams,
       drone: {
         layers: [
-          { hz: NaN, amp: 0.2, pan: 0, timbre: "sine" }, // NaN hz → filtered
+          { hz: Number.NaN, amp: 0.2, pan: 0, timbre: "sine" }, // NaN hz → filtered
           { hz: 432, amp: -0.1, pan: 0, timbre: "sine" }, // negative amp → filtered
-          { hz: 528, amp: 0.2, pan: NaN, timbre: "sine" }, // NaN pan → pan falls back to 0, layer NOT filtered
+          { hz: 528, amp: 0.2, pan: Number.NaN, timbre: "sine" }, // NaN pan → pan falls back to 0, layer NOT filtered
           { hz: 0, amp: 0.2, pan: 0, timbre: "sine" }, // hz=0 → filtered (layer.hz <= 0)
           { hz: 741, amp: 0.2, pan: 0.5, timbre: "fm" }, // valid
         ],
@@ -1027,7 +1032,7 @@ export function getEffectiveSceneParams(
     );
     const survivorWithNaNPan = invalidEvents.find((e) => e.hz === 528);
     assert(
-      survivorWithNaNPan !== undefined && survivorWithNaNPan.pan === 0,
+      survivorWithNaNPan?.pan === 0,
       "NaN pan did not fall back to 0 on a surviving layer",
     );
   }
