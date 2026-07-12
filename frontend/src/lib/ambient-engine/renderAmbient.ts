@@ -26,6 +26,7 @@ import {
   getEffectiveSceneParams,
   getScenePackScenes,
   MAX_DRONE_LAYERS,
+  DRONE_FADE_SEC,
   NOISE_BUFFER_SAMPLES,
 } from "./musicalLogic";
 
@@ -37,7 +38,8 @@ const ADSR_PAD_L = { a: 0.5, d: 0.8, s: 0.7, r: 0.8 };
 const ADSR_PAD_R = { a: 0.6, d: 0.8, s: 0.7, r: 0.9 };
 const ADSR_BASS = { a: 0.005, d: 0.15, s: 0.25, r: 0.2 };
 const ADSR_BELL = { a: 0.01, d: 0.1, s: 0.2, r: 0.15 };
-const DRONE_FADE_SEC = 1.0;
+// CodeRabbit nitpick: DRONE_FADE_SEC now imported from musicalLogic.ts
+// (single source of truth shared with LiveEngine).
 
 export interface RenderProgress {
   phase: "preparing" | "scheduling" | "rendering" | "encoding";
@@ -233,10 +235,12 @@ export async function renderAmbient(
         padPanL,
         padPanR,
         bellPan,
-        dronePans,
-        droneGains,
-        droneFilters,
-        scheduledDroneLayers,
+        {
+          pans: dronePans,
+          gains: droneGains,
+          filters: droneFilters,
+          scheduledLayers: scheduledDroneLayers,
+        },
         targetEndTime,
       );
     }
@@ -328,6 +332,17 @@ function createNoiseBufferFromSnapshot(
 
 // ── Event scheduling ─────────────────────────────────────────────────────────
 
+// SonarCloud #1: scheduleDrone's 4 drone-related params are bundled into a
+// single DroneGraph object to keep scheduleEvent's total parameter count
+// under the 7-arg lint cap. The grouping is purely structural — no behavior
+// change.
+interface DroneGraph {
+  pans: StereoPannerNode[];
+  gains: GainNode[];
+  filters: BiquadFilterNode[];
+  scheduledLayers: Set<number>;
+}
+
 function scheduleEvent(
   ctx: OfflineAudioContext,
   event: MusicalEvent,
@@ -338,10 +353,7 @@ function scheduleEvent(
   padPanL: StereoPannerNode,
   padPanR: StereoPannerNode,
   bellPan: StereoPannerNode,
-  dronePans: StereoPannerNode[],
-  droneGains: GainNode[],
-  droneFilters: BiquadFilterNode[],
-  scheduledDroneLayers: Set<number>,
+  droneGraph: DroneGraph,
   droneStopTime: number,
 ): void {
   switch (event.type) {
@@ -369,16 +381,7 @@ function scheduleEvent(
       );
       break;
     case "drone":
-      scheduleDrone(
-        ctx,
-        event,
-        t0,
-        droneStopTime,
-        dronePans,
-        droneGains,
-        droneFilters,
-        scheduledDroneLayers,
-      );
+      scheduleDrone(ctx, event, t0, droneStopTime, droneGraph);
       break;
     case "melody":
     case "pad":
@@ -396,10 +399,7 @@ function scheduleDrone(
   event: MusicalEvent,
   t0: number,
   stopTime: number,
-  dronePans: StereoPannerNode[],
-  droneGains: GainNode[],
-  droneFilters: BiquadFilterNode[],
-  scheduledDroneLayers: Set<number>,
+  droneGraph: DroneGraph,
 ): void {
   if (event.hz === undefined) return;
   const layerIndex = event.droneLayerIndex ?? 0;
@@ -412,15 +412,15 @@ function scheduleDrone(
   if (
     layerIndex < 0 ||
     layerIndex >= MAX_DRONE_LAYERS ||
-    scheduledDroneLayers.has(layerIndex)
+    droneGraph.scheduledLayers.has(layerIndex)
   ) {
     return;
   }
-  scheduledDroneLayers.add(layerIndex);
+  droneGraph.scheduledLayers.add(layerIndex);
 
-  const pan = dronePans[layerIndex];
-  const gain = droneGains[layerIndex];
-  const filter = droneFilters[layerIndex];
+  const pan = droneGraph.pans[layerIndex];
+  const gain = droneGraph.gains[layerIndex];
+  const filter = droneGraph.filters[layerIndex];
   pan.pan.setValueAtTime(event.pan, t0);
   filter.frequency.setValueAtTime(3600, t0);
 
