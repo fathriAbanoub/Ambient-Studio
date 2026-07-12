@@ -24,8 +24,9 @@ import {
   initializeBell,
   mulberry32Next,
   getEffectiveSceneParams,
+  getScenePackScenes,
+  MAX_DRONE_LAYERS,
   NOISE_BUFFER_SAMPLES,
-  SCENES, // ✅ FIX: Import SCENES to compute minBpm
 } from "./musicalLogic";
 
 const FM_MOD_RATIO = 1.5;
@@ -36,6 +37,7 @@ const ADSR_PAD_L = { a: 0.5, d: 0.8, s: 0.7, r: 0.8 };
 const ADSR_PAD_R = { a: 0.6, d: 0.8, s: 0.7, r: 0.9 };
 const ADSR_BASS = { a: 0.005, d: 0.15, s: 0.25, r: 0.2 };
 const ADSR_BELL = { a: 0.01, d: 0.1, s: 0.2, r: 0.15 };
+const DRONE_FADE_SEC = 1.0;
 
 export interface RenderProgress {
   phase: "preparing" | "scheduling" | "rendering" | "encoding";
@@ -104,6 +106,29 @@ export async function renderAmbient(
   padPanR.connect(gain);
   bellPan.connect(gain);
 
+  // ponytail: fixed 8-layer drone cap; raising it later requires increasing
+  // MAX_DRONE_LAYERS and preallocating matching persistent nodes here/live.
+  const dronePans: StereoPannerNode[] = [];
+  const droneGains: GainNode[] = [];
+  const droneFilters: BiquadFilterNode[] = [];
+  const scheduledDroneLayers = new Set<number>();
+  for (let i = 0; i < MAX_DRONE_LAYERS; i++) {
+    const pan = offlineCtx.createStereoPanner();
+    const g = offlineCtx.createGain();
+    const droneFilter = offlineCtx.createBiquadFilter();
+    pan.pan.value = 0;
+    g.gain.value = 0;
+    droneFilter.type = "lowpass";
+    droneFilter.frequency.value = 3600;
+    droneFilter.Q.value = 0.7;
+    droneFilter.connect(g);
+    g.connect(pan);
+    pan.connect(gain);
+    dronePans.push(pan);
+    droneGains.push(g);
+    droneFilters.push(droneFilter);
+  }
+
   onProgress?.({ phase: "scheduling", percent: 10 });
 
   // ── RNG init order matches original engine.ts constructor exactly ──
@@ -139,9 +164,12 @@ export async function renderAmbient(
 
   // ✅ FIX: Use the minimum possible BPM to calculate maxBeats. If scenes
   // increase the BPM during export, we need MORE beats than the starting
-  // BPM suggests. Using the minimum BPM (from SCENES or params) gives us
+  // BPM suggests. Using the minimum BPM (from the scene pack or params) gives us
   // the most conservative beat count, preventing truncation.
-  const minBpm = Math.min(effectiveBpm, ...SCENES.map((s) => s.bpm));
+  const minBpm = Math.min(
+    effectiveBpm,
+    ...getScenePackScenes(effectiveParams).map((s) => s.bpm),
+  );
   const maxBeats = Math.ceil(totalSecondsEstimate * (minBpm / 60)) + 100; // +100 safety margin
 
   let beatIndex = 0;
@@ -205,6 +233,11 @@ export async function renderAmbient(
         padPanL,
         padPanR,
         bellPan,
+        dronePans,
+        droneGains,
+        droneFilters,
+        scheduledDroneLayers,
+        targetEndTime,
       );
     }
 
@@ -305,6 +338,11 @@ function scheduleEvent(
   padPanL: StereoPannerNode,
   padPanR: StereoPannerNode,
   bellPan: StereoPannerNode,
+  dronePans: StereoPannerNode[],
+  droneGains: GainNode[],
+  droneFilters: BiquadFilterNode[],
+  scheduledDroneLayers: Set<number>,
+  droneStopTime: number,
 ): void {
   switch (event.type) {
     case "kick":
@@ -330,6 +368,18 @@ function scheduleEvent(
         noiseBuffer,
       );
       break;
+    case "drone":
+      scheduleDrone(
+        ctx,
+        event,
+        t0,
+        droneStopTime,
+        dronePans,
+        droneGains,
+        droneFilters,
+        scheduledDroneLayers,
+      );
+      break;
     case "melody":
     case "pad":
     case "bass":
@@ -340,6 +390,83 @@ function scheduleEvent(
 }
 
 // ── Tonal synthesis ─────────────────────────────────────────────────────────
+
+function scheduleDrone(
+  ctx: OfflineAudioContext,
+  event: MusicalEvent,
+  t0: number,
+  stopTime: number,
+  dronePans: StereoPannerNode[],
+  droneGains: GainNode[],
+  droneFilters: BiquadFilterNode[],
+  scheduledDroneLayers: Set<number>,
+): void {
+  if (event.hz === undefined) return;
+  const layerIndex = event.droneLayerIndex ?? 0;
+  // ponytail: first-write-wins for drone layers; upgrading means scheduling
+  // per-beat parameter updates (frequency, amp, pan) like LiveEngine does,
+  // or precomputing automation curves and scheduling them as setValueAtTime
+  // ramps. Once a layer is scheduled, subsequent beats for that layer are
+  // silently dropped — the layer's osc/gain/pan/filter run unchanged until
+  // stopTime.
+  if (
+    layerIndex < 0 ||
+    layerIndex >= MAX_DRONE_LAYERS ||
+    scheduledDroneLayers.has(layerIndex)
+  ) {
+    return;
+  }
+  scheduledDroneLayers.add(layerIndex);
+
+  const pan = dronePans[layerIndex];
+  const gain = droneGains[layerIndex];
+  const filter = droneFilters[layerIndex];
+  pan.pan.setValueAtTime(event.pan, t0);
+  filter.frequency.setValueAtTime(3600, t0);
+
+  const [osc, modOsc] = createOscillator(ctx, event.hz, event.timbre ?? "sine");
+  osc.detune.setValueAtTime(event.detuneCents ?? 0, t0);
+  osc.connect(filter);
+
+  if (event.sweepSec) {
+    // ponytail: naive sine filter sweep only; upgrading means a real per-layer
+    // modulation matrix shared by live and offline renderers.
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    lfo.frequency.value = 1 / event.sweepSec;
+    lfoGain.gain.value = 800;
+    lfo.connect(lfoGain).connect(filter.frequency);
+    lfo.start(t0);
+    lfo.stop(stopTime + 0.05);
+  }
+
+  // B3: fade-in shape now matches LiveEngine.playDrone — both use
+  // setTargetAtTime(event.amp, t0, DRONE_FADE_SEC / 3) for the attack.
+  // Previously this was linearRampToValueAtTime over DRONE_FADE_SEC,
+  // which produced audibly punchier offline drone attacks than live.
+  // The release segment below is unique to offline (live has no per-layer
+  // release — it fades all drones via stopDroneLayers() at stop time).
+  // ponytail: unifying the release would mean either adding per-layer
+  // release to live (more state to track per drone layer) or removing it
+  // from offline (audible cutoff at stopTime). Accept the divergence.
+  gain.gain.setValueAtTime(0, t0);
+  gain.gain.setTargetAtTime(event.amp, t0, DRONE_FADE_SEC / 3);
+  // Snap to exactly event.amp before the release ramp starts so the release
+  // duration is predictable (setTargetAtTime is asymptotic and would
+  // otherwise leave the gain slightly below amp when the release begins).
+  gain.gain.setValueAtTime(
+    event.amp,
+    Math.max(t0 + DRONE_FADE_SEC, stopTime - DRONE_FADE_SEC),
+  );
+  gain.gain.linearRampToValueAtTime(0.0001, stopTime);
+
+  if (modOsc) {
+    modOsc.start(t0);
+    modOsc.stop(stopTime + 0.05);
+  }
+  osc.start(t0);
+  osc.stop(stopTime + 0.05);
+}
 
 function scheduleTonal(
   ctx: OfflineAudioContext,
