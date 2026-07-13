@@ -392,13 +392,46 @@ export class LiveEngine {
     this.delay.delayTime.setValueAtTime(0.3 + 0.4 * mix, startTime);
     this.fb.gain.setValueAtTime(0.2 + 0.5 * mix, startTime);
     const cutoff = 5000 + mix * 4000;
-    // CodeRabbit #3: hold the previous automation at startTime so the new
-    // ramp anchors to the actual current value, not the stale .value target.
-    // cancelAndHoldAtTime is supported in all modern browsers (Chrome 57+,
-    // Firefox 43+, Safari 14.1+). If a future target needs to support older
-    // Safari, fall back to cancelScheduledValues + setValueAtTime here.
-    this.filter.frequency.cancelAndHoldAtTime(startTime);
-    this.filter.frequency.linearRampToValueAtTime(cutoff, startTime + 0.5);
+    // Hold the previous automation at startTime so the new ramp anchors to
+    // the actual current automated value, not the stale .value target. See
+    // cancelAndHold()'s doc comment for the fallback rationale.
+    const freqParam = this.filter.frequency;
+    this.cancelAndHold(freqParam, startTime);
+    freqParam.linearRampToValueAtTime(cutoff, startTime + 0.5);
+  }
+
+  /**
+   * Cancels all scheduled future automation on `param` and holds its value
+   * at `t`, so a subsequent setValueAtTime/linearRampToValueAtTime call
+   * anchors to what the param actually was at `t` instead of jumping to
+   * whatever target a prior, now-superseded ramp was heading toward.
+   *
+   * cancelAndHoldAtTime is the spec-correct primitive for this but shipped
+   * late in Firefox (v92, Sep 2021) — older Firefox and any engine missing
+   * it would throw TypeError. Feature-detect at runtime and fall back to
+   * cancelScheduledValues + setValueAtTime(.value, t), which is lossy
+   * (jumps to the last explicit target rather than the true interpolated
+   * value — Web Audio has no public API to read the interpolated value) but
+   * never crashes and keeps the caller's next automation call anchored to
+   * *something* deterministic.
+   *
+   * Used by setMix() (filter cutoff ramp) and stopDroneLayers() (gain
+   * fade-to-zero, which must cancel any look-ahead-scheduled
+   * setTargetAtTime(event.amp, futureT0, ...) calls queued by playDrone()
+   * before the fade-to-zero, or the drone can audibly blip back up mid-fade).
+   *
+   * ponytail: this fallback's jump-back-to-target is audible if a previous
+   * ramp was mid-flight; upgrading means dropping support for engines
+   * without cancelAndHoldAtTime, since there's no public API to read the
+   * true interpolated value to polyfill it properly.
+   */
+  private cancelAndHold(param: AudioParam, t: number): void {
+    if (typeof param.cancelAndHoldAtTime === "function") {
+      param.cancelAndHoldAtTime(t);
+    } else {
+      param.cancelScheduledValues(t);
+      param.setValueAtTime(param.value, t);
+    }
   }
 
   setBpm(bpm: number): void {
@@ -608,7 +641,20 @@ export class LiveEngine {
 
   private stopDroneLayers(t0: number): void {
     for (let i = 0; i < MAX_DRONE_LAYERS; i++) {
-      this.droneGains[i]?.gain.setTargetAtTime(0, t0, 0.1);
+      const gainParam = this.droneGains[i]?.gain;
+      if (gainParam) {
+        // Cancel and hold the gain automation at t0 BEFORE the fade-to-zero.
+        // The look-ahead scheduler can queue beats up to SCHEDULE_AHEAD_TIME
+        // (100ms) ahead of ctx.currentTime, and those queued beats may have
+        // already scheduled setTargetAtTime(event.amp, futureT0,
+        // DRONE_FADE_SEC / 3) on this same gain node. Without cancel-and-hold,
+        // those queued event.amp re-assertions could fire mid-fade (e.g. at
+        // t0 + 50ms), causing the drone to blip back to its sustain level
+        // before osc.stop(t0 + 0.25) silences it. See cancelAndHold()'s doc
+        // comment for the fallback rationale.
+        this.cancelAndHold(gainParam, t0);
+        gainParam.setTargetAtTime(0, t0, 0.1);
+      }
       for (const osc of [
         this.droneOscs[i],
         this.droneModOscs[i],
