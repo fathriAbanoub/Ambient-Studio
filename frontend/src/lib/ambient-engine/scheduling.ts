@@ -30,6 +30,16 @@ export const SIDECHAIN_MAX_DUCK_DB = 5;
 export const SIDECHAIN_ATTACK_SEC = 0.01;
 export const SIDECHAIN_RELEASE_SEC = 0.18;
 
+// ✅ ADD (shared tonal-bus gain): Single source of truth for the tonal-bus
+// steady-state gain. Both LiveEngine (constructor init + applySidechain
+// return level) and renderAmbient (graph init + scheduleSidechain return
+// level) import this so live and offline renders stay perceptually matched
+// and the sidechain duck/return always anchors to the same level the tonal
+// bus was initialized to. Previously each shell declared its own local
+// `const TONAL_BUS_GAIN = 0.3` with a "keep in lockstep" comment — moving
+// it here makes the lockstep structural rather than convention.
+export const TONAL_BUS_GAIN = 0.3;
+
 export interface SidechainDuckShape {
   duckGainMultiplier: number;
   attackTime: number;
@@ -84,8 +94,14 @@ export function getSidechainDuckShape(
 }
 
 (function testSchedulingHelpers() {
-  if (typeof process !== "undefined" && process.env?.NODE_ENV === "production")
-    return;
+  // Rely directly on the build-time process.env.NODE_ENV check. Next.js /
+  // webpack replaces `process.env.NODE_ENV` with a string literal at build
+  // time, so in a production bundle this becomes `if ("production" ===
+  // "production") return;` (dead-branch eliminated) and in a development
+  // or test bundle it becomes `if ("development" === "production") return;`
+  // (falls through, tests run). No `typeof process` guard needed because the
+  // bundler never emits a runtime `process` reference here.
+  if (process.env.NODE_ENV === "production") return;
 
   const assert = (condition: boolean, message: string) => {
     if (!condition) throw new Error(`[ambient-engine] ${message}`);
@@ -111,8 +127,18 @@ export function getSidechainDuckShape(
     approx(duck!.duckGainMultiplier, Math.pow(10, -SIDECHAIN_MAX_DUCK_DB / 20)),
     "sidechain duck depth check failed",
   );
-  assert(duck!.attackTime === 2.01, "sidechain attack timing check failed");
-  assert(duck!.releaseTime === 2.18, "sidechain release timing check failed");
+  // Use approx() for attack/release timing too — they are floating-point
+  // sums (kickTime + SIDECHAIN_*_SEC) and exact === comparison is fragile
+  // across JS engines / bundlers. Mirrors the duckGainMultiplier assertion
+  // above. (SonarCloud S1244: do not check floating point equality.)
+  assert(
+    approx(duck!.attackTime, 2.01),
+    "sidechain attack timing check failed",
+  );
+  assert(
+    approx(duck!.releaseTime, 2.18),
+    "sidechain release timing check failed",
+  );
   assert(
     getSidechainDuckShape(2, 0) === null,
     "sidechain amount 0 should leave output unchanged",
