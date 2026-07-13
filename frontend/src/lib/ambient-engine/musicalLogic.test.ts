@@ -306,6 +306,55 @@ describe("beatless mode (enableBeats: false)", () => {
       expect(pick(b2[i]), `event ${i} diverged`).toEqual(pick(b1[i]));
     }
   });
+
+  // ✅ ADD (latch reset on beatless ↔ beat-enabled transition): When the
+  // engine transitions from beatless → beat-enabled → beatless, the second
+  // beatless phase must re-emit drone events. The beat-enabled path resets
+  // s.droneLayersStarted = false so the latch from the first beatless phase
+  // doesn't suppress the second. Without that reset, the second beatless
+  // phase would emit zero drone events (the latch would stay latched).
+  it("re-emits drone events after a beatless → beat-enabled → beatless cycle", () => {
+    // Phase 1: beatless. First beat emits 3 drones, then latches.
+    let state = createInitialState(beatlessParams);
+    state = advanceRngPastNoiseBuffer(state);
+    state = initializeBell(state);
+
+    const phase1 = getMusicalEvents(state.beat, { ...state }, beatlessParams);
+    expect(phase1.events).toHaveLength(3);
+    expect(phase1.events.every((e) => e.type === "drone")).toBe(true);
+    expect(phase1.nextState.droneLayersStarted).toBe(true);
+    state = phase1.nextState;
+
+    // Run a couple more beatless beats — should emit zero events (latched).
+    const phase1b = getMusicalEvents(state.beat, { ...state }, beatlessParams);
+    expect(phase1b.events).toHaveLength(0);
+    state = phase1b.nextState;
+
+    // Phase 2: toggle enableBeats back to true. The beat-enabled path must
+    // reset droneLayersStarted = false. Beat-enabled beats emit drones every
+    // beat (no latch), so we expect at least one drone event here.
+    const beatEnabledParams: EngineParams = {
+      ...beatlessParams,
+      enableBeats: true,
+    };
+    const phase2 = getMusicalEvents(
+      state.beat,
+      { ...state },
+      beatEnabledParams,
+    );
+    expect(phase2.nextState.droneLayersStarted).toBe(false);
+    const phase2Drones = phase2.events.filter((e) => e.type === "drone");
+    expect(phase2Drones.length).toBeGreaterThan(0);
+    state = phase2.nextState;
+
+    // Phase 3: toggle enableBeats back to false. The latch was reset in
+    // phase 2, so the FIRST beatless beat here must re-emit drones.
+    const phase3 = getMusicalEvents(state.beat, { ...state }, beatlessParams);
+    const phase3Drones = phase3.events.filter((e) => e.type === "drone");
+    expect(phase3Drones).toHaveLength(3);
+    expect(phase3Drones.map((e) => e.hz)).toEqual([432, 528, 741]);
+    expect(phase3.nextState.droneLayersStarted).toBe(true);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -349,7 +398,7 @@ describe("drum styles (drumStyle param)", () => {
       state = nextState;
     }
     // 5/16 euclidean over 16 steps → 5 kicks. fourFloor would give 4.
-    expect(kicks.length).toBe(5);
+    expect(kicks).toHaveLength(5);
   });
 
   it('explicit drumStyle: "euclideanTrap" matches the default (omitted) behavior', () => {
@@ -372,7 +421,7 @@ describe("drum styles (drumStyle param)", () => {
     }
     const omitted = runKicks(undefined);
     const explicit = runKicks("euclideanTrap");
-    expect(explicit.length).toBe(omitted.length);
+    expect(explicit).toHaveLength(omitted.length);
     expect(explicit.map((k) => k.subBeatIndex)).toEqual(
       omitted.map((k) => k.subBeatIndex),
     );
