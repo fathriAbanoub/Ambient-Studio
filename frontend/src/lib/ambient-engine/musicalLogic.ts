@@ -603,6 +603,17 @@ export function getMusicalEvents(
   // synthesis shells can re-trigger amp/pan/filter automation. (LiveEngine
   // updates existing oscillator frequency/detune in playDrone(); renderAmbient
   // ignores re-emitted layers via its scheduledLayers set.)
+  //
+  // ✅ ADD (latch reset for beatless ↔ beat-enabled transitions): Reset the
+  // beatless drone latch here so a future toggle of enableBeats from true →
+  // false mid-stream re-fires the drone oscillators on the next beatless
+  // beat. Without this reset, a beatless → beat-enabled → beatless cycle
+  // would leave droneLayersStarted=true from the first beatless phase, and
+  // the second beatless phase would emit zero drone events (the latch would
+  // stay latched). The synthesis shells also reset this flag on start() /
+  // startState-clone, but that only covers engine restarts — it does not
+  // cover in-flight param toggles, which is what this reset handles.
+  s.droneLayersStarted = false;
   events.push(...droneEvents(effectiveParams, beat, beatSec));
 
   // 4. Drums — FIX C1: set subBeatIndex (0–3) on each drum event
