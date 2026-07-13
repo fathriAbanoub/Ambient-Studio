@@ -42,26 +42,66 @@
 
 export type TimbreMode = "sine" | "triangle" | "softsq" | "fm";
 
+export type ScaleName =
+  | "majorPent"
+  | "minorPent"
+  | "ionian"
+  | "dorian"
+  | "phrygian"
+  | "lydian"
+  | "mixolydian"
+  | "aeolian"
+  | "locrian";
+
+export type ScenePackName = "default";
+
+export interface DroneLayerParams {
+  hz: number;
+  detuneCents?: number;
+  amp: number;
+  pan: number;
+  timbre: TimbreMode;
+  sweepSec?: number;
+}
+
+export interface DroneParams {
+  layers: DroneLayerParams[];
+}
+
 export interface EngineParams {
-  scale: "majorPent" | "minorPent";
+  scale: ScaleName;
   rootHz: number;
   bpm: number;
   complexity: number; // 0..1
   mix: number; // 0..1 (delay level)
+  scenePack?: ScenePackName; // default "default"
   sceneDurationBars?: number; // default 32
   enableScenes?: boolean; // default true
   enableHarmonicLoop?: boolean; // default true
+  enableBeats?: boolean; // default true
+  drone?: DroneParams;
   seed?: number;
   drumLevel?: number; // 0..1
 }
 
 export interface MusicalEvent {
-  type: "melody" | "pad" | "bass" | "bell" | "kick" | "snare" | "hihat";
+  type:
+    | "melody"
+    | "pad"
+    | "bass"
+    | "bell"
+    | "kick"
+    | "snare"
+    | "hihat"
+    | "drone";
   hz?: number; // undefined for drums (kick/snare/hihat)
   amp: number;
   durationSec: number;
-  pan: number; // -1 to 1 (for tonal); 0 for drums (panning via persistent nodes)
+  pan: number; // -1 to 1 (for tonal); 0 for drums. Pad events use -1/+1 to signal left/right routing; bell routing is by type, not pan.
   timbre?: TimbreMode; // undefined for drums
+  droneLayerIndex?: number;
+  detuneCents?: number;
+  sweepSec?: number;
   beatIndex: number;
   /** For snare: true = ghost note (lower amp, shorter) */
   isGhost?: boolean;
@@ -105,8 +145,28 @@ export interface EngineState {
 
 // ── Constants (verbatim from original engine.ts) ──────────────────────────────
 
-const MAJOR_PENT = [0, 2, 4, 7, 9];
-const MINOR_PENT = [0, 3, 5, 7, 10];
+export const SCALE_INTERVALS: Record<ScaleName, readonly number[]> = {
+  majorPent: [0, 2, 4, 7, 9],
+  minorPent: [0, 3, 5, 7, 10],
+  ionian: [0, 2, 4, 5, 7, 9, 11],
+  dorian: [0, 2, 3, 5, 7, 9, 10],
+  phrygian: [0, 1, 3, 5, 7, 8, 10],
+  lydian: [0, 2, 4, 6, 7, 9, 11],
+  mixolydian: [0, 2, 4, 5, 7, 9, 10],
+  aeolian: [0, 2, 3, 5, 7, 8, 10],
+  locrian: [0, 1, 3, 5, 6, 8, 10],
+};
+
+// ponytail: fixed 8-layer drone cap; raising it later means increasing the
+// preallocated drone panner/gain/filter arrays in LiveEngine and renderAmbient.
+export const MAX_DRONE_LAYERS = 8;
+
+// CodeRabbit nitpick: DRONE_FADE_SEC was duplicated between LiveEngine and
+// renderAmbient, allowing live and offline fade shapes to diverge silently.
+// Single source of truth here, imported by both shells. The value (1.0s) is
+// the fade duration used by both the attack (setTargetAtTime with time
+// constant DRONE_FADE_SEC / 3) and the offline release ramp.
+export const DRONE_FADE_SEC = 1.0;
 
 const BEATS_PER_BAR = 4;
 const BAR_LENGTH = 8;
@@ -125,44 +185,61 @@ export const NOISE_BUFFER_SAMPLES = 22050; // sampleRate(44100) * 0.5s — must 
 const ROOT_LOOP_HZ = [220, 185, 147, 165]; // A3 → F#3 → D3 → E3
 
 export interface Scene {
-  name: string;
-  scale: "majorPent" | "minorPent";
-  bpm: number;
-  mix: number;
-  complexity: number;
-  density: number;
-  timbre: TimbreMode;
+  readonly name: string;
+  readonly scale: ScaleName;
+  readonly bpm: number;
+  readonly mix: number;
+  readonly complexity: number;
+  readonly density: number;
+  readonly timbre: TimbreMode;
 }
 
-export const SCENES: Scene[] = [
-  {
-    name: "Calm",
-    scale: "majorPent",
-    bpm: 72,
-    mix: 0.4,
-    complexity: 0.3,
-    density: 0.8,
-    timbre: "sine",
-  },
-  {
-    name: "Nocturne",
-    scale: "minorPent",
-    bpm: 62,
-    mix: 0.55,
-    complexity: 0.45,
-    density: 0.65,
-    timbre: "triangle",
-  },
-  {
-    name: "Ether",
-    scale: "majorPent",
-    bpm: 68,
-    mix: 0.65,
-    complexity: 0.55,
-    density: 0.55,
-    timbre: "fm",
-  },
-];
+export const SCENE_PACKS: Record<ScenePackName, readonly Scene[]> = {
+  default: [
+    {
+      name: "Calm",
+      scale: "majorPent",
+      bpm: 72,
+      mix: 0.4,
+      complexity: 0.3,
+      density: 0.8,
+      timbre: "sine",
+    },
+    {
+      name: "Nocturne",
+      scale: "minorPent",
+      bpm: 62,
+      mix: 0.55,
+      complexity: 0.45,
+      density: 0.65,
+      timbre: "triangle",
+    },
+    {
+      name: "Ether",
+      scale: "majorPent",
+      bpm: 68,
+      mix: 0.65,
+      complexity: 0.55,
+      density: 0.55,
+      timbre: "fm",
+    },
+  ],
+};
+
+export const SCENES: readonly Scene[] = SCENE_PACKS.default;
+
+export function getScenePackScenes(
+  params?: Pick<EngineParams, "scenePack">,
+): readonly Scene[] {
+  // A5: defensive fallback. ScenePackName is currently typed as the literal
+  // "default" only, so an unknown name is only reachable via `as any` cast
+  // (e.g. a future MCP caller passing a string the type system didn't catch).
+  // Without this fallback, SCENE_PACKS[unknownKey] returns undefined and the
+  // next access (scenes[0].density) throws. Fall back to the default pack
+  // rather than crashing — callers that genuinely need a different pack will
+  // notice the wrong scenes immediately, which is better than a TypeError.
+  return SCENE_PACKS[params?.scenePack ?? "default"] ?? SCENE_PACKS.default;
+}
 
 // ── Seeded PRNG: mulberry32 ───────────────────────────────────────────────────
 
@@ -175,18 +252,93 @@ export function mulberry32Next(state: { rngState: number }): number {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function currentScale(scale: "majorPent" | "minorPent"): number[] {
-  return scale === "majorPent" ? MAJOR_PENT : MINOR_PENT;
+/**
+ * A2: Single source of truth for scene progress. Both updateSceneEngine() and
+ * getEffectiveSceneParams() call this so they cannot drift apart on the
+ * `Math.floor(sceneStartBeat / BEATS_PER_BAR)` step. Returns clamped progress
+ * in [0, 1]; callers that need to detect the transition boundary compare
+ * the unclamped value (computed as barCount - sceneStartBar >= sceneDurationBars)
+ * separately — see both call sites.
+ */
+function computeSceneProgress(
+  barCount: number,
+  sceneStartBeat: number,
+  sceneDurationBars: number,
+): number {
+  const sceneStartBar = Math.floor(sceneStartBeat / BEATS_PER_BAR);
+  return Math.min((barCount - sceneStartBar) / sceneDurationBars, 1.0);
+}
+
+// Exported for musicalLogic.test.ts — the scale-interval test asserts
+// against currentScale() directly rather than SCALE_INTERVALS to avoid a
+// tautological check (see test file for details).
+export function currentScale(scale: ScaleName): readonly number[] {
+  return SCALE_INTERVALS[scale];
 }
 
 function noteHz(
   degree: number,
   octaveShift: number,
   rootHz: number,
-  scale: "majorPent" | "minorPent",
+  scale: ScaleName,
 ): number {
-  const semi = currentScale(scale)[((degree % 5) + 5) % 5] + 12 * octaveShift;
+  const intervals = currentScale(scale);
+  const semi =
+    intervals[
+      ((degree % intervals.length) + intervals.length) % intervals.length
+    ] +
+    12 * octaveShift;
   return rootHz * Math.pow(2, semi / 12);
+}
+
+function wrapDegree(degree: number, scaleLength: number): number {
+  return ((degree % scaleLength) + scaleLength) % scaleLength;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function droneEvents(
+  params: EngineParams,
+  beat: number,
+  beatSec: number,
+): MusicalEvent[] {
+  const layers = params.drone?.layers ?? [];
+  return layers.slice(0, MAX_DRONE_LAYERS).flatMap((layer, index) => {
+    if (
+      !Number.isFinite(layer.hz) ||
+      layer.hz <= 0 ||
+      !Number.isFinite(layer.amp) ||
+      layer.amp <= 0
+    ) {
+      return [];
+    }
+
+    const detuneCents = layer.detuneCents;
+    const sweepSec = layer.sweepSec;
+    return [
+      {
+        type: "drone" as const,
+        hz: layer.hz,
+        amp: clamp(layer.amp, 0, 1),
+        durationSec: beatSec,
+        pan: Number.isFinite(layer.pan) ? clamp(layer.pan, -1, 1) : 0,
+        timbre: layer.timbre,
+        droneLayerIndex: index,
+        detuneCents:
+          detuneCents !== undefined && Number.isFinite(detuneCents)
+            ? detuneCents
+            : undefined,
+        sweepSec:
+          sweepSec !== undefined && Number.isFinite(sweepSec) && sweepSec > 0
+            ? sweepSec
+            : undefined,
+        beatIndex: beat,
+        subBeatIndex: 0,
+      },
+    ];
+  });
 }
 
 function euclideanRhythm(step: number, pulses: number, steps: number): boolean {
@@ -217,7 +369,10 @@ function markovStep(
   return intervals[idx];
 }
 
-function updateSceneEngine(
+// Exported for musicalLogic.test.ts — the A2/B2 test confirms this stays in
+// agreement with getEffectiveSceneParams() (bpm/mix/scale/complexity) for a
+// non-bar-aligned sceneStartBeat, which used to silently diverge.
+export function updateSceneEngine(
   state: EngineState,
   params: EngineParams,
 ): { params: EngineParams; state: Partial<EngineState> } {
@@ -228,22 +383,28 @@ function updateSceneEngine(
   if (params.enableScenes === false) return { params, state: {} };
 
   const barCount = Math.floor(state.beat / BEATS_PER_BAR);
-  const barsIntoScene = barCount - state.sceneStartBeat / BEATS_PER_BAR;
   const sceneDurationBars = params.sceneDurationBars ?? 32;
+  const scenes = getScenePackScenes(params);
 
-  let newSceneIndex = state.currentSceneIndex;
+  let newSceneIndex = state.currentSceneIndex % scenes.length;
   let newSceneStartBeat = state.sceneStartBeat;
 
-  if (barsIntoScene >= sceneDurationBars) {
-    newSceneIndex = (state.currentSceneIndex + 1) % SCENES.length;
+  // A2: use computeSceneProgress for the transition boundary check so the
+  // floor-of-sceneStartBeat lives in one place. The check compares the
+  // unclamped bar count delta against sceneDurationBars; the helper clamps
+  // to [0,1] which we don't want here (we need to detect >= 1.0 exactly).
+  const sceneStartBar = Math.floor(state.sceneStartBeat / BEATS_PER_BAR);
+  if (barCount - sceneStartBar >= sceneDurationBars) {
+    newSceneIndex = (newSceneIndex + 1) % scenes.length;
     newSceneStartBeat = state.beat;
   }
 
-  const currentScene = SCENES[newSceneIndex];
-  const nextScene = SCENES[(newSceneIndex + 1) % SCENES.length];
-  const progress = Math.min(
-    (barCount - newSceneStartBeat / BEATS_PER_BAR) / sceneDurationBars,
-    1.0,
+  const currentScene = scenes[newSceneIndex];
+  const nextScene = scenes[(newSceneIndex + 1) % scenes.length];
+  const progress = computeSceneProgress(
+    barCount,
+    newSceneStartBeat,
+    sceneDurationBars,
   );
   const t =
     progress < 0.5
@@ -355,9 +516,23 @@ export function getMusicalEvents(
   // currentRootHz is owned by synthesis shell; musicalLogic uses it read-only for note freq
   const currentRootHz = s.currentRootHz;
   const currentScaleName = effectiveParams.scale;
+  const scaleLength = currentScale(currentScaleName).length;
   const currentTimbre = s.currentTimbre;
   const currentDensity = s.currentDensity;
   const drumLevel = effectiveParams.drumLevel ?? 0.5;
+
+  // Emit configured drone layers in both beat-enabled and beatless modes
+  events.push(...droneEvents(effectiveParams, beat, beatSec));
+
+  if (effectiveParams.enableBeats === false) {
+    // A1: advance the drum-grid phase even when no drum events are emitted,
+    // so a future toggle of enableBeats from false → true mid-stream resumes
+    // the euclidean kick/snare/hat patterns from the correct phase instead
+    // of a stale one. The normal path advances sixteenthCount by 4 below.
+    s.sixteenthCount += 4;
+    s.beat++;
+    return { events, nextState: s };
+  }
 
   // 4. Drums — FIX C1: set subBeatIndex (0–3) on each drum event
   for (let i = 0; i < 4; i++) {
@@ -418,6 +593,9 @@ export function getMusicalEvents(
   s.sixteenthCount += 4;
 
   // 5. Section offsets
+  // ponytail: these section offsets are still fixed pentatonic-era magic
+  // degree moves; upgrading this later means mapping harmonic functions per
+  // scale/mode instead of scaling numeric offsets by scale length.
   const sectionOffsets = [0, -3, -1, 2];
   const barIndex = Math.floor(s.beat / BEATS_PER_BAR);
   const sectionOffset = sectionOffsets[barIndex % sectionOffsets.length];
@@ -425,6 +603,8 @@ export function getMusicalEvents(
   // 6. Cadence / Markov
   const isCadence = s.beat % CADENCE_INTERVAL === CADENCE_INTERVAL - 1;
   if (isCadence) {
+    // ponytail: cadence keeps the old 0-or-2 degree landing; upgrading this
+    // needs per-mode cadence targets rather than a raw degree number.
     s.degree = rng() < 0.6 ? 0 : 2;
     s.lastInterval = 0;
   } else {
@@ -434,7 +614,7 @@ export function getMusicalEvents(
       rng,
     );
     s.lastInterval = interval;
-    s.degree = (s.degree + interval + 5) % 5;
+    s.degree = wrapDegree(s.degree + interval, scaleLength);
   }
 
   // 7. Melody
@@ -455,7 +635,7 @@ export function getMusicalEvents(
   }
 
   // 8. Pad (dual detuned — pan is cosmetic hint for ADSR selection, actual pan via persistent nodes)
-  const padDegree = (s.degree + 2 + sectionOffset + 5) % 5;
+  const padDegree = wrapDegree(s.degree + 2 + sectionOffset, scaleLength);
   const fPad = noteHz(padDegree, 2, currentRootHz, currentScaleName);
   events.push({
     type: "pad",
@@ -481,7 +661,7 @@ export function getMusicalEvents(
   // 9. Bass
   const beatInBar = s.beat % BAR_LENGTH;
   if (euclideanRhythm(beatInBar, BASS_HITS, BAR_LENGTH)) {
-    const bassDegree = (s.degree + sectionOffset + 5) % 5;
+    const bassDegree = wrapDegree(s.degree + sectionOffset, scaleLength);
     const fBass = noteHz(bassDegree, -1, currentRootHz, currentScaleName) / 2;
     events.push({
       type: "bass",
@@ -498,7 +678,7 @@ export function getMusicalEvents(
   // 10. Bell
   if (s.beat >= s.nextBellBeat) {
     const bellOctave = 2 + Math.floor(rng() * 2);
-    const bellDegree = Math.floor(rng() * 5);
+    const bellDegree = Math.floor(rng() * scaleLength);
     const fBell = noteHz(
       bellDegree,
       bellOctave,
@@ -510,7 +690,7 @@ export function getMusicalEvents(
       hz: fBell,
       amp: 0.15,
       durationSec: beatSec * 0.3,
-      pan: 2, // signals "bell" → use bellPan node
+      pan: 0, // A3: bell routing is by type === "bell" in both shells; pan is unused for bells (bellPan node receives its own drift automation)
       timbre: currentTimbre,
       beatIndex: beat,
       subBeatIndex: 0,
@@ -526,6 +706,7 @@ export function getMusicalEvents(
 
 export function createInitialState(params: EngineParams): EngineState {
   const seed = params.seed ?? Math.floor(Math.random() * 1000000);
+  const scenes = getScenePackScenes(params);
   return {
     beat: 0,
     degree: 0,
@@ -539,8 +720,8 @@ export function createInitialState(params: EngineParams): EngineState {
     panDriftPhase: 0,
     sixteenthCount: 0,
     nextBellBeat: 0,
-    currentDensity: SCENES[0].density,
-    currentTimbre: SCENES[0].timbre,
+    currentDensity: scenes[0].density,
+    currentTimbre: scenes[0].timbre,
   };
 }
 
@@ -568,8 +749,12 @@ export function initializeBell(state: EngineState): EngineState {
   return s;
 }
 
-export function getSceneName(state: EngineState): string {
-  return SCENES[state.currentSceneIndex % SCENES.length].name;
+export function getSceneName(
+  state: EngineState,
+  params?: Pick<EngineParams, "scenePack">,
+): string {
+  const scenes = getScenePackScenes(params);
+  return scenes[state.currentSceneIndex % scenes.length].name;
 }
 
 /**
@@ -581,101 +766,80 @@ export function getSceneName(state: EngineState): string {
  * ✅ FIX (default-enabled flags): enableScenes defaults to true. Use
  * explicit `=== false` so callers that omit the field get the documented
  * default-enabled behavior.
+ *
+ * A4: No enableBeats guard here, deliberately. When enableBeats === false
+ * the engine still emits drone events whose scheduling (beatSec = 60/bpm)
+ * and audio routing (through the delay/feedback mix chain) depend on the
+ * scene-interpolated bpm and mix. So scene BPM/mix must continue to animate
+ * even in drone-only mode. enableScenes gates this function because when
+ * scenes are disabled there is no interpolation to perform; enableBeats
+ * gates event emission, not parameter animation.
  */
 export function getEffectiveSceneParams(
   state: EngineState,
   params: EngineParams,
-): { bpm: number; mix: number } {
+): {
+  bpm: number;
+  mix: number;
+  scale: ScaleName;
+  complexity: number;
+} {
   // ✅ FIX (default-enabled flags): enableScenes defaults to true.
   if (params.enableScenes === false) {
-    return { bpm: params.bpm, mix: params.mix };
+    return {
+      bpm: params.bpm,
+      mix: params.mix,
+      scale: params.scale,
+      complexity: params.complexity,
+    };
   }
 
   const sceneDurationBars = params.sceneDurationBars ?? 32;
+  const scenes = getScenePackScenes(params);
   const barCount = Math.floor(state.beat / BEATS_PER_BAR);
 
-  // Mirror scene transition check
-  let sceneIndex = state.currentSceneIndex;
+  // A2: mirror updateSceneEngine's transition check exactly, using the same
+  // floor-of-sceneStartBeat step. After a transition, sceneStartBeat becomes
+  // barCount * BEATS_PER_BAR so progress recomputes to 0.
+  let sceneIndex = state.currentSceneIndex % scenes.length;
   let sceneStartBar = Math.floor(state.sceneStartBeat / BEATS_PER_BAR);
-  const barsIntoScene = barCount - sceneStartBar;
-  if (barsIntoScene >= sceneDurationBars) {
-    sceneIndex = (sceneIndex + 1) % SCENES.length;
+  if (barCount - sceneStartBar >= sceneDurationBars) {
+    sceneIndex = (sceneIndex + 1) % scenes.length;
     sceneStartBar = barCount;
   }
 
-  const currentScene = SCENES[sceneIndex];
-  const nextScene = SCENES[(sceneIndex + 1) % SCENES.length];
-  const progress = Math.min(
-    (barCount - sceneStartBar) / sceneDurationBars,
-    1.0,
+  const currentScene = scenes[sceneIndex];
+  const nextScene = scenes[(sceneIndex + 1) % scenes.length];
+  const progress = computeSceneProgress(
+    barCount,
+    sceneStartBar * BEATS_PER_BAR,
+    sceneDurationBars,
   );
   const t =
     progress < 0.5
       ? 2 * progress * progress
       : 1 - Math.pow(-2 * progress + 2, 2) / 2;
 
+  // B2: surface scale and complexity so LiveEngine.tick() can write them
+  // back into this.params for UI display. density and timbre are already on
+  // EngineState (currentDensity/currentTimbre) and don't need to round-trip
+  // through params.
   return {
     bpm: currentScene.bpm + (nextScene.bpm - currentScene.bpm) * t,
     mix: currentScene.mix + (nextScene.mix - currentScene.mix) * t,
+    scale: progress < 0.5 ? currentScene.scale : nextScene.scale,
+    complexity:
+      currentScene.complexity +
+      (nextScene.complexity - currentScene.complexity) * t,
   };
 }
 
-// ── Determinism test ──────────────────────────────────────────────────────────
-
-(function testDeterminism() {
-  if (typeof process !== "undefined" && process.env?.NODE_ENV === "production")
-    return;
-
-  const testParams: EngineParams = {
-    scale: "majorPent",
-    rootHz: 220,
-    bpm: 72,
-    complexity: 0.35,
-    mix: 0.4,
-    seed: 42,
-    enableScenes: true,
-    enableHarmonicLoop: true,
-    sceneDurationBars: 32,
-    drumLevel: 0.5,
-  };
-
-  function runOnce(): MusicalEvent[] {
-    let state = createInitialState(testParams);
-    state = advanceRngPastNoiseBuffer(state);
-    state = initializeBell(state);
-    const all: MusicalEvent[] = [];
-    for (let i = 0; i < 64; i++) {
-      const { events, nextState } = getMusicalEvents(
-        i,
-        { ...state },
-        testParams,
-      );
-      all.push(...events);
-      state = nextState;
-    }
-    return all;
-  }
-
-  const r1 = runOnce();
-  const r2 = runOnce();
-  let match = r1.length === r2.length;
-  for (let i = 0; match && i < r1.length; i++) {
-    const a = r1[i],
-      b = r2[i];
-    if (
-      a.type !== b.type ||
-      a.hz !== b.hz ||
-      a.amp !== b.amp ||
-      a.subBeatIndex !== b.subBeatIndex ||
-      a.isGhost !== b.isGhost ||
-      a.isClosed !== b.isClosed ||
-      a.durationSec !== b.durationSec ||
-      a.pan !== b.pan ||
-      a.timbre !== b.timbre ||
-      a.beatIndex !== b.beatIndex
-    ) {
-      match = false;
-    }
-  }
-  if (!match) console.error("[ambient-engine] DETERMINISM TEST FAILED");
-})();
+// Determinism and behavior tests live in musicalLogic.test.ts (Vitest).
+// They were previously self-executing IIFEs at the bottom of this file,
+// which meant they shipped in every build and ran on every import. Moving
+// them to a real test file also fixed a recurring problem: a hardcoded
+// scale-interval oracle table here kept getting flagged by SonarCloud as
+// duplicating SCALE_INTERVALS, "fixed" by referencing SCALE_INTERVALS
+// directly (which made the test tautological — it could never fail), then
+// flagged again for that. Test files are excluded from duplication
+// analysis, so the oracle table can safely live there permanently.
