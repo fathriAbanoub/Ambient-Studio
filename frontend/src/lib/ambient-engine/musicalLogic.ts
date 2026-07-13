@@ -145,7 +145,7 @@ export interface EngineState {
 
 // ── Constants (verbatim from original engine.ts) ──────────────────────────────
 
-export const SCALE_INTERVALS: Record<ScaleName, number[]> = {
+export const SCALE_INTERVALS: Record<ScaleName, readonly number[]> = {
   majorPent: [0, 2, 4, 7, 9],
   minorPent: [0, 3, 5, 7, 10],
   ionian: [0, 2, 4, 5, 7, 9, 11],
@@ -185,16 +185,16 @@ export const NOISE_BUFFER_SAMPLES = 22050; // sampleRate(44100) * 0.5s — must 
 const ROOT_LOOP_HZ = [220, 185, 147, 165]; // A3 → F#3 → D3 → E3
 
 export interface Scene {
-  name: string;
-  scale: ScaleName;
-  bpm: number;
-  mix: number;
-  complexity: number;
-  density: number;
-  timbre: TimbreMode;
+  readonly name: string;
+  readonly scale: ScaleName;
+  readonly bpm: number;
+  readonly mix: number;
+  readonly complexity: number;
+  readonly density: number;
+  readonly timbre: TimbreMode;
 }
 
-export const SCENE_PACKS: Record<ScenePackName, Scene[]> = {
+export const SCENE_PACKS: Record<ScenePackName, readonly Scene[]> = {
   default: [
     {
       name: "Calm",
@@ -226,11 +226,11 @@ export const SCENE_PACKS: Record<ScenePackName, Scene[]> = {
   ],
 };
 
-export const SCENES: Scene[] = SCENE_PACKS.default;
+export const SCENES: readonly Scene[] = SCENE_PACKS.default;
 
 export function getScenePackScenes(
   params?: Pick<EngineParams, "scenePack">,
-): Scene[] {
+): readonly Scene[] {
   // A5: defensive fallback. ScenePackName is currently typed as the literal
   // "default" only, so an unknown name is only reachable via `as any` cast
   // (e.g. a future MCP caller passing a string the type system didn't catch).
@@ -272,7 +272,7 @@ function computeSceneProgress(
 // Exported for musicalLogic.test.ts — the scale-interval test asserts
 // against currentScale() directly rather than SCALE_INTERVALS to avoid a
 // tautological check (see test file for details).
-export function currentScale(scale: ScaleName): number[] {
+export function currentScale(scale: ScaleName): readonly number[] {
   return SCALE_INTERVALS[scale];
 }
 
@@ -521,8 +521,10 @@ export function getMusicalEvents(
   const currentDensity = s.currentDensity;
   const drumLevel = effectiveParams.drumLevel ?? 0.5;
 
+  // Emit configured drone layers in both beat-enabled and beatless modes
+  events.push(...droneEvents(effectiveParams, beat, beatSec));
+
   if (effectiveParams.enableBeats === false) {
-    events.push(...droneEvents(effectiveParams, beat, beatSec));
     // A1: advance the drum-grid phase even when no drum events are emitted,
     // so a future toggle of enableBeats from false → true mid-stream resumes
     // the euclidean kick/snare/hat patterns from the correct phase instead

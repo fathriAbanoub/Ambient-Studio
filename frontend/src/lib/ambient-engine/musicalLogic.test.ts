@@ -74,7 +74,7 @@ describe("determinism", () => {
 
     const r1 = runOnce();
     const r2 = runOnce();
-    expect(r2.length).toBe(r1.length);
+    expect(r2).toHaveLength(r1.length);
     for (let i = 0; i < r1.length; i++) {
       expect(pick(r2[i]), `event ${i} diverged`).toEqual(pick(r1[i]));
     }
@@ -234,7 +234,7 @@ describe("beatless mode (enableBeats: false)", () => {
     }
     const b1 = runBeatlessOnce();
     const b2 = runBeatlessOnce();
-    expect(b2.length).toBe(b1.length);
+    expect(b2).toHaveLength(b1.length);
     const pick = (e: MusicalEvent) => ({
       type: e.type,
       hz: e.hz,
