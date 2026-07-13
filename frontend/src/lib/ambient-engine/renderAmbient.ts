@@ -12,6 +12,29 @@
  *   ✅ FIX (continue in-progress live slew): seed offline slew from startState
  *   ✅ FIX (params mutation): clone params to avoid mutating caller
  *   ✅ FIX (beat-loop cap): use minimum possible BPM across scenes to prevent truncation
+ *
+ * Layered additions (swing / sidechain / beatless drone latch reset):
+ *   ✅ ADD (scheduling helpers): Imports getSubBeatEventTime() and
+ *       getSidechainDuckShape() from ./scheduling. The single offline
+ *       subBeatIndex → eventTime conversion now goes through
+ *       getSubBeatEventTime() so swing is applied uniformly to every odd
+ *       sixteenth — matching LiveEngine's swing behaviour exactly so live
+ *       and offline renders stay sample-aligned for the same params.
+ *   ✅ ADD (tonal-bus sidechain duck): Kick events trigger
+ *       scheduleSidechain() which ducks `gain` (the tonal bus) — NOT `out`
+ *       (the master). Ducking `out` would also duck the drum bus (which
+ *       joins at `out`), silencing the kick that triggered the sidechain.
+ *       Ducking `gain` leaves the drum bus untouched, which is the desired
+ *       classic sidechain effect.
+ *   ✅ ADD (droneLayersStarted reset): When startState is provided, the
+ *       clone resets `droneLayersStarted = false` so an offline render
+ *       seeded from a live state snapshot re-fires the drone oscillators.
+ *       Without this reset, a snapshot taken after the live engine had
+ *       already latched the drone would render with zero drone events.
+ *   ✅ ADD (TONAL_BUS_GAIN constant): Named so the constructor init and
+ *       scheduleSidechain() share the same source of truth. Mirrors
+ *       LiveEngine's TONAL_BUS_GAIN — keeping the two in lockstep is the
+ *       easiest way to keep live and offline renders perceptually matched.
  */
 
 import {
@@ -29,6 +52,7 @@ import {
   DRONE_FADE_SEC,
   NOISE_BUFFER_SAMPLES,
 } from "./musicalLogic";
+import { getSidechainDuckShape, getSubBeatEventTime } from "./scheduling";
 
 const FM_MOD_RATIO = 1.5;
 const FM_INDEX = 1.8;
@@ -40,6 +64,11 @@ const ADSR_BASS = { a: 0.005, d: 0.15, s: 0.25, r: 0.2 };
 const ADSR_BELL = { a: 0.01, d: 0.1, s: 0.2, r: 0.15 };
 // CodeRabbit nitpick: DRONE_FADE_SEC now imported from musicalLogic.ts
 // (single source of truth shared with LiveEngine).
+
+// ✅ ADD (tonal-bus gain constant): Named so the graph init and
+// scheduleSidechain() share the same source of truth. Mirrors
+// LiveEngine's TONAL_BUS_GAIN so offline renders match live levels.
+const TONAL_BUS_GAIN = 0.3;
 
 export interface RenderProgress {
   phase: "preparing" | "scheduling" | "rendering" | "encoding";
@@ -73,7 +102,8 @@ export async function renderAmbient(
   const filter = offlineCtx.createBiquadFilter();
   const out = offlineCtx.createGain();
 
-  gain.gain.value = 0.3;
+  // ✅ ADD (TONAL_BUS_GAIN): named constant instead of the magic 0.3.
+  gain.gain.value = TONAL_BUS_GAIN;
   delay.delayTime.value = 0.3 + 0.4 * (effectiveParams.mix || 0.4);
   fb.gain.value = 0.2 + 0.5 * (effectiveParams.mix || 0.4);
   filter.type = "lowpass";
@@ -138,7 +168,12 @@ export async function renderAmbient(
   let noiseBuffer: AudioBuffer;
 
   if (startState) {
-    state = { ...startState };
+    // ✅ ADD (droneLayersStarted reset): when seeding from a live state
+    // snapshot, reset the latch so the offline render re-fires the drone
+    // oscillators. A snapshot taken after the live engine had already
+    // latched droneLayersStarted=true would otherwise render with zero
+    // drone events in beatless mode.
+    state = { ...startState, droneLayersStarted: false };
     noiseBuffer = createNoiseBufferFromSnapshot(offlineCtx, state.rngState);
   } else {
     state = createInitialState(effectiveParams);
@@ -224,7 +259,16 @@ export async function renderAmbient(
     filter.frequency.setValueAtTime(5000 + sceneMix * 4000, currentTime);
 
     for (const event of events) {
-      const eventTime = currentTime + event.subBeatIndex * sixteenthSec;
+      // ✅ ADD (swing): single offline subBeatIndex → eventTime conversion
+      // now goes through getSubBeatEventTime() so params.swing is applied
+      // to every odd sixteenth, matching LiveEngine exactly. Tonal events
+      // (subBeatIndex 0) are unaffected.
+      const eventTime = getSubBeatEventTime(
+        currentTime,
+        event.subBeatIndex,
+        sixteenthSec,
+        effectiveParams.swing,
+      );
       scheduleEvent(
         offlineCtx,
         event,
@@ -242,6 +286,9 @@ export async function renderAmbient(
           scheduledLayers: scheduledDroneLayers,
         },
         targetEndTime,
+        // ✅ ADD (sidechain): pass the sidechain amount so kick events can
+        // duck the tonal bus. scheduleEvent forwards it to scheduleSidechain.
+        effectiveParams.sidechainAmount,
       );
     }
 
@@ -355,10 +402,18 @@ function scheduleEvent(
   bellPan: StereoPannerNode,
   droneGraph: DroneGraph,
   droneStopTime: number,
+  // ✅ ADD (sidechain): passed through to scheduleSidechain() on kick
+  // events. Optional — undefined/0 leaves the tonal bus untouched.
+  sidechainAmount?: number,
 ): void {
   switch (event.type) {
     case "kick":
       scheduleKick(ctx, t0, event.amp, drumBus);
+      // ✅ ADD (tonal-bus duck on kick): schedule the sidechain duck AFTER
+      // the kick is scheduled so the duck attack lines up with the kick
+      // hit. Ducks `mainGain` (the tonal bus) — NOT `out` (the master) —
+      // so the kick itself (routed to drumBus → out) stays at full level.
+      scheduleSidechain(mainGain, t0, sidechainAmount);
       break;
     case "snare":
       scheduleSnare(
@@ -390,6 +445,50 @@ function scheduleEvent(
       scheduleTonal(ctx, event, t0, mainGain, padPanL, padPanR, bellPan);
       break;
   }
+}
+
+// ── Sidechain automation ────────────────────────────────────────────────────
+
+/**
+ * ✅ ADD (tonal-bus sidechain duck): Mirrors LiveEngine.applySidechain() for
+ * the offline render path. Computes the duck shape via
+ * getSidechainDuckShape() (pure, shell-side helper from ./scheduling) and
+ * applies a 3-segment gain automation on `mainGain.gain` (the tonal bus):
+ *
+ *   1. setValueAtTime(TONAL_BUS_GAIN, t0)           — anchor to steady level
+ *   2. linearRampToValueAtTime(ducked, attackTime)   — duck over 10ms
+ *   3. linearRampToValueAtTime(TONAL_BUS_GAIN, releaseTime) — return over 180ms
+ *
+ * cancelScheduledValues(t0) first so any in-flight per-beat mix automation
+ * on delay/fb/filter (separate params) doesn't interact. mainGain.gain has
+ * no other queued automation in the original code, so the cancel is a
+ * defensive no-op against future changes.
+ *
+ * Why `mainGain` (the tonal bus) and not `out` (the master): `out` is
+ * downstream of both `gain` (tonal bus) and `drumBus` (drum bus). Ducking
+ * `out` would also duck the kick that triggered the sidechain. Ducking
+ * `gain` leaves the drum bus untouched, which is the desired classic
+ * sidechain effect.
+ *
+ * No-op when sidechainAmount is undefined or 0 (getSidechainDuckShape
+ * returns null in that case).
+ */
+function scheduleSidechain(
+  mainGain: GainNode,
+  t0: number,
+  sidechainAmount?: number,
+): void {
+  const shape = getSidechainDuckShape(t0, sidechainAmount);
+  if (!shape) return;
+
+  const param = mainGain.gain;
+  param.cancelScheduledValues(t0);
+  param.setValueAtTime(TONAL_BUS_GAIN, t0);
+  param.linearRampToValueAtTime(
+    TONAL_BUS_GAIN * shape.duckGainMultiplier,
+    shape.attackTime,
+  );
+  param.linearRampToValueAtTime(TONAL_BUS_GAIN, shape.releaseTime);
 }
 
 // ── Tonal synthesis ─────────────────────────────────────────────────────────

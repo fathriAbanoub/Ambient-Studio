@@ -36,6 +36,35 @@
  *       beat cycle has begun — the first advance now fires at beat 32
  *       (bar 8) instead of beat 0. harmonicLoopIndex and targetRootHz
  *       update behavior is unchanged.
+ *
+ * Layered additions (swing / drumStyle / sidechain / beatless drone latch):
+ *   ✅ ADD (DrumStyle): New `DrumStyle` named type — `"euclideanTrap" |
+ *       "fourFloor"`. Surfaced as a public type export so callers (and
+ *       index.ts) can name it without re-declaring the literal union.
+ *   ✅ ADD (EngineParams swing / drumStyle / sidechainAmount): Three new
+ *       optional fields. `swing` (0..0.6) and `sidechainAmount` (0..1) are
+ *       pure values — they are NOT consumed inside this module. The
+ *       synthesis shells (LiveEngine, renderAmbient) read them and apply
+ *       them at the `subBeatIndex → eventTime` conversion (swing) and on
+ *       the tonal-bus gain (sidechain). Keeping them on EngineParams means
+ *       a single object describes the musical request end-to-end.
+ *   ✅ ADD (EngineState.droneLayersStarted): New boolean latch. In beatless
+ *       mode (`enableBeats === false`) the engine now emits drone events
+ *       exactly once per layer (on the first beatless beat) and then
+ *       latches. The synthesis shells reset this flag on `start()` (live)
+ *       and on the `startState` clone (offline) so a stopped/restarted
+ *       beatless playback re-fires the drone oscillators. In beat-enabled
+ *       mode the flag is unused — drones are re-emitted every beat there
+ *       so the shells can re-trigger amp/pan/filter automation.
+ *   ✅ ADD (fourFloor kicks): `drumStyle === "fourFloor"` fires a kick on
+ *       every quarter note (subBeatIndex 0 of each beat). The original
+ *       `euclideanTrap` behavior (5/16 euclidean pattern) is preserved as
+ *       the default when `drumStyle` is omitted.
+ *   ✅ ADD (self-checks): Two runnable IIFE assertions at the bottom — one
+ *       for the one-shot beatless drone count, one for the fourFloor kick
+ *       count. These are layered on top of the existing test-file comment
+ *       (which still applies to the broader determinism / scale-interval
+ *       suite in musicalLogic.test.ts).
  */
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -54,6 +83,11 @@ export type ScaleName =
   | "locrian";
 
 export type ScenePackName = "default";
+
+// ✅ ADD (DrumStyle): Named type so callers (and index.ts) can name the
+// literal union without re-declaring it. Defaults to "euclideanTrap" when
+// omitted — see getMusicalEvents().
+export type DrumStyle = "euclideanTrap" | "fourFloor";
 
 export interface DroneLayerParams {
   hz: number;
@@ -80,6 +114,16 @@ export interface EngineParams {
   enableHarmonicLoop?: boolean; // default true
   enableBeats?: boolean; // default true
   drone?: DroneParams;
+  // ✅ ADD: swing amount 0..0.6 — applied by synthesis shells at the
+  // subBeatIndex → eventTime conversion. NOT consumed inside this module.
+  swing?: number;
+  // ✅ ADD: drum style. Default "euclideanTrap" preserves the original
+  // 5/16 euclidean kick pattern. "fourFloor" fires a kick on every quarter
+  // note. Read inside getMusicalEvents() to choose the kick pattern.
+  drumStyle?: DrumStyle;
+  // ✅ ADD: sidechain depth 0..1 — applied by synthesis shells as a tonal-
+  // bus gain duck on every kick. NOT consumed inside this module.
+  sidechainAmount?: number;
   seed?: number;
   drumLevel?: number; // 0..1
 }
@@ -141,6 +185,16 @@ export interface EngineState {
   nextBellBeat: number;
   currentDensity: number;
   currentTimbre: TimbreMode;
+  /**
+   * ✅ ADD (beatless drone latch): Boolean latch used only when
+   * `enableBeats === false`. The first beatless beat emits drone events
+   * for every configured layer, sets this flag true, and never emits them
+   * again until the flag is reset (by LiveEngine.start() or by the
+   * startState clone in renderAmbient). In beat-enabled mode this flag is
+   * unused — drones are re-emitted every beat so the shells can re-trigger
+   * amp/pan/filter automation.
+   */
+  droneLayersStarted: boolean;
 }
 
 // ── Constants (verbatim from original engine.ts) ──────────────────────────────
@@ -520,11 +574,22 @@ export function getMusicalEvents(
   const currentTimbre = s.currentTimbre;
   const currentDensity = s.currentDensity;
   const drumLevel = effectiveParams.drumLevel ?? 0.5;
+  // ✅ ADD (fourFloor): resolve the drum style once. Default keeps the
+  // original 5/16 euclidean kick pattern. "fourFloor" fires a kick on
+  // every quarter note (subBeatIndex 0 of each beat).
+  const drumStyle = effectiveParams.drumStyle ?? "euclideanTrap";
 
-  // Emit configured drone layers in both beat-enabled and beatless modes
-  events.push(...droneEvents(effectiveParams, beat, beatSec));
-
+  // ✅ ADD (beatless drone latch): In beatless mode, emit drone layers
+  // exactly once (on the first beatless beat), then latch. The synthesis
+  // shells reset s.droneLayersStarted on start()/startState-clone so a
+  // stopped/restarted beatless playback re-fires the drone oscillators.
+  // Beatless mode still increments s.beat so scene/harmonic-loop boundaries
+  // continue to fire on the same beat grid as beat-enabled mode.
   if (effectiveParams.enableBeats === false) {
+    if (!s.droneLayersStarted) {
+      events.push(...droneEvents(effectiveParams, beat, beatSec));
+      s.droneLayersStarted = true;
+    }
     // A1: advance the drum-grid phase even when no drum events are emitted,
     // so a future toggle of enableBeats from false → true mid-stream resumes
     // the euclidean kick/snare/hat patterns from the correct phase instead
@@ -534,11 +599,25 @@ export function getMusicalEvents(
     return { events, nextState: s };
   }
 
+  // Emit configured drone layers in beat-enabled mode every beat so the
+  // synthesis shells can re-trigger amp/pan/filter automation. (LiveEngine
+  // updates existing oscillator frequency/detune in playDrone(); renderAmbient
+  // ignores re-emitted layers via its scheduledLayers set.)
+  events.push(...droneEvents(effectiveParams, beat, beatSec));
+
   // 4. Drums — FIX C1: set subBeatIndex (0–3) on each drum event
   for (let i = 0; i < 4; i++) {
     const sixteenthStep = s.sixteenthCount + i;
 
-    if (drumLevel > 0 && euclideanRhythm(sixteenthStep % 16, 5, 16)) {
+    // ✅ ADD (fourFloor): "fourFloor" fires a kick on every quarter note
+    // (i === 0). "euclideanTrap" preserves the original 5/16 euclidean
+    // kick pattern. Both branch on `drumLevel > 0` identically below.
+    const shouldKick =
+      drumStyle === "fourFloor"
+        ? i === 0
+        : euclideanRhythm(sixteenthStep % 16, 5, 16);
+
+    if (drumLevel > 0 && shouldKick) {
       events.push({
         type: "kick",
         amp: DRUM_KICK_AMP * drumLevel,
@@ -722,6 +801,10 @@ export function createInitialState(params: EngineParams): EngineState {
     nextBellBeat: 0,
     currentDensity: scenes[0].density,
     currentTimbre: scenes[0].timbre,
+    // ✅ ADD (beatless drone latch): start with the latch cleared so the
+    // first beatless beat emits drone events. LiveEngine.start() and the
+    // renderAmbient startState clone both reset this to false as well.
+    droneLayersStarted: false,
   };
 }
 
@@ -843,3 +926,7 @@ export function getEffectiveSceneParams(
 // directly (which made the test tautological — it could never fail), then
 // flagged again for that. Test files are excluded from duplication
 // analysis, so the oracle table can safely live there permanently.
+//
+// The new beatless-drone-latch and fourFloor-kick self-checks also live in
+// musicalLogic.test.ts — see the "beatless mode" and "drum styles"
+// describe blocks there.

@@ -16,6 +16,7 @@ import {
   type MusicalEvent,
   type ScaleName,
   type TimbreMode,
+  type DrumStyle,
 } from "./musicalLogic";
 
 // Moved from two self-executing IIFEs (testDeterminism, testNewMusicalLogic)
@@ -132,12 +133,52 @@ describe("beatless mode (enableBeats: false)", () => {
     },
   };
 
-  it("emits only drone events, one per configured layer", () => {
+  it("emits only drone events, one per configured layer, on the first beat", () => {
     const startState = createInitialState(beatlessParams);
     const { events } = getMusicalEvents(0, { ...startState }, beatlessParams);
     expect(events).toHaveLength(3);
     expect(events.every((event) => event.type === "drone")).toBe(true);
     expect(events.map((event) => event.hz)).toEqual([432, 528, 741]);
+  });
+
+  // ✅ ADD (droneLayersStarted latch): beatless mode must emit drone events
+  // exactly ONCE (on the first beat) and then latch. Subsequent beats must
+  // emit zero events. This is the core of the one-shot drone behavior —
+  // without the latch, every beatless beat would re-emit all drone layers,
+  // which is wasteful and would confuse the synthesis shells (LiveEngine
+  // would re-trigger amp/pan automation every beat; renderAmbient's
+  // scheduledLayers set would silently drop them, masking the bug).
+  it("latches after the first beat: subsequent beats emit zero drone events", () => {
+    const startState = createInitialState(beatlessParams);
+    let state = startState;
+    const eventsPerBeat: MusicalEvent[][] = [];
+    for (let i = 0; i < 5; i++) {
+      const { events, nextState } = getMusicalEvents(
+        state.beat,
+        { ...state },
+        beatlessParams,
+      );
+      eventsPerBeat.push(events);
+      state = nextState;
+    }
+    // Beat 0: 3 drone events (one per layer)
+    expect(eventsPerBeat[0]).toHaveLength(3);
+    // Beats 1-4: zero events (latched)
+    for (let i = 1; i < 5; i++) {
+      expect(
+        eventsPerBeat[i],
+        `beat ${i} should have emitted zero events`,
+      ).toHaveLength(0);
+    }
+    // Latch flag must be true after the first beat
+    expect(state.droneLayersStarted).toBe(true);
+  });
+
+  // ✅ ADD (droneLayersStarted initial value): createInitialState must
+  // initialize the latch to false so the first beatless beat emits drones.
+  it("createInitialState initializes droneLayersStarted to false", () => {
+    const state = createInitialState(beatlessParams);
+    expect(state.droneLayersStarted).toBe(false);
   });
 
   it("does not advance melodic degree but does advance sixteenthCount by 4 per beat", () => {
@@ -164,6 +205,25 @@ describe("beatless mode (enableBeats: false)", () => {
         initial + 4 * (i + 1),
       );
     }
+  });
+
+  // ✅ ADD (beat advances in beatless mode): beatless mode still increments
+  // s.beat so scene/harmonic-loop boundaries continue to fire on the same
+  // beat grid as beat-enabled mode. Without this, a beatless render would
+  // never trigger scene transitions.
+  it("advances beat by 1 per call (beat grid continues in beatless mode)", () => {
+    const startState = createInitialState(beatlessParams);
+    let state = startState;
+    for (let i = 0; i < 4; i++) {
+      const { nextState } = getMusicalEvents(
+        state.beat,
+        { ...state },
+        beatlessParams,
+      );
+      expect(nextState.beat).toBe(state.beat + 1);
+      state = nextState;
+    }
+    expect(state.beat).toBe(startState.beat + 4);
   });
 
   it("clamps drone layer count silently at MAX_DRONE_LAYERS", () => {
@@ -248,6 +308,216 @@ describe("beatless mode (enableBeats: false)", () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ✅ ADD (drum styles): Tests for the new `drumStyle` param.
+// "euclideanTrap" (default) preserves the original 5/16 euclidean kick
+// pattern. "fourFloor" fires a kick on every quarter note (subBeatIndex 0
+// of each beat). Both must coexist with the existing snare/hihat patterns
+// unchanged.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("drum styles (drumStyle param)", () => {
+  const baseParams: EngineParams = {
+    scale: "ionian",
+    rootHz: 220,
+    bpm: 120,
+    complexity: 0.5,
+    mix: 0.4,
+    seed: 99,
+    enableScenes: false,
+    enableHarmonicLoop: false,
+    drumLevel: 1, // full drum level so we can count kicks reliably
+  };
+
+  it("defaults to euclideanTrap when drumStyle is omitted", () => {
+    // Run 4 beats with the default (omitted) drumStyle and verify the kick
+    // count matches the 5/16 euclidean pattern, NOT the fourFloor pattern
+    // (which would be 4 kicks over 4 beats). The 5/16 euclidean pattern
+    // over 16 sixteenths fires at steps 0, 4, 7, 10, 13 = 5 kicks.
+    const params: EngineParams = { ...baseParams };
+    let state = createInitialState(params);
+    state = advanceRngPastNoiseBuffer(state);
+    state = initializeBell(state);
+    const kicks: MusicalEvent[] = [];
+    for (let i = 0; i < 4; i++) {
+      const { events, nextState } = getMusicalEvents(
+        state.beat,
+        { ...state },
+        params,
+      );
+      kicks.push(...events.filter((e) => e.type === "kick"));
+      state = nextState;
+    }
+    // 5/16 euclidean over 16 steps → 5 kicks. fourFloor would give 4.
+    expect(kicks.length).toBe(5);
+  });
+
+  it('explicit drumStyle: "euclideanTrap" matches the default (omitted) behavior', () => {
+    function runKicks(drumStyle: DrumStyle | undefined): MusicalEvent[] {
+      const params: EngineParams = { ...baseParams, drumStyle };
+      let state = createInitialState(params);
+      state = advanceRngPastNoiseBuffer(state);
+      state = initializeBell(state);
+      const kicks: MusicalEvent[] = [];
+      for (let i = 0; i < 4; i++) {
+        const { events, nextState } = getMusicalEvents(
+          state.beat,
+          { ...state },
+          params,
+        );
+        kicks.push(...events.filter((e) => e.type === "kick"));
+        state = nextState;
+      }
+      return kicks;
+    }
+    const omitted = runKicks(undefined);
+    const explicit = runKicks("euclideanTrap");
+    expect(explicit.length).toBe(omitted.length);
+    expect(explicit.map((k) => k.subBeatIndex)).toEqual(
+      omitted.map((k) => k.subBeatIndex),
+    );
+  });
+
+  it('drumStyle: "fourFloor" fires exactly one kick per beat on subBeatIndex 0', () => {
+    const params: EngineParams = { ...baseParams, drumStyle: "fourFloor" };
+    let state = createInitialState(params);
+    state = advanceRngPastNoiseBuffer(state);
+    state = initializeBell(state);
+    const kicks: MusicalEvent[] = [];
+    for (let i = 0; i < 4; i++) {
+      const { events, nextState } = getMusicalEvents(
+        state.beat,
+        { ...state },
+        params,
+      );
+      kicks.push(...events.filter((e) => e.type === "kick"));
+      state = nextState;
+    }
+    // One kick per beat = 4 kicks over 4 beats
+    expect(kicks).toHaveLength(4);
+    // All kicks must be on the quarter-note grid (subBeatIndex 0)
+    expect(kicks.every((k) => k.subBeatIndex === 0)).toBe(true);
+  });
+
+  it('drumStyle: "fourFloor" does not alter snare or hihat patterns', () => {
+    // The fourFloor change only affects the kick pattern. Snare (on beats
+    // 4 and 12 of the 16-step grid) and hihat (9/16 euclidean) must be
+    // identical between euclideanTrap and fourFloor.
+    function runNonKickEvents(drumStyle: DrumStyle): MusicalEvent[] {
+      const params: EngineParams = { ...baseParams, drumStyle };
+      let state = createInitialState(params);
+      state = advanceRngPastNoiseBuffer(state);
+      state = initializeBell(state);
+      const nonKick: MusicalEvent[] = [];
+      for (let i = 0; i < 4; i++) {
+        const { events, nextState } = getMusicalEvents(
+          state.beat,
+          { ...state },
+          params,
+        );
+        nonKick.push(
+          ...events.filter((e) => e.type !== "kick" && e.type !== "drone"),
+        );
+        state = nextState;
+      }
+      return nonKick;
+    }
+    const trapNonKick = runNonKickEvents("euclideanTrap");
+    const fourFloorNonKick = runNonKickEvents("fourFloor");
+
+    // Same count of non-kick, non-drone events
+    expect(fourFloorNonKick).toHaveLength(trapNonKick.length);
+    // Same types in the same order
+    expect(
+      fourFloorNonKick.map((e) => `${e.type}@${e.subBeatIndex}`).join(","),
+    ).toBe(trapNonKick.map((e) => `${e.type}@${e.subBeatIndex}`).join(","));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ✅ ADD (shell-only params are no-ops in musicalLogic): swing and
+// sidechainAmount are pure values that musicalLogic does NOT consume. They
+// are read by the synthesis shells (LiveEngine, renderAmbient) at the
+// subBeatIndex → eventTime conversion (swing) and on the tonal-bus gain
+// (sidechain). This test guards against a future edit accidentally reading
+// them inside musicalLogic, which would break determinism (the RNG stream
+// would advance differently depending on whether swing/sidechain are set).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("shell-only params (swing, sidechainAmount) are no-ops in musicalLogic", () => {
+  const baseParams: EngineParams = {
+    scale: "ionian",
+    rootHz: 220,
+    bpm: 72,
+    complexity: 0.35,
+    mix: 0.4,
+    seed: 42,
+    enableScenes: false,
+    enableHarmonicLoop: false,
+    drumLevel: 0.5,
+  };
+
+  function runEvents(params: EngineParams): MusicalEvent[] {
+    let state = createInitialState(params);
+    state = advanceRngPastNoiseBuffer(state);
+    state = initializeBell(state);
+    const all: MusicalEvent[] = [];
+    for (let i = 0; i < 16; i++) {
+      const { events, nextState } = getMusicalEvents(i, { ...state }, params);
+      all.push(...events);
+      state = nextState;
+    }
+    return all;
+  }
+
+  const pick = (e: MusicalEvent) => ({
+    type: e.type,
+    hz: e.hz,
+    amp: e.amp,
+    subBeatIndex: e.subBeatIndex,
+    pan: e.pan,
+    beatIndex: e.beatIndex,
+  });
+
+  it("swing does not change the event stream (it's applied by the shell, not musicalLogic)", () => {
+    const withoutSwing = runEvents(baseParams);
+    const withSwing = runEvents({ ...baseParams, swing: 0.5 });
+    expect(withSwing).toHaveLength(withoutSwing.length);
+    for (let i = 0; i < withoutSwing.length; i++) {
+      expect(pick(withSwing[i]), `event ${i} diverged`).toEqual(
+        pick(withoutSwing[i]),
+      );
+    }
+  });
+
+  it("sidechainAmount does not change the event stream (it's applied by the shell, not musicalLogic)", () => {
+    const withoutSidechain = runEvents(baseParams);
+    const withSidechain = runEvents({ ...baseParams, sidechainAmount: 0.8 });
+    expect(withSidechain).toHaveLength(withoutSidechain.length);
+    for (let i = 0; i < withoutSidechain.length; i++) {
+      expect(pick(withSidechain[i]), `event ${i} diverged`).toEqual(
+        pick(withoutSidechain[i]),
+      );
+    }
+  });
+
+  it("all three new params together do not change the event stream", () => {
+    const withoutNew = runEvents(baseParams);
+    const withAllNew = runEvents({
+      ...baseParams,
+      swing: 0.3,
+      drumStyle: "euclideanTrap", // default — must not change anything vs omitted
+      sidechainAmount: 0.6,
+    });
+    expect(withAllNew).toHaveLength(withoutNew.length);
+    for (let i = 0; i < withoutNew.length; i++) {
+      expect(pick(withAllNew[i]), `event ${i} diverged`).toEqual(
+        pick(withoutNew[i]),
+      );
+    }
+  });
+});
+
 describe("scene pack lookup", () => {
   // ScenePackName is currently the literal "default" only, so unknown packs
   // are only reachable via an `as any` cast — confirm getScenePackScenes()
@@ -303,6 +573,10 @@ describe("scene progress agreement (updateSceneEngine vs getEffectiveSceneParams
       nextBellBeat: 100,
       currentDensity: 0.7,
       currentTimbre: "sine",
+      // ✅ ADD: droneLayersStarted is now a required field on EngineState.
+      // Set to false here — this test doesn't exercise beatless mode, so the
+      // latch value is irrelevant to the scene-progress agreement check.
+      droneLayersStarted: false,
     };
 
     const sceneResult = updateSceneEngine(state, params);
