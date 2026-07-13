@@ -60,6 +60,7 @@ export {
   SIDECHAIN_MAX_DUCK_DB,
   SIDECHAIN_ATTACK_SEC,
   SIDECHAIN_RELEASE_SEC,
+  TONAL_BUS_GAIN,
   type SidechainDuckShape,
 } from "./scheduling";
 
