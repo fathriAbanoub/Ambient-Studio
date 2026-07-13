@@ -97,7 +97,11 @@ import {
   DRONE_FADE_SEC,
   NOISE_BUFFER_SAMPLES,
 } from "./musicalLogic";
-import { getSidechainDuckShape, getSubBeatEventTime } from "./scheduling";
+import {
+  getSidechainDuckShape,
+  getSubBeatEventTime,
+  TONAL_BUS_GAIN,
+} from "./scheduling";
 
 import { getSharedAudioContext } from "@/lib/audioContext";
 
@@ -111,13 +115,8 @@ const ADSR_BASS = { a: 0.005, d: 0.15, s: 0.25, r: 0.2 };
 const ADSR_BELL = { a: 0.01, d: 0.1, s: 0.2, r: 0.15 };
 // CodeRabbit nitpick: DRONE_FADE_SEC now imported from musicalLogic.ts
 // (single source of truth shared with renderAmbient).
-
-// ✅ ADD (tonal-bus gain constant): Named so the constructor init and
-// applySidechain() share the same source of truth. Ducking this.gain
-// (the tonal bus) leaves the drum bus and master out untouched, so the
-// kick that triggers the sidechain stays at full level while the
-// sustained tonal material (pads, melody, bass, bells, drones) ducks.
-const TONAL_BUS_GAIN = 0.3;
+// TONAL_BUS_GAIN is imported from ./scheduling (single source of truth
+// shared with renderAmbient) — see scheduling.ts for why it lives there.
 
 export class LiveEngine {
   ctx: AudioContext;
