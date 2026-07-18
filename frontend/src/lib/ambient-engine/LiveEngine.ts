@@ -101,11 +101,13 @@ import {
 import {
   decodeSampleBank,
   getDecodedSampleBuffer,
+  scheduleSamplePlayback,
   type DecodedSampleBank,
 } from "./sampleBank";
 import {
   getSidechainDuckShape,
   getSubBeatEventTime,
+  resolveToneEnvelope,
   TONAL_BUS_GAIN,
 } from "./scheduling";
 
@@ -114,11 +116,6 @@ import { getSharedAudioContext } from "@/lib/audioContext";
 const FM_MOD_RATIO = 1.5;
 const FM_INDEX = 1.8;
 
-const ADSR_MELODY = { a: 0.02, d: 0.2, s: 0.55, r: 0.25 };
-const ADSR_PAD_L = { a: 0.5, d: 0.8, s: 0.7, r: 0.8 };
-const ADSR_PAD_R = { a: 0.6, d: 0.8, s: 0.7, r: 0.9 };
-const ADSR_BASS = { a: 0.005, d: 0.15, s: 0.25, r: 0.2 };
-const ADSR_BELL = { a: 0.01, d: 0.1, s: 0.2, r: 0.15 };
 const SAMPLE_FADE_SEC = 0.01;
 // CodeRabbit nitpick: DRONE_FADE_SEC now imported from musicalLogic.ts
 // (single source of truth shared with renderAmbient).
@@ -127,20 +124,21 @@ const SAMPLE_FADE_SEC = 0.01;
 
 export class LiveEngine {
   ctx: AudioContext;
-  private gain: GainNode;
-  private delay: DelayNode;
-  private fb: GainNode;
-  private out: GainNode;
-  private filter: BiquadFilterNode;
-  private drumBus: GainNode;
-  private drumCompressor: DynamicsCompressorNode;
-  private noiseBuffer: AudioBuffer;
+  private readonly gain: GainNode;
+  private readonly delay: DelayNode;
+  private readonly fb: GainNode;
+  private readonly out: GainNode;
+  private readonly filter: BiquadFilterNode;
+  private readonly drumBus: GainNode;
+  private readonly drumCompressor: DynamicsCompressorNode;
+  private readonly noiseBuffer: AudioBuffer;
   private sampleBuffers: DecodedSampleBank = new Map();
+  private activeSampleSources = new Set<AudioBufferSourceNode>();
 
   // FIX W1: Persistent panner nodes — match original engine.ts exactly
-  private padPanL: StereoPannerNode;
-  private padPanR: StereoPannerNode;
-  private bellPan: StereoPannerNode;
+  private readonly padPanL: StereoPannerNode;
+  private readonly padPanR: StereoPannerNode;
+  private readonly bellPan: StereoPannerNode;
 
   // ponytail: fixed 8-layer drone cap; raising it later requires increasing
   // MAX_DRONE_LAYERS and preallocating matching persistent nodes here/offline.
@@ -149,9 +147,9 @@ export class LiveEngine {
   private readonly dronePans: StereoPannerNode[] = [];
   private readonly droneGains: GainNode[] = [];
   private readonly droneFilters: BiquadFilterNode[] = [];
-  private droneOscs: Array<OscillatorNode | null> = [];
-  private droneModOscs: Array<OscillatorNode | null> = [];
-  private droneLfos: Array<OscillatorNode | null> = [];
+  private readonly droneOscs: Array<OscillatorNode | null> = [];
+  private readonly droneModOscs: Array<OscillatorNode | null> = [];
+  private readonly droneLfos: Array<OscillatorNode | null> = [];
 
   // FIX W2: Melody buses for visual analysis routing
   melodyBuses: GainNode[] = [];
@@ -336,6 +334,14 @@ export class LiveEngine {
       this.schedulerTimerId = null;
     }
     this.stopDroneLayers(this.ctx.currentTime);
+    for (const source of this.activeSampleSources) {
+      try {
+        source.stop();
+      } catch {
+        // Ignore already-stopped sample nodes.
+      }
+    }
+    this.activeSampleSources.clear();
     this.running = false;
   }
 
@@ -654,26 +660,17 @@ export class LiveEngine {
     // upgrading means a real async sample state machine with retry/backfill policy.
     if (!buffer || event.amp <= 0) return;
 
-    const source = this.ctx.createBufferSource();
-    const g = this.ctx.createGain();
-    const pan = this.ctx.createStereoPanner();
-    const fadeSec = Math.min(SAMPLE_FADE_SEC, buffer.duration / 2);
-
-    source.buffer = buffer;
-    pan.pan.setValueAtTime(event.pan, t0);
-    g.gain.setValueAtTime(0, t0);
-    g.gain.linearRampToValueAtTime(event.amp, t0 + fadeSec);
-    g.gain.setValueAtTime(
+    const source = scheduleSamplePlayback(
+      this.ctx,
+      buffer,
       event.amp,
-      Math.max(t0 + fadeSec, t0 + buffer.duration - fadeSec),
+      event.pan,
+      t0,
+      this.gain,
+      SAMPLE_FADE_SEC,
     );
-    g.gain.linearRampToValueAtTime(0.0001, t0 + buffer.duration);
-
-    source.connect(g);
-    g.connect(pan);
-    pan.connect(this.gain);
-    source.start(t0);
-    source.stop(t0 + buffer.duration + 0.05);
+    this.activeSampleSources.add(source);
+    source.onended = () => this.activeSampleSources.delete(source);
   }
 
   /**
@@ -833,26 +830,7 @@ export class LiveEngine {
     const { hz, amp, durationSec, pan, timbre, type } = event;
     if (hz === undefined) return;
 
-    let env: { a: number; d: number; s: number; r: number };
-    let vibratoAmount: number | undefined;
-
-    switch (type) {
-      case "melody":
-        env = ADSR_MELODY;
-        vibratoAmount = 1.5;
-        break;
-      case "pad":
-        env = pan < 0 ? ADSR_PAD_L : ADSR_PAD_R;
-        break;
-      case "bass":
-        env = ADSR_BASS;
-        break;
-      case "bell":
-        env = ADSR_BELL;
-        break;
-      default:
-        env = ADSR_PAD_L;
-    }
+    const { env, vibratoAmount } = resolveToneEnvelope(type, pan);
 
     const [osc, modOsc] = this.createOscillator(hz, timbre ?? "sine");
     const g = this.ctx.createGain();
