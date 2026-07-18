@@ -133,7 +133,8 @@ export class LiveEngine {
   private readonly drumCompressor: DynamicsCompressorNode;
   private readonly noiseBuffer: AudioBuffer;
   private sampleBuffers: DecodedSampleBank = new Map();
-  private activeSampleSources = new Set<AudioBufferSourceNode>();
+  // ✅ FIX: Marked as readonly to comply with typescript:S2933
+  private readonly activeSampleSources = new Set<AudioBufferSourceNode>();
 
   // FIX W1: Persistent panner nodes — match original engine.ts exactly
   private readonly padPanL: StereoPannerNode;
@@ -650,7 +651,10 @@ export class LiveEngine {
   }
 
   private async loadSampleBank(): Promise<void> {
-    this.sampleBuffers = await decodeSampleBank(this.ctx, this.params.sampleBank);
+    this.sampleBuffers = await decodeSampleBank(
+      this.ctx,
+      this.params.sampleBank,
+    );
   }
 
   private playSample(event: MusicalEvent, t0: number): void {
