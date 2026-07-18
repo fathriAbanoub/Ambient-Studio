@@ -90,6 +90,7 @@ import {
   getMusicalEvents,
   createInitialState,
   initializeBell,
+  initializeSampleLane,
   getSceneName,
   getEffectiveSceneParams,
   mulberry32Next,
@@ -97,6 +98,11 @@ import {
   DRONE_FADE_SEC,
   NOISE_BUFFER_SAMPLES,
 } from "./musicalLogic";
+import {
+  decodeSampleBank,
+  getDecodedSampleBuffer,
+  type DecodedSampleBank,
+} from "./sampleBank";
 import {
   getSidechainDuckShape,
   getSubBeatEventTime,
@@ -113,6 +119,7 @@ const ADSR_PAD_L = { a: 0.5, d: 0.8, s: 0.7, r: 0.8 };
 const ADSR_PAD_R = { a: 0.6, d: 0.8, s: 0.7, r: 0.9 };
 const ADSR_BASS = { a: 0.005, d: 0.15, s: 0.25, r: 0.2 };
 const ADSR_BELL = { a: 0.01, d: 0.1, s: 0.2, r: 0.15 };
+const SAMPLE_FADE_SEC = 0.01;
 // CodeRabbit nitpick: DRONE_FADE_SEC now imported from musicalLogic.ts
 // (single source of truth shared with renderAmbient).
 // TONAL_BUS_GAIN is imported from ./scheduling (single source of truth
@@ -128,6 +135,7 @@ export class LiveEngine {
   private drumBus: GainNode;
   private drumCompressor: DynamicsCompressorNode;
   private noiseBuffer: AudioBuffer;
+  private sampleBuffers: DecodedSampleBank = new Map();
 
   // FIX W1: Persistent panner nodes — match original engine.ts exactly
   private padPanL: StereoPannerNode;
@@ -270,6 +278,7 @@ export class LiveEngine {
     this.state = createInitialState(params);
     this.noiseBuffer = this.createNoiseBuffer();
     this.state = initializeBell(this.state);
+    this.state = initializeSampleLane(this.state, this.params);
 
     this.setMix(params.mix);
   }
@@ -284,6 +293,7 @@ export class LiveEngine {
     const myToken = ++this.startToken;
 
     await this.ctx.resume();
+    await this.loadSampleBank();
 
     // Only the latest start() should proceed. If stop(), dispose(), or a
     // newer start() was called during the await, myToken will be stale.
@@ -619,6 +629,9 @@ export class LiveEngine {
       case "drone":
         this.playDrone(event, t0);
         break;
+      case "sample":
+        this.playSample(event, t0);
+        break;
       case "melody":
         this.playTonal(event, t0, true);
         break;
@@ -628,6 +641,39 @@ export class LiveEngine {
         this.playTonal(event, t0, false);
         break;
     }
+  }
+
+  private async loadSampleBank(): Promise<void> {
+    this.sampleBuffers = await decodeSampleBank(this.ctx, this.params.sampleBank);
+  }
+
+  private playSample(event: MusicalEvent, t0: number): void {
+    if (this.disposed) return;
+    const buffer = getDecodedSampleBuffer(this.sampleBuffers, event.sampleId);
+    // ponytail: missing/pending/failed sample buffers are skipped, not queued;
+    // upgrading means a real async sample state machine with retry/backfill policy.
+    if (!buffer || event.amp <= 0) return;
+
+    const source = this.ctx.createBufferSource();
+    const g = this.ctx.createGain();
+    const pan = this.ctx.createStereoPanner();
+    const fadeSec = Math.min(SAMPLE_FADE_SEC, buffer.duration / 2);
+
+    source.buffer = buffer;
+    pan.pan.setValueAtTime(event.pan, t0);
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(event.amp, t0 + fadeSec);
+    g.gain.setValueAtTime(
+      event.amp,
+      Math.max(t0 + fadeSec, t0 + buffer.duration - fadeSec),
+    );
+    g.gain.linearRampToValueAtTime(0.0001, t0 + buffer.duration);
+
+    source.connect(g);
+    g.connect(pan);
+    pan.connect(this.gain);
+    source.start(t0);
+    source.stop(t0 + buffer.duration + 0.05);
   }
 
   /**
