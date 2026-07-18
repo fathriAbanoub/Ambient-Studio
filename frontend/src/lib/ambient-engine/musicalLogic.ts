@@ -12,7 +12,8 @@
  *   1. createInitialState() sets rngState = seed
  *   2. advanceRngPastNoiseBuffer() consumes ~22,050 calls (matching createNoiseBuffer)
  *   3. initializeBell() consumes 1 call (nextBellBeat)
- *   4. getMusicalEvents() per-beat calls follow
+ *   4. initializeSampleLane() consumes 1 call only when sampleBank is non-empty
+ *   5. getMusicalEvents() per-beat calls follow
  *
  * HARMONIC SLEW: This module only tracks targetRootHz changes.
  * The 600ms linear slew is handled by the synthesis shells (LiveEngine,
@@ -102,6 +103,13 @@ export interface DroneParams {
   layers: DroneLayerParams[];
 }
 
+export interface SampleBankEntry {
+  id: string;
+  url: string;
+  gain?: number;
+  pan?: number;
+}
+
 export interface EngineParams {
   scale: ScaleName;
   rootHz: number;
@@ -114,6 +122,7 @@ export interface EngineParams {
   enableHarmonicLoop?: boolean; // default true
   enableBeats?: boolean; // default true
   drone?: DroneParams;
+  sampleBank?: SampleBankEntry[];
   // ✅ ADD: swing amount 0..0.6 — applied by synthesis shells at the
   // subBeatIndex → eventTime conversion. NOT consumed inside this module.
   swing?: number;
@@ -137,7 +146,8 @@ export interface MusicalEvent {
     | "kick"
     | "snare"
     | "hihat"
-    | "drone";
+    | "drone"
+    | "sample";
   hz?: number; // undefined for drums (kick/snare/hihat)
   amp: number;
   durationSec: number;
@@ -146,6 +156,7 @@ export interface MusicalEvent {
   droneLayerIndex?: number;
   detuneCents?: number;
   sweepSec?: number;
+  sampleId?: string;
   beatIndex: number;
   /** For snare: true = ghost note (lower amp, shorter) */
   isGhost?: boolean;
@@ -183,6 +194,7 @@ export interface EngineState {
   panDriftPhase: number;
   sixteenthCount: number;
   nextBellBeat: number;
+  nextSampleBeat: number;
   currentDensity: number;
   currentTimbre: TimbreMode;
   /**
@@ -233,6 +245,11 @@ const DRUM_SNARE_AMP = 0.45;
 const DRUM_KICK_AMP = 0.6;
 const DRUM_HAT_AMP = 0.25;
 const DRUM_HAT_CLOSED_PROB = 0.85;
+
+const SAMPLE_TRIGGER_PROBABILITY = 0.35;
+const SAMPLE_MIN_GAP_BEATS = 8;
+const SAMPLE_JITTER_BEATS = 9;
+const SAMPLE_DEFAULT_GAIN = 0.25;
 
 export const NOISE_BUFFER_SAMPLES = 22050; // sampleRate(44100) * 0.5s — must match synthesis shells
 
@@ -393,6 +410,51 @@ function droneEvents(
       },
     ];
   });
+}
+
+function playableSampleEntries(params: EngineParams): SampleBankEntry[] {
+  return (params.sampleBank ?? []).filter(
+    (entry) =>
+      typeof entry?.id === "string" &&
+      entry.id.length > 0 &&
+      typeof entry.url === "string" &&
+      entry.url.length > 0 &&
+      (entry.gain === undefined ||
+        (Number.isFinite(entry.gain) && entry.gain > 0)),
+  );
+}
+
+function maybeSampleEvent(
+  state: EngineState,
+  params: EngineParams,
+  beat: number,
+  rng: () => number,
+): MusicalEvent[] {
+  const samples = playableSampleEntries(params);
+  if (samples.length === 0 || state.beat < state.nextSampleBeat) return [];
+
+  const events: MusicalEvent[] = [];
+  // ponytail: one sparse global sample lane with fixed probability/gap;
+  // upgrading means per-sample probabilities, duration metadata, and overlap policy.
+  if (rng() < SAMPLE_TRIGGER_PROBABILITY) {
+    const sample = samples[Math.floor(rng() * samples.length)];
+    events.push({
+      type: "sample",
+      sampleId: sample.id,
+      amp: clamp(sample.gain ?? SAMPLE_DEFAULT_GAIN, 0, 1),
+      durationSec: 0,
+      pan:
+        sample.pan !== undefined && Number.isFinite(sample.pan)
+          ? clamp(sample.pan, -1, 1)
+          : 0,
+      beatIndex: beat,
+      subBeatIndex: 0,
+    });
+  }
+
+  state.nextSampleBeat =
+    state.beat + SAMPLE_MIN_GAP_BEATS + Math.floor(rng() * SAMPLE_JITTER_BEATS);
+  return events;
 }
 
 function euclideanRhythm(step: number, pulses: number, steps: number): boolean {
@@ -586,6 +648,7 @@ export function getMusicalEvents(
   // Beatless mode still increments s.beat so scene/harmonic-loop boundaries
   // continue to fire on the same beat grid as beat-enabled mode.
   if (effectiveParams.enableBeats === false) {
+    events.push(...maybeSampleEvent(s, effectiveParams, beat, rng));
     if (!s.droneLayersStarted) {
       events.push(...droneEvents(effectiveParams, beat, beatSec));
       s.droneLayersStarted = true;
@@ -788,6 +851,9 @@ export function getMusicalEvents(
     s.nextBellBeat = s.beat + Math.floor(rng() * 9) + 8;
   }
 
+  // 11. Sample lane
+  events.push(...maybeSampleEvent(s, effectiveParams, beat, rng));
+
   s.beat++;
   return { events, nextState: s };
 }
@@ -810,6 +876,7 @@ export function createInitialState(params: EngineParams): EngineState {
     panDriftPhase: 0,
     sixteenthCount: 0,
     nextBellBeat: 0,
+    nextSampleBeat: 0,
     currentDensity: scenes[0].density,
     currentTimbre: scenes[0].timbre,
     // ✅ ADD (beatless drone latch): start with the latch cleared so the
@@ -840,6 +907,17 @@ export function advanceRngPastNoiseBuffer(state: EngineState): EngineState {
 export function initializeBell(state: EngineState): EngineState {
   const s = { ...state };
   s.nextBellBeat = Math.floor(mulberry32Next(s) * 8) + 8;
+  return s;
+}
+
+/** Initialize nextSampleBeat — call after initializeBell */
+export function initializeSampleLane(
+  state: EngineState,
+  params: EngineParams,
+): EngineState {
+  const s = { ...state };
+  if (playableSampleEntries(params).length === 0) return s;
+  s.nextSampleBeat = Math.floor(mulberry32Next(s) * 8) + 8;
   return s;
 }
 
