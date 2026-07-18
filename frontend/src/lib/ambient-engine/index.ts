@@ -27,6 +27,7 @@ export {
   advanceRngPastNoiseBuffer,
   initializeBell,
   initializeSampleLane,
+  playableSampleEntries,
   getSceneName,
   getEffectiveSceneParams,
   getScenePackScenes,
@@ -55,6 +56,7 @@ export {
 export {
   decodeSampleBank,
   getDecodedSampleBuffer,
+  scheduleSamplePlayback,
   type DecodedSampleBank,
 } from "./sampleBank";
 
@@ -69,7 +71,14 @@ export {
   SIDECHAIN_ATTACK_SEC,
   SIDECHAIN_RELEASE_SEC,
   TONAL_BUS_GAIN,
+  ADSR_MELODY,
+  ADSR_PAD_L,
+  ADSR_PAD_R,
+  ADSR_BASS,
+  ADSR_BELL,
+  resolveToneEnvelope,
   type SidechainDuckShape,
+  type ToneEnvelope,
 } from "./scheduling";
 
 // Browser-only shells
