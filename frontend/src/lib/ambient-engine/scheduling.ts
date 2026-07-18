@@ -25,6 +25,8 @@
  *     Skipped in production to avoid the import-time cost.
  */
 
+import type { MusicalEvent } from "./musicalLogic";
+
 export const MAX_SWING = 0.6;
 export const SIDECHAIN_MAX_DUCK_DB = 5;
 export const SIDECHAIN_ATTACK_SEC = 0.01;
@@ -39,11 +41,39 @@ export const SIDECHAIN_RELEASE_SEC = 0.18;
 // `const TONAL_BUS_GAIN = 0.3` with a "keep in lockstep" comment — moving
 // it here makes the lockstep structural rather than convention.
 export const TONAL_BUS_GAIN = 0.3;
+export const ADSR_MELODY = { a: 0.02, d: 0.2, s: 0.55, r: 0.25 };
+export const ADSR_PAD_L = { a: 0.5, d: 0.8, s: 0.7, r: 0.8 };
+export const ADSR_PAD_R = { a: 0.6, d: 0.8, s: 0.7, r: 0.9 };
+export const ADSR_BASS = { a: 0.005, d: 0.15, s: 0.25, r: 0.2 };
+export const ADSR_BELL = { a: 0.01, d: 0.1, s: 0.2, r: 0.15 };
 
 export interface SidechainDuckShape {
   duckGainMultiplier: number;
   attackTime: number;
   releaseTime: number;
+}
+
+export interface ToneEnvelope {
+  env: { a: number; d: number; s: number; r: number };
+  vibratoAmount?: number;
+}
+
+export function resolveToneEnvelope(
+  type: MusicalEvent["type"],
+  pan: number,
+): ToneEnvelope {
+  switch (type) {
+    case "melody":
+      return { env: ADSR_MELODY, vibratoAmount: 1.5 };
+    case "pad":
+      return { env: pan < 0 ? ADSR_PAD_L : ADSR_PAD_R };
+    case "bass":
+      return { env: ADSR_BASS };
+    case "bell":
+      return { env: ADSR_BELL };
+    default:
+      return { env: ADSR_PAD_L };
+  }
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -90,6 +90,7 @@ import {
   getMusicalEvents,
   createInitialState,
   initializeBell,
+  initializeSampleLane,
   getSceneName,
   getEffectiveSceneParams,
   mulberry32Next,
@@ -98,8 +99,15 @@ import {
   NOISE_BUFFER_SAMPLES,
 } from "./musicalLogic";
 import {
+  decodeSampleBank,
+  getDecodedSampleBuffer,
+  scheduleSamplePlayback,
+  type DecodedSampleBank,
+} from "./sampleBank";
+import {
   getSidechainDuckShape,
   getSubBeatEventTime,
+  resolveToneEnvelope,
   TONAL_BUS_GAIN,
 } from "./scheduling";
 
@@ -108,11 +116,7 @@ import { getSharedAudioContext } from "@/lib/audioContext";
 const FM_MOD_RATIO = 1.5;
 const FM_INDEX = 1.8;
 
-const ADSR_MELODY = { a: 0.02, d: 0.2, s: 0.55, r: 0.25 };
-const ADSR_PAD_L = { a: 0.5, d: 0.8, s: 0.7, r: 0.8 };
-const ADSR_PAD_R = { a: 0.6, d: 0.8, s: 0.7, r: 0.9 };
-const ADSR_BASS = { a: 0.005, d: 0.15, s: 0.25, r: 0.2 };
-const ADSR_BELL = { a: 0.01, d: 0.1, s: 0.2, r: 0.15 };
+const SAMPLE_FADE_SEC = 0.01;
 // CodeRabbit nitpick: DRONE_FADE_SEC now imported from musicalLogic.ts
 // (single source of truth shared with renderAmbient).
 // TONAL_BUS_GAIN is imported from ./scheduling (single source of truth
@@ -120,19 +124,22 @@ const ADSR_BELL = { a: 0.01, d: 0.1, s: 0.2, r: 0.15 };
 
 export class LiveEngine {
   ctx: AudioContext;
-  private gain: GainNode;
-  private delay: DelayNode;
-  private fb: GainNode;
-  private out: GainNode;
-  private filter: BiquadFilterNode;
-  private drumBus: GainNode;
-  private drumCompressor: DynamicsCompressorNode;
-  private noiseBuffer: AudioBuffer;
+  private readonly gain: GainNode;
+  private readonly delay: DelayNode;
+  private readonly fb: GainNode;
+  private readonly out: GainNode;
+  private readonly filter: BiquadFilterNode;
+  private readonly drumBus: GainNode;
+  private readonly drumCompressor: DynamicsCompressorNode;
+  private readonly noiseBuffer: AudioBuffer;
+  private sampleBuffers: DecodedSampleBank = new Map();
+  // ✅ FIX: Marked as readonly to comply with typescript:S2933
+  private readonly activeSampleSources = new Set<AudioBufferSourceNode>();
 
   // FIX W1: Persistent panner nodes — match original engine.ts exactly
-  private padPanL: StereoPannerNode;
-  private padPanR: StereoPannerNode;
-  private bellPan: StereoPannerNode;
+  private readonly padPanL: StereoPannerNode;
+  private readonly padPanR: StereoPannerNode;
+  private readonly bellPan: StereoPannerNode;
 
   // ponytail: fixed 8-layer drone cap; raising it later requires increasing
   // MAX_DRONE_LAYERS and preallocating matching persistent nodes here/offline.
@@ -141,9 +148,9 @@ export class LiveEngine {
   private readonly dronePans: StereoPannerNode[] = [];
   private readonly droneGains: GainNode[] = [];
   private readonly droneFilters: BiquadFilterNode[] = [];
-  private droneOscs: Array<OscillatorNode | null> = [];
-  private droneModOscs: Array<OscillatorNode | null> = [];
-  private droneLfos: Array<OscillatorNode | null> = [];
+  private readonly droneOscs: Array<OscillatorNode | null> = [];
+  private readonly droneModOscs: Array<OscillatorNode | null> = [];
+  private readonly droneLfos: Array<OscillatorNode | null> = [];
 
   // FIX W2: Melody buses for visual analysis routing
   melodyBuses: GainNode[] = [];
@@ -270,6 +277,7 @@ export class LiveEngine {
     this.state = createInitialState(params);
     this.noiseBuffer = this.createNoiseBuffer();
     this.state = initializeBell(this.state);
+    this.state = initializeSampleLane(this.state, this.params);
 
     this.setMix(params.mix);
   }
@@ -284,6 +292,7 @@ export class LiveEngine {
     const myToken = ++this.startToken;
 
     await this.ctx.resume();
+    await this.loadSampleBank();
 
     // Only the latest start() should proceed. If stop(), dispose(), or a
     // newer start() was called during the await, myToken will be stale.
@@ -326,6 +335,14 @@ export class LiveEngine {
       this.schedulerTimerId = null;
     }
     this.stopDroneLayers(this.ctx.currentTime);
+    for (const source of this.activeSampleSources) {
+      try {
+        source.stop();
+      } catch {
+        // Ignore already-stopped sample nodes.
+      }
+    }
+    this.activeSampleSources.clear();
     this.running = false;
   }
 
@@ -619,6 +636,9 @@ export class LiveEngine {
       case "drone":
         this.playDrone(event, t0);
         break;
+      case "sample":
+        this.playSample(event, t0);
+        break;
       case "melody":
         this.playTonal(event, t0, true);
         break;
@@ -628,6 +648,33 @@ export class LiveEngine {
         this.playTonal(event, t0, false);
         break;
     }
+  }
+
+  private async loadSampleBank(): Promise<void> {
+    this.sampleBuffers = await decodeSampleBank(
+      this.ctx,
+      this.params.sampleBank,
+    );
+  }
+
+  private playSample(event: MusicalEvent, t0: number): void {
+    if (this.disposed) return;
+    const buffer = getDecodedSampleBuffer(this.sampleBuffers, event.sampleId);
+    // ponytail: missing/pending/failed sample buffers are skipped, not queued;
+    // upgrading means a real async sample state machine with retry/backfill policy.
+    if (!buffer || event.amp <= 0) return;
+
+    const source = scheduleSamplePlayback(
+      this.ctx,
+      buffer,
+      event.amp,
+      event.pan,
+      t0,
+      this.gain,
+      SAMPLE_FADE_SEC,
+    );
+    this.activeSampleSources.add(source);
+    source.onended = () => this.activeSampleSources.delete(source);
   }
 
   /**
@@ -787,26 +834,7 @@ export class LiveEngine {
     const { hz, amp, durationSec, pan, timbre, type } = event;
     if (hz === undefined) return;
 
-    let env: { a: number; d: number; s: number; r: number };
-    let vibratoAmount: number | undefined;
-
-    switch (type) {
-      case "melody":
-        env = ADSR_MELODY;
-        vibratoAmount = 1.5;
-        break;
-      case "pad":
-        env = pan < 0 ? ADSR_PAD_L : ADSR_PAD_R;
-        break;
-      case "bass":
-        env = ADSR_BASS;
-        break;
-      case "bell":
-        env = ADSR_BELL;
-        break;
-      default:
-        env = ADSR_PAD_L;
-    }
+    const { env, vibratoAmount } = resolveToneEnvelope(type, pan);
 
     const [osc, modOsc] = this.createOscillator(hz, timbre ?? "sine");
     const g = this.ctx.createGain();

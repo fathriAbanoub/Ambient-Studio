@@ -4,6 +4,8 @@ import {
   createInitialState,
   advanceRngPastNoiseBuffer,
   initializeBell,
+  initializeSampleLane,
+  playableSampleEntries,
   getScenePackScenes,
   getEffectiveSceneParams,
   updateSceneEngine,
@@ -79,6 +81,97 @@ describe("determinism", () => {
     for (let i = 0; i < r1.length; i++) {
       expect(pick(r2[i]), `event ${i} diverged`).toEqual(pick(r1[i]));
     }
+  });
+});
+
+describe("sample bank / soundscape lane", () => {
+  const sampleEntry = {
+    id: "dummy-1sec",
+    url: "/samples/dummy-1sec.wav",
+    gain: 0.4,
+    pan: -0.25,
+  };
+  const sampleParams: EngineParams = {
+    scale: "majorPent",
+    rootHz: 220,
+    bpm: 72,
+    complexity: 0.35,
+    mix: 0.4,
+    seed: 42,
+    enableScenes: false,
+    enableHarmonicLoop: false,
+    drumLevel: 0.5,
+    sampleBank: [sampleEntry],
+  };
+
+  function initializedSampleState(): EngineState {
+    let state = createInitialState(sampleParams);
+    state = advanceRngPastNoiseBuffer(state);
+    state = initializeBell(state);
+    return initializeSampleLane(state, sampleParams);
+  }
+
+  function runSampleLane(): { firstSampleBeat: number; events: MusicalEvent[] } {
+    let state = initializedSampleState();
+    const firstSampleBeat = state.nextSampleBeat;
+    const events: MusicalEvent[] = [];
+    for (let i = 0; i <= firstSampleBeat + 48; i++) {
+      const result = getMusicalEvents(state.beat, { ...state }, sampleParams);
+      events.push(...result.events);
+      state = result.nextState;
+    }
+    return { firstSampleBeat, events };
+  }
+
+  it("does not make a non-empty sample bank eligible on beat 0", () => {
+    expect(initializedSampleState().nextSampleBeat).toBeGreaterThan(0);
+  });
+
+  it("does not emit samples before the initialized lane beat", () => {
+    const { firstSampleBeat, events } = runSampleLane();
+    expect(
+      events
+        .filter((event) => event.type === "sample")
+        .every((event) => event.beatIndex >= firstSampleBeat),
+    ).toBe(true);
+  });
+
+  it("emits at least one sample over the eligible window", () => {
+    const { events } = runSampleLane();
+    const samples = events.filter((event) => event.type === "sample");
+    expect(samples.length).toBeGreaterThan(0);
+  });
+
+  it("preserves the configured sample payload", () => {
+    const { events } = runSampleLane();
+    const samples = events.filter((event) => event.type === "sample");
+    for (const event of samples) {
+      expect(event.sampleId).toBe(sampleEntry.id);
+      expect(event.amp).toBe(sampleEntry.gain);
+      expect(event.pan).toBe(sampleEntry.pan);
+      expect(event.subBeatIndex).toBe(0);
+    }
+  });
+
+  it("leaves absent and empty sample banks as a no-op", () => {
+    for (const sampleBank of [undefined, []]) {
+      const params = { ...sampleParams, sampleBank };
+      const initial = createInitialState(params);
+      expect(initial.nextSampleBeat).toBe(0);
+      expect(initializeSampleLane(initial, params).nextSampleBeat).toBe(0);
+    }
+  });
+
+  it("keeps the first playable entry for duplicate sample IDs", () => {
+    const first = { ...sampleEntry, url: "/samples/first.wav" };
+    const duplicate = { ...sampleEntry, url: "/samples/second.wav" };
+    expect(playableSampleEntries([first, duplicate])).toEqual([first]);
+  });
+
+  it("does not consume RNG for an invalid non-empty sample bank", () => {
+    const initial = createInitialState(sampleParams);
+    const invalid = { ...sampleParams, sampleBank: [{ id: "", url: "x" }] };
+    expect(initializeSampleLane(initial, invalid)).toEqual(initial);
   });
 });
 
@@ -620,6 +713,7 @@ describe("scene progress agreement (updateSceneEngine vs getEffectiveSceneParams
       panDriftPhase: 0,
       sixteenthCount: 52,
       nextBellBeat: 100,
+      nextSampleBeat: 0,
       currentDensity: 0.7,
       currentTimbre: "sine",
       // ✅ ADD: droneLayersStarted is now a required field on EngineState.

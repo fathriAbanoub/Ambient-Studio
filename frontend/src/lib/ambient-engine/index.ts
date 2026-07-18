@@ -26,6 +26,8 @@ export {
   createInitialState,
   advanceRngPastNoiseBuffer,
   initializeBell,
+  initializeSampleLane,
+  playableSampleEntries,
   getSceneName,
   getEffectiveSceneParams,
   getScenePackScenes,
@@ -47,8 +49,16 @@ export {
   type DrumStyle,
   type DroneParams,
   type DroneLayerParams,
+  type SampleBankEntry,
   type Scene,
 } from "./musicalLogic";
+
+export {
+  decodeSampleBank,
+  getDecodedSampleBuffer,
+  scheduleSamplePlayback,
+  type DecodedSampleBank,
+} from "./sampleBank";
 
 // ✅ ADD (scheduling helpers): pure shell-side timing helpers used by
 // LiveEngine and renderAmbient. Re-exported here for external callers.
@@ -61,7 +71,14 @@ export {
   SIDECHAIN_ATTACK_SEC,
   SIDECHAIN_RELEASE_SEC,
   TONAL_BUS_GAIN,
+  ADSR_MELODY,
+  ADSR_PAD_L,
+  ADSR_PAD_R,
+  ADSR_BASS,
+  ADSR_BELL,
+  resolveToneEnvelope,
   type SidechainDuckShape,
+  type ToneEnvelope,
 } from "./scheduling";
 
 // Browser-only shells
