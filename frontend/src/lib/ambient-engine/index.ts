@@ -26,6 +26,7 @@ export {
   createInitialState,
   advanceRngPastNoiseBuffer,
   initializeBell,
+  initializeSampleLane,
   getSceneName,
   getEffectiveSceneParams,
   getScenePackScenes,
@@ -47,8 +48,15 @@ export {
   type DrumStyle,
   type DroneParams,
   type DroneLayerParams,
+  type SampleBankEntry,
   type Scene,
 } from "./musicalLogic";
+
+export {
+  decodeSampleBank,
+  getDecodedSampleBuffer,
+  type DecodedSampleBank,
+} from "./sampleBank";
 
 // ✅ ADD (scheduling helpers): pure shell-side timing helpers used by
 // LiveEngine and renderAmbient. Re-exported here for external callers.
