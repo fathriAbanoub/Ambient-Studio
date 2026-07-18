@@ -56,22 +56,19 @@ import {
 import {
   decodeSampleBank,
   getDecodedSampleBuffer,
+  scheduleSamplePlayback,
   type DecodedSampleBank,
 } from "./sampleBank";
 import {
   getSidechainDuckShape,
   getSubBeatEventTime,
+  resolveToneEnvelope,
   TONAL_BUS_GAIN,
 } from "./scheduling";
 
 const FM_MOD_RATIO = 1.5;
 const FM_INDEX = 1.8;
 
-const ADSR_MELODY = { a: 0.02, d: 0.2, s: 0.55, r: 0.25 };
-const ADSR_PAD_L = { a: 0.5, d: 0.8, s: 0.7, r: 0.8 };
-const ADSR_PAD_R = { a: 0.6, d: 0.8, s: 0.7, r: 0.9 };
-const ADSR_BASS = { a: 0.005, d: 0.15, s: 0.25, r: 0.2 };
-const ADSR_BELL = { a: 0.01, d: 0.1, s: 0.2, r: 0.15 };
 const SAMPLE_FADE_SEC = 0.01;
 // CodeRabbit nitpick: DRONE_FADE_SEC now imported from musicalLogic.ts
 // (single source of truth shared with LiveEngine).
@@ -477,26 +474,15 @@ function scheduleSample(
   // upgrading means a real async sample state machine with retry/backfill policy.
   if (!buffer || event.amp <= 0) return;
 
-  const source = ctx.createBufferSource();
-  const g = ctx.createGain();
-  const pan = ctx.createStereoPanner();
-  const fadeSec = Math.min(SAMPLE_FADE_SEC, buffer.duration / 2);
-
-  source.buffer = buffer;
-  pan.pan.setValueAtTime(event.pan, t0);
-  g.gain.setValueAtTime(0, t0);
-  g.gain.linearRampToValueAtTime(event.amp, t0 + fadeSec);
-  g.gain.setValueAtTime(
+  scheduleSamplePlayback(
+    ctx,
+    buffer,
     event.amp,
-    Math.max(t0 + fadeSec, t0 + buffer.duration - fadeSec),
+    event.pan,
+    t0,
+    mainGain,
+    SAMPLE_FADE_SEC,
   );
-  g.gain.linearRampToValueAtTime(0.0001, t0 + buffer.duration);
-
-  source.connect(g);
-  g.connect(pan);
-  pan.connect(mainGain);
-  source.start(t0);
-  source.stop(t0 + buffer.duration + 0.05);
 }
 
 // ── Sidechain automation ────────────────────────────────────────────────────
@@ -631,26 +617,7 @@ function scheduleTonal(
   const { hz, amp, durationSec, pan, timbre, type } = event;
   if (hz === undefined) return;
 
-  let env: { a: number; d: number; s: number; r: number };
-  let vibratoAmount: number | undefined;
-
-  switch (type) {
-    case "melody":
-      env = ADSR_MELODY;
-      vibratoAmount = 1.5;
-      break;
-    case "pad":
-      env = pan < 0 ? ADSR_PAD_L : ADSR_PAD_R;
-      break;
-    case "bass":
-      env = ADSR_BASS;
-      break;
-    case "bell":
-      env = ADSR_BELL;
-      break;
-    default:
-      env = ADSR_PAD_L;
-  }
+  const { env, vibratoAmount } = resolveToneEnvelope(type, pan);
 
   const [osc, modOsc] = createOscillator(ctx, hz, timbre ?? "sine");
   const g = ctx.createGain();
