@@ -5,6 +5,7 @@ import {
   advanceRngPastNoiseBuffer,
   initializeBell,
   initializeSampleLane,
+  playableSampleEntries,
   getScenePackScenes,
   getEffectiveSceneParams,
   updateSceneEngine,
@@ -159,6 +160,18 @@ describe("sample bank / soundscape lane", () => {
       expect(initial.nextSampleBeat).toBe(0);
       expect(initializeSampleLane(initial, params).nextSampleBeat).toBe(0);
     }
+  });
+
+  it("keeps the first playable entry for duplicate sample IDs", () => {
+    const first = { ...sampleEntry, url: "/samples/first.wav" };
+    const duplicate = { ...sampleEntry, url: "/samples/second.wav" };
+    expect(playableSampleEntries([first, duplicate])).toEqual([first]);
+  });
+
+  it("does not consume RNG for an invalid non-empty sample bank", () => {
+    const initial = createInitialState(sampleParams);
+    const invalid = { ...sampleParams, sampleBank: [{ id: "", url: "x" }] };
+    expect(initializeSampleLane(initial, invalid)).toEqual(initial);
   });
 });
 

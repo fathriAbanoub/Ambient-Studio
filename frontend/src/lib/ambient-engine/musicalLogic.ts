@@ -12,7 +12,8 @@
  *   1. createInitialState() sets rngState = seed
  *   2. advanceRngPastNoiseBuffer() consumes ~22,050 calls (matching createNoiseBuffer)
  *   3. initializeBell() consumes 1 call (nextBellBeat)
- *   4. initializeSampleLane() consumes 1 call only when sampleBank is non-empty
+ *   4. initializeSampleLane() consumes 1 call only when sampleBank contains an
+ *      entry that passes playableSampleEntries() validation
  *   5. getMusicalEvents() per-beat calls follow
  *
  * HARMONIC SLEW: This module only tracks targetRootHz changes.
@@ -412,16 +413,25 @@ function droneEvents(
   });
 }
 
-function playableSampleEntries(params: EngineParams): SampleBankEntry[] {
-  return (params.sampleBank ?? []).filter(
-    (entry) =>
-      typeof entry?.id === "string" &&
-      entry.id.length > 0 &&
-      typeof entry.url === "string" &&
-      entry.url.length > 0 &&
-      (entry.gain === undefined ||
-        (Number.isFinite(entry.gain) && entry.gain > 0)),
-  );
+export function playableSampleEntries(
+  sampleBank?: SampleBankEntry[],
+): SampleBankEntry[] {
+  const ids = new Set<string>();
+  return (sampleBank ?? []).filter((entry) => {
+    if (
+      typeof entry?.id !== "string" ||
+      entry.id.length === 0 ||
+      typeof entry.url !== "string" ||
+      entry.url.length === 0 ||
+      (entry.gain !== undefined &&
+        (!Number.isFinite(entry.gain) || entry.gain <= 0)) ||
+      ids.has(entry.id)
+    ) {
+      return false;
+    }
+    ids.add(entry.id);
+    return true;
+  });
 }
 
 function maybeSampleEvent(
@@ -430,7 +440,7 @@ function maybeSampleEvent(
   beat: number,
   rng: () => number,
 ): MusicalEvent[] {
-  const samples = playableSampleEntries(params);
+  const samples = playableSampleEntries(params.sampleBank);
   if (samples.length === 0 || state.beat < state.nextSampleBeat) return [];
 
   const events: MusicalEvent[] = [];
@@ -916,7 +926,7 @@ export function initializeSampleLane(
   params: EngineParams,
 ): EngineState {
   const s = { ...state };
-  if (playableSampleEntries(params).length === 0) return s;
+  if (playableSampleEntries(params.sampleBank).length === 0) return s;
   s.nextSampleBeat = Math.floor(mulberry32Next(s) * 8) + 8;
   return s;
 }
