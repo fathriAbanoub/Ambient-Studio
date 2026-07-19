@@ -10,11 +10,10 @@ import {
   GeneratorState,
   ScaleName,
   DrumStyle,
+  DroneLayer,
   DroneLayerParams,
   SampleBankEntry,
 } from "@/types";
-
-const MAX_DRONE_LAYERS = 8;
 // Bridge studio-store toasts into the shadcn <Toaster /> (mounted in
 // app/layout.tsx). Without this, `showToast()` only updated a Zustand
 // field that nothing consumed, so completion/error toasts never
@@ -22,6 +21,29 @@ const MAX_DRONE_LAYERS = 8;
 // "completion" assertions that wait for "Audio render completed!" /
 // "Video render completed!" to appear in the DOM.
 import { toast as shadcnToast } from "@/hooks/use-toast";
+
+const MAX_DRONE_LAYERS = 8;
+const DEFAULT_DRONE_HZ = 55;
+const DEFAULT_DRONE_AMP = 0.15;
+const DEFAULT_DRONE_PAN = 0;
+const DEFAULT_DRONE_TIMBRE = "sine" as const;
+// ponytail: sample-bank cap of 16; raising it needs more upload-list UI
+// real estate plus a decode-time/memory budget check before accepting more.
+const MAX_SAMPLE_BANK_ENTRIES = 16;
+const BLOB_URL_PREFIX = "blob:";
+const TOAST_AUTO_HIDE_MS = 5000;
+
+function toastVariant(type: "success" | "error" | "warning" | "info") {
+  if (type === "error") return "destructive" as const;
+  if (type === "warning") return "warning" as const;
+  return "default" as const;
+}
+
+function revokeBlobUrl(url: string) {
+  if (url.startsWith(BLOB_URL_PREFIX)) {
+    URL.revokeObjectURL(url);
+  }
+}
 
 interface StudioState {
   tracks: Track[];
@@ -138,10 +160,10 @@ interface StudioState {
   setGeneratorExportDuration: (minutes: number) => void;
   setGeneratorScale: (scale: ScaleName) => void;
   setGeneratorEnableBeats: (enabled: boolean) => void;
-  setGeneratorDrone: (layers: DroneLayerParams[]) => void;
+  setGeneratorDrone: (layers: DroneLayer[]) => void;
   addDroneLayer: () => void;
-  updateDroneLayer: (index: number, patch: Partial<DroneLayerParams>) => void;
-  removeDroneLayer: (index: number) => void;
+  updateDroneLayer: (id: string, patch: Partial<DroneLayerParams>) => void;
+  removeDroneLayer: (id: string) => void;
   setGeneratorSwing: (amount: number) => void;
   setGeneratorDrumStyle: (style: DrumStyle) => void;
   setGeneratorSidechainAmount: (amount: number) => void;
@@ -385,19 +407,14 @@ export const useStudioStore = create<StudioState>((set, get) => {
       // Auto-hide the (legacy, mostly unused) Zustand field after 5s.
       setTimeout(() => {
         set({ toastMessage: null });
-      }, 5000);
+      }, TOAST_AUTO_HIDE_MS);
       // ALSO push into the shadcn toast system so the <Toaster /> mounted
       // in app/layout.tsx actually renders the message. This is what
       // Playwright can see and assert on.
       try {
         shadcnToast({
           description: message,
-          variant:
-            type === "error"
-              ? "destructive"
-              : type === "warning"
-                ? "destructive"
-                : "default",
+          variant: toastVariant(type),
         });
       } catch {
         // If shadcn toast reducer isn't initialized yet (e.g. SSR),
@@ -498,29 +515,31 @@ export const useStudioStore = create<StudioState>((set, get) => {
             ...state.generator,
             drone: [
               ...state.generator.drone,
-              { hz: 55, amp: 0.15, pan: 0, timbre: "sine" as const },
+              {
+                id: crypto.randomUUID(),
+                hz: DEFAULT_DRONE_HZ,
+                amp: DEFAULT_DRONE_AMP,
+                pan: DEFAULT_DRONE_PAN,
+                timbre: DEFAULT_DRONE_TIMBRE,
+              },
             ],
           },
         };
       }),
-    updateDroneLayer: (index, patch) =>
+    updateDroneLayer: (id, patch) =>
       set((state) => {
-        if (index < 0 || index >= state.generator.drone.length) return state;
-        const drone = state.generator.drone.map((layer, i) =>
-          i === index ? { ...layer, ...patch } : layer,
+        const drone = state.generator.drone.map((layer) =>
+          layer.id === id ? { ...layer, ...patch } : layer,
         );
         return { generator: { ...state.generator, drone } };
       }),
-    removeDroneLayer: (index) =>
-      set((state) => {
-        if (index < 0 || index >= state.generator.drone.length) return state;
-        return {
-          generator: {
-            ...state.generator,
-            drone: state.generator.drone.filter((_, i) => i !== index),
-          },
-        };
-      }),
+    removeDroneLayer: (id) =>
+      set((state) => ({
+        generator: {
+          ...state.generator,
+          drone: state.generator.drone.filter((layer) => layer.id !== id),
+        },
+      })),
     setGeneratorSwing: (amount) =>
       set((state) => ({ generator: { ...state.generator, swing: amount } })),
     setGeneratorDrumStyle: (style) =>
@@ -530,21 +549,40 @@ export const useStudioStore = create<StudioState>((set, get) => {
         generator: { ...state.generator, sidechainAmount: amount },
       })),
     setGeneratorSampleBank: (entries) =>
-      set((state) => ({
-        generator: { ...state.generator, sampleBank: entries },
-      })),
+      set((state) => {
+        const next = entries.slice(0, MAX_SAMPLE_BANK_ENTRIES);
+        const nextIds = new Set(next.map((e) => e.id));
+        for (const entry of state.generator.sampleBank) {
+          if (!nextIds.has(entry.id)) {
+            revokeBlobUrl(entry.url);
+          }
+        }
+        for (const entry of entries.slice(MAX_SAMPLE_BANK_ENTRIES)) {
+          if (!nextIds.has(entry.id)) {
+            revokeBlobUrl(entry.url);
+          }
+        }
+        return {
+          generator: { ...state.generator, sampleBank: next },
+        };
+      }),
     addSampleBankEntry: (entry) =>
-      set((state) => ({
-        generator: {
-          ...state.generator,
-          sampleBank: [...state.generator.sampleBank, entry],
-        },
-      })),
+      set((state) => {
+        if (state.generator.sampleBank.length >= MAX_SAMPLE_BANK_ENTRIES) {
+          return state;
+        }
+        return {
+          generator: {
+            ...state.generator,
+            sampleBank: [...state.generator.sampleBank, entry],
+          },
+        };
+      }),
     removeSampleBankEntry: (id) =>
       set((state) => {
         const removed = state.generator.sampleBank.find((e) => e.id === id);
-        if (removed?.url.startsWith("blob:")) {
-          URL.revokeObjectURL(removed.url);
+        if (removed) {
+          revokeBlobUrl(removed.url);
         }
         return {
           generator: {
