@@ -561,7 +561,9 @@ test.describe("Advanced Generator Parameters", () => {
     await setupAllMocks(page);
     await page.goto("/", { waitUntil: "networkidle" });
     await page.getByTestId("generator-expand").click();
-    await page.getByTestId("generator-sample-upload").setInputFiles(FIXTURE_WAV);
+    await page
+      .getByTestId("generator-sample-upload")
+      .setInputFiles(FIXTURE_WAV);
     await expect(page.getByTestId("generator-sample-bank-list")).toBeVisible({
       timeout: 5000,
     });
@@ -579,8 +581,9 @@ test.describe("Advanced Generator Parameters", () => {
         decodeCalls: number;
       };
       const probe: Probe = { oscillatorStops: 0, decodeCalls: 0 };
-      (window as unknown as { __ambientAudioProbe: Probe }).__ambientAudioProbe =
-        probe;
+      (
+        window as unknown as { __ambientAudioProbe: Probe }
+      ).__ambientAudioProbe = probe;
 
       const origOscStop = OscillatorNode.prototype.stop;
       OscillatorNode.prototype.stop = function (
@@ -619,12 +622,18 @@ test.describe("Advanced Generator Parameters", () => {
       timeout: 10000,
     });
 
-    // Wait for drone oscillators to start before measuring stops.
-    await page.waitForTimeout(500);
+    // ✅ FIX: Wait for the engine to be fully running (status indicator) instead of a fixed delay.
+    await expect(page.getByTestId("status-indicator")).toHaveText("PLAYING", {
+      timeout: 5000,
+    });
+
     const stopsBeforeRemove = await page.evaluate(
       () =>
-        (window as unknown as { __ambientAudioProbe: { oscillatorStops: number } })
-          .__ambientAudioProbe.oscillatorStops,
+        (
+          window as unknown as {
+            __ambientAudioProbe: { oscillatorStops: number };
+          }
+        ).__ambientAudioProbe.oscillatorStops,
     );
 
     await page.getByTestId("generator-drone-remove-1").click();
@@ -652,7 +661,9 @@ test.describe("Advanced Generator Parameters", () => {
         (window as unknown as { __ambientAudioProbe: { decodeCalls: number } })
           .__ambientAudioProbe.decodeCalls,
     );
-    await page.getByTestId("generator-sample-upload").setInputFiles(FIXTURE_WAV);
+    await page
+      .getByTestId("generator-sample-upload")
+      .setInputFiles(FIXTURE_WAV);
     await expect(page.getByTestId("generator-sample-bank-list")).toBeVisible({
       timeout: 5000,
     });
