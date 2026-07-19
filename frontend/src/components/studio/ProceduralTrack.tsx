@@ -32,6 +32,18 @@ import {
 } from "@ambient-engine/index";
 
 const GENERATOR_COLOR = "#00bcd4";
+const SEED_FALLBACK = 0;
+const SEED_MAX = 999999;
+const TEMPO_MIN_BPM = 40;
+const TEMPO_MAX_BPM = 120;
+const PERCENT = 100;
+const MIN_EXPORT_MINUTES = 1;
+const MAX_EXPORT_MINUTES = 60;
+const MIN_DRONE_HZ = 20;
+const MAX_DRONE_HZ = 2000;
+const SAMPLE_DEFAULT_GAIN = 1;
+const PARSE_INT_RADIX = 10;
+const SCENE_BARS_OPTIONS = [16, 32, 64] as const;
 
 const SCALE_OPTIONS: { value: ScaleName; label: string }[] = [
   { value: "majorPent", label: "Major Pentatonic" },
@@ -139,7 +151,7 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
       addSampleBankEntry({
         id: `${crypto.randomUUID()}|${file.name}`,
         url,
-        gain: 1,
+        gain: SAMPLE_DEFAULT_GAIN,
       });
     }
     e.target.value = "";
@@ -183,6 +195,7 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
+                type="button"
                 variant={isRunning ? "destructive" : "outline"}
                 size="sm"
                 onClick={handlePlayStop}
@@ -207,6 +220,7 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
           </Tooltip>
         </TooltipProvider>
         <button
+          type="button"
           onClick={() => setShowAdvanced(!showAdvanced)}
           data-testid="generator-expand"
           aria-label={showAdvanced ? "Hide advanced" : "Show advanced"}
@@ -225,27 +239,37 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
         <div className="flex flex-col gap-3 mt-2 pt-2 border-t border-[var(--border)]">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-1.5">
-              <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              <label
+                htmlFor="generator-seed"
+                className="text-[10px] text-[var(--text-dim)] font-mono"
+              >
                 Seed
               </label>
               <input
+                id="generator-seed"
                 data-testid="generator-seed"
                 type="number"
-                min={0}
-                max={999999}
+                min={SEED_FALLBACK}
+                max={SEED_MAX}
                 value={generator.seed}
                 onChange={(e) =>
-                  setGeneratorSeed(parseInt(e.target.value) || 0)
+                  setGeneratorSeed(
+                    Number.parseInt(e.target.value, PARSE_INT_RADIX) || SEED_FALLBACK,
+                  )
                 }
                 className="w-16 px-1.5 py-1 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-md text-xs font-mono focus:outline-none focus:border-[var(--accent)]"
               />
             </div>
 
             <div className="flex items-center gap-1.5">
-              <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              <label
+                htmlFor="generator-scenes-toggle"
+                className="text-[10px] text-[var(--text-dim)] font-mono"
+              >
                 Scenes
               </label>
               <Switch
+                id="generator-scenes-toggle"
                 data-testid="generator-scenes-toggle"
                 checked={generator.enableScenes}
                 onCheckedChange={setGeneratorEnableScenes}
@@ -254,18 +278,24 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
             </div>
 
             <div className="flex items-center gap-1.5">
-              <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              <label
+                htmlFor="generator-tempo"
+                className="text-[10px] text-[var(--text-dim)] font-mono"
+              >
                 Tempo
               </label>
               <input
+                id="generator-tempo"
                 data-testid="generator-tempo"
                 type="range"
-                min={40}
-                max={120}
+                min={TEMPO_MIN_BPM}
+                max={TEMPO_MAX_BPM}
                 step={1}
                 value={generator.tempo}
                 aria-label="Tempo"
-                onChange={(e) => setGeneratorTempo(parseInt(e.target.value))}
+                onChange={(e) =>
+                  setGeneratorTempo(Number.parseInt(e.target.value, PARSE_INT_RADIX))
+                }
                 className="w-20"
                 style={{ accentColor: GENERATOR_COLOR }}
               />
@@ -273,18 +303,24 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
             </div>
 
             <div className="flex items-center gap-1.5">
-              <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              <label
+                htmlFor="generator-complexity"
+                className="text-[10px] text-[var(--text-dim)] font-mono"
+              >
                 Cmplx
               </label>
               <input
+                id="generator-complexity"
                 data-testid="generator-complexity"
                 type="range"
                 min={0}
-                max={100}
+                max={PERCENT}
                 step={1}
-                value={Math.round(generator.complexity * 100)}
+                value={Math.round(generator.complexity * PERCENT)}
                 onChange={(e) =>
-                  setGeneratorComplexity(parseInt(e.target.value) / 100)
+                  setGeneratorComplexity(
+                    Number.parseInt(e.target.value, PARSE_INT_RADIX) / PERCENT,
+                  )
                 }
                 aria-label="Complexity"
                 className="w-20"
@@ -294,23 +330,29 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
                 data-testid="generator-complexity-value"
                 className="text-xs font-mono w-7"
               >
-                {Math.round(generator.complexity * 100)}%
+                {Math.round(generator.complexity * PERCENT)}%
               </span>
             </div>
 
             <div className="flex items-center gap-1.5">
-              <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              <label
+                htmlFor="generator-space"
+                className="text-[10px] text-[var(--text-dim)] font-mono"
+              >
                 Space
               </label>
               <input
+                id="generator-space"
                 data-testid="generator-space"
                 type="range"
                 min={0}
-                max={100}
+                max={PERCENT}
                 step={1}
-                value={Math.round(generator.space * 100)}
+                value={Math.round(generator.space * PERCENT)}
                 onChange={(e) =>
-                  setGeneratorSpace(parseInt(e.target.value) / 100)
+                  setGeneratorSpace(
+                    Number.parseInt(e.target.value, PARSE_INT_RADIX) / PERCENT,
+                  )
                 }
                 aria-label="Space"
                 className="w-20"
@@ -320,7 +362,7 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
                 data-testid="generator-space-value"
                 className="text-xs font-mono w-7"
               >
-                {Math.round(generator.space * 100)}%
+                {Math.round(generator.space * PERCENT)}%
               </span>
             </div>
 
@@ -329,14 +371,17 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
             >
               <Disc className="w-3 h-3 text-[var(--text-dim)]" />
               <input
+                id="generator-drum-level"
                 data-testid="generator-drum-level"
                 type="range"
                 min={0}
-                max={100}
+                max={PERCENT}
                 step={1}
-                value={Math.round(generator.drumLevel * 100)}
+                value={Math.round(generator.drumLevel * PERCENT)}
                 onChange={(e) =>
-                  setGeneratorDrumLevel(parseInt(e.target.value) / 100)
+                  setGeneratorDrumLevel(
+                    Number.parseInt(e.target.value, PARSE_INT_RADIX) / PERCENT,
+                  )
                 }
                 aria-label="Drum Level"
                 disabled={drumsDisabled}
@@ -344,30 +389,39 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
                 style={{ accentColor: GENERATOR_COLOR }}
               />
               <span className="text-xs font-mono w-7">
-                {Math.round(generator.drumLevel * 100)}%
+                {Math.round(generator.drumLevel * PERCENT)}%
               </span>
             </div>
 
             <div className="flex items-center gap-1.5">
-              <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              <label
+                htmlFor="generator-scene-duration"
+                className="text-[10px] text-[var(--text-dim)] font-mono"
+              >
                 Scene Bars
               </label>
               <select
+                id="generator-scene-duration"
                 data-testid="generator-scene-duration"
                 value={generator.sceneDuration}
                 onChange={(e) =>
-                  setGeneratorSceneDuration(parseInt(e.target.value))
+                  setGeneratorSceneDuration(
+                    Number.parseInt(e.target.value, PARSE_INT_RADIX),
+                  )
                 }
                 className="px-1.5 py-1 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-md text-xs font-mono"
               >
-                <option value={16}>16</option>
-                <option value={32}>32</option>
-                <option value={64}>64</option>
+                {SCENE_BARS_OPTIONS.map((bars) => (
+                  <option key={bars} value={bars}>
+                    {bars}
+                  </option>
+                ))}
               </select>
             </div>
 
             <div className="flex items-center gap-2">
               <Button
+                type="button"
                 variant="outline"
                 size="sm"
                 onClick={handleExport}
@@ -384,18 +438,29 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
                 )}
               </Button>
               <div className="flex items-center gap-1">
-                <label className="text-[10px] text-[var(--text-dim)] font-mono">
+                <label
+                  htmlFor="generator-export-duration"
+                  className="text-[10px] text-[var(--text-dim)] font-mono"
+                >
                   Min
                 </label>
                 <input
+                  id="generator-export-duration"
                   data-testid="generator-export-duration"
                   type="number"
-                  min={1}
-                  max={60}
+                  min={MIN_EXPORT_MINUTES}
+                  max={MAX_EXPORT_MINUTES}
                   value={generatorExportDuration}
                   onChange={(e) =>
                     setGeneratorExportDuration(
-                      Math.max(1, Math.min(60, parseInt(e.target.value) || 1)),
+                      Math.max(
+                        MIN_EXPORT_MINUTES,
+                        Math.min(
+                          MAX_EXPORT_MINUTES,
+                          Number.parseInt(e.target.value, PARSE_INT_RADIX) ||
+                            MIN_EXPORT_MINUTES,
+                        ),
+                      ),
                     )
                   }
                   className="w-12 px-1 py-1 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-md text-xs font-mono"
@@ -411,10 +476,14 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
 
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-1.5">
-              <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              <label
+                htmlFor="generator-scale"
+                className="text-[10px] text-[var(--text-dim)] font-mono"
+              >
                 Scale
               </label>
               <select
+                id="generator-scale"
                 data-testid="generator-scale"
                 value={generator.scale}
                 onChange={(e) =>
@@ -431,10 +500,14 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
             </div>
 
             <div className="flex items-center gap-1.5">
-              <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              <label
+                htmlFor="generator-beatless-toggle"
+                className="text-[10px] text-[var(--text-dim)] font-mono"
+              >
                 Beatless
               </label>
               <Switch
+                id="generator-beatless-toggle"
                 data-testid="generator-beatless-toggle"
                 checked={beatless}
                 onCheckedChange={(checked) =>
@@ -447,10 +520,14 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
             <div
               className={`flex items-center gap-1.5 ${drumsDisabled ? "opacity-40 pointer-events-none" : ""}`}
             >
-              <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              <label
+                htmlFor="generator-drum-style"
+                className="text-[10px] text-[var(--text-dim)] font-mono"
+              >
                 Drums
               </label>
               <select
+                id="generator-drum-style"
                 data-testid="generator-drum-style"
                 value={generator.drumStyle}
                 disabled={drumsDisabled}
@@ -467,19 +544,25 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
             <div
               className={`flex items-center gap-1.5 ${drumsDisabled ? "opacity-40 pointer-events-none" : ""}`}
             >
-              <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              <label
+                htmlFor="generator-swing"
+                className="text-[10px] text-[var(--text-dim)] font-mono"
+              >
                 Swing
               </label>
               <input
+                id="generator-swing"
                 data-testid="generator-swing"
                 type="range"
                 min={0}
-                max={Math.round(MAX_SWING * 100)}
+                max={Math.round(MAX_SWING * PERCENT)}
                 step={1}
-                value={Math.round(generator.swing * 100)}
+                value={Math.round(generator.swing * PERCENT)}
                 disabled={drumsDisabled}
                 onChange={(e) =>
-                  setGeneratorSwing(parseInt(e.target.value) / 100)
+                  setGeneratorSwing(
+                    Number.parseInt(e.target.value, PARSE_INT_RADIX) / PERCENT,
+                  )
                 }
                 aria-label="Swing"
                 className="w-20"
@@ -489,26 +572,32 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
                 data-testid="generator-swing-value"
                 className="text-xs font-mono w-7"
               >
-                {Math.round(generator.swing * 100)}%
+                {Math.round(generator.swing * PERCENT)}%
               </span>
             </div>
 
             <div
               className={`flex items-center gap-1.5 ${drumsDisabled ? "opacity-40 pointer-events-none" : ""}`}
             >
-              <label className="text-[10px] text-[var(--text-dim)] font-mono">
+              <label
+                htmlFor="generator-sidechain"
+                className="text-[10px] text-[var(--text-dim)] font-mono"
+              >
                 Duck
               </label>
               <input
+                id="generator-sidechain"
                 data-testid="generator-sidechain"
                 type="range"
                 min={0}
-                max={100}
+                max={PERCENT}
                 step={1}
-                value={Math.round(generator.sidechainAmount * 100)}
+                value={Math.round(generator.sidechainAmount * PERCENT)}
                 disabled={drumsDisabled}
                 onChange={(e) =>
-                  setGeneratorSidechainAmount(parseInt(e.target.value) / 100)
+                  setGeneratorSidechainAmount(
+                    Number.parseInt(e.target.value, PARSE_INT_RADIX) / PERCENT,
+                  )
                 }
                 aria-label="Sidechain"
                 className="w-20"
@@ -518,7 +607,7 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
                 data-testid="generator-sidechain-value"
                 className="text-xs font-mono w-7"
               >
-                {Math.round(generator.sidechainAmount * 100)}%
+                {Math.round(generator.sidechainAmount * PERCENT)}%
               </span>
             </div>
           </div>
@@ -529,6 +618,7 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
                 DRONE LAYERS
               </span>
               <Button
+                type="button"
                 variant="outline"
                 size="sm"
                 data-testid="generator-drone-add"
@@ -544,7 +634,7 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
             </div>
             {generator.drone.map((layer, index) => (
               <div
-                key={index}
+                key={layer.id}
                 data-testid={`generator-drone-layer-${index}`}
                 className="flex flex-wrap items-center gap-2 pl-1"
               >
@@ -552,38 +642,49 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
                   {index + 1}
                 </span>
                 <div className="flex items-center gap-1">
-                  <label className="text-[10px] text-[var(--text-dim)] font-mono">
+                  <label
+                    htmlFor={`drone-hz-${layer.id}`}
+                    className="text-[10px] text-[var(--text-dim)] font-mono"
+                  >
                     Hz
                   </label>
                   <input
+                    id={`drone-hz-${layer.id}`}
                     data-testid={`generator-drone-hz-${index}`}
                     type="number"
-                    min={20}
-                    max={2000}
+                    min={MIN_DRONE_HZ}
+                    max={MAX_DRONE_HZ}
                     step={1}
                     value={layer.hz}
                     onChange={(e) =>
-                      updateDroneLayer(index, {
-                        hz: Math.max(20, parseFloat(e.target.value) || 20),
+                      updateDroneLayer(layer.id, {
+                        hz: Math.max(
+                          MIN_DRONE_HZ,
+                          Number.parseFloat(e.target.value) || MIN_DRONE_HZ,
+                        ),
                       })
                     }
                     className="w-14 px-1 py-0.5 bg-[var(--surface-elevated)] border border-[var(--border)] rounded-md text-xs font-mono"
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  <label className="text-[10px] text-[var(--text-dim)] font-mono">
+                  <label
+                    htmlFor={`drone-amp-${layer.id}`}
+                    className="text-[10px] text-[var(--text-dim)] font-mono"
+                  >
                     Amp
                   </label>
                   <input
+                    id={`drone-amp-${layer.id}`}
                     data-testid={`generator-drone-amp-${index}`}
                     type="range"
                     min={0}
-                    max={100}
+                    max={PERCENT}
                     step={1}
-                    value={Math.round(layer.amp * 100)}
+                    value={Math.round(layer.amp * PERCENT)}
                     onChange={(e) =>
-                      updateDroneLayer(index, {
-                        amp: parseInt(e.target.value) / 100,
+                      updateDroneLayer(layer.id, {
+                        amp: Number.parseInt(e.target.value, PARSE_INT_RADIX) / PERCENT,
                       })
                     }
                     className="w-16"
@@ -591,19 +692,23 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  <label className="text-[10px] text-[var(--text-dim)] font-mono">
+                  <label
+                    htmlFor={`drone-pan-${layer.id}`}
+                    className="text-[10px] text-[var(--text-dim)] font-mono"
+                  >
                     Pan
                   </label>
                   <input
+                    id={`drone-pan-${layer.id}`}
                     data-testid={`generator-drone-pan-${index}`}
                     type="range"
-                    min={-100}
-                    max={100}
+                    min={-PERCENT}
+                    max={PERCENT}
                     step={1}
-                    value={Math.round(layer.pan * 100)}
+                    value={Math.round(layer.pan * PERCENT)}
                     onChange={(e) =>
-                      updateDroneLayer(index, {
-                        pan: parseInt(e.target.value) / 100,
+                      updateDroneLayer(layer.id, {
+                        pan: Number.parseInt(e.target.value, PARSE_INT_RADIX) / PERCENT,
                       })
                     }
                     className="w-16"
@@ -611,14 +716,18 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  <label className="text-[10px] text-[var(--text-dim)] font-mono">
+                  <label
+                    htmlFor={`drone-timbre-${layer.id}`}
+                    className="text-[10px] text-[var(--text-dim)] font-mono"
+                  >
                     Timbre
                   </label>
                   <select
+                    id={`drone-timbre-${layer.id}`}
                     data-testid={`generator-drone-timbre-${index}`}
                     value={layer.timbre}
                     onChange={(e) =>
-                      updateDroneLayer(index, {
+                      updateDroneLayer(layer.id, {
                         timbre: e.target.value as TimbreMode,
                       })
                     }
@@ -632,8 +741,9 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
                   </select>
                 </div>
                 <button
+                  type="button"
                   data-testid={`generator-drone-remove-${index}`}
-                  onClick={() => removeDroneLayer(index)}
+                  onClick={() => removeDroneLayer(layer.id)}
                   aria-label={`Remove drone layer ${index + 1}`}
                   className="text-[var(--text-dim)] hover:text-[var(--accent3)] transition-colors"
                 >
@@ -649,6 +759,7 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
                 SAMPLE BANK
               </span>
               <Button
+                type="button"
                 variant="outline"
                 size="sm"
                 data-testid="generator-sample-upload-btn"
@@ -682,6 +793,7 @@ export function ProceduralTrack({ masterGainNode }: ProceduralTrackProps) {
                       {sampleLabel(entry.id)}
                     </span>
                     <button
+                      type="button"
                       data-testid={`generator-sample-remove-${entry.id}`}
                       onClick={() => removeSampleBankEntry(entry.id)}
                       aria-label={`Remove sample ${sampleLabel(entry.id)}`}
