@@ -569,4 +569,108 @@ test.describe("Advanced Generator Parameters", () => {
       page.getByTestId("generator-sample-bank-list").getByText(/dummy-1sec/),
     ).toBeVisible();
   });
+
+  test("mid-playback drone removal silences layers and sample add decodes", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      type Probe = {
+        oscillatorStops: number;
+        decodeCalls: number;
+      };
+      const probe: Probe = { oscillatorStops: 0, decodeCalls: 0 };
+      (window as unknown as { __ambientAudioProbe: Probe }).__ambientAudioProbe =
+        probe;
+
+      const origOscStop = OscillatorNode.prototype.stop;
+      OscillatorNode.prototype.stop = function (
+        this: OscillatorNode,
+        ...args: Parameters<typeof origOscStop>
+      ) {
+        probe.oscillatorStops += 1;
+        return origOscStop.apply(this, args);
+      };
+
+      const origDecode = AudioContext.prototype.decodeAudioData;
+      AudioContext.prototype.decodeAudioData = async function (
+        this: AudioContext,
+        ...args: Parameters<typeof origDecode>
+      ) {
+        probe.decodeCalls += 1;
+        return origDecode.apply(this, args);
+      };
+    });
+
+    await setupAllMocks(page);
+    await page.goto("/", { waitUntil: "networkidle" });
+    await page.getByTestId("generator-expand").click();
+
+    // Distinct hz values so A2 stable-id identity is also covered.
+    await page.getByTestId("generator-drone-add").click();
+    await page.getByTestId("generator-drone-add").click();
+    await page.getByTestId("generator-drone-add").click();
+    await page.getByTestId("generator-drone-hz-0").fill("110");
+    await page.getByTestId("generator-drone-hz-1").fill("220");
+    await page.getByTestId("generator-drone-hz-2").fill("330");
+
+    await page.getByTestId("generator-beatless-toggle").click();
+    await page.getByTestId("generator-play-stop").click();
+    await expect(page.getByTestId("generator-play-stop")).toHaveText(/stop/i, {
+      timeout: 10000,
+    });
+
+    // Wait for drone oscillators to start before measuring stops.
+    await page.waitForTimeout(500);
+    const stopsBeforeRemove = await page.evaluate(
+      () =>
+        (window as unknown as { __ambientAudioProbe: { oscillatorStops: number } })
+          .__ambientAudioProbe.oscillatorStops,
+    );
+
+    await page.getByTestId("generator-drone-remove-1").click();
+    await expect(page.getByTestId("generator-drone-hz-0")).toHaveValue("110");
+    await expect(page.getByTestId("generator-drone-hz-1")).toHaveValue("330");
+    await expect(page.getByTestId("generator-drone-layer-2")).not.toBeVisible();
+
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(
+            () =>
+              (
+                window as unknown as {
+                  __ambientAudioProbe: { oscillatorStops: number };
+                }
+              ).__ambientAudioProbe.oscillatorStops,
+          ),
+        { timeout: 5000 },
+      )
+      .toBeGreaterThan(stopsBeforeRemove);
+
+    const decodeBeforeUpload = await page.evaluate(
+      () =>
+        (window as unknown as { __ambientAudioProbe: { decodeCalls: number } })
+          .__ambientAudioProbe.decodeCalls,
+    );
+    await page.getByTestId("generator-sample-upload").setInputFiles(FIXTURE_WAV);
+    await expect(page.getByTestId("generator-sample-bank-list")).toBeVisible({
+      timeout: 5000,
+    });
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(
+            () =>
+              (
+                window as unknown as {
+                  __ambientAudioProbe: { decodeCalls: number };
+                }
+              ).__ambientAudioProbe.decodeCalls,
+          ),
+        { timeout: 5000 },
+      )
+      .toBeGreaterThan(decodeBeforeUpload);
+
+    await expect(page.getByTestId("generator-play-stop")).toHaveText(/stop/i);
+  });
 });
