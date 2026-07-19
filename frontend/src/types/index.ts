@@ -1,6 +1,12 @@
 // Track and studio types for AMBIENT STUDIO
 
 import type { LoopAlternative, LoopCandidate } from "@/lib/api";
+import type {
+  ScaleName,
+  DrumStyle,
+  DroneLayerParams,
+  SampleBankEntry,
+} from "@ambient-engine/index";
 
 export interface Track {
   id: string;
@@ -142,4 +148,18 @@ export interface GeneratorState {
   space: number; // 0-1 (mix/delay)
   drumLevel: number; // 0-1
   currentScene: string;
+  scale: ScaleName;
+  enableBeats: boolean;
+  drone: DroneLayerParams[];
+  swing: number; // 0..MAX_SWING
+  drumStyle: DrumStyle;
+  sidechainAmount: number; // 0..1
+  sampleBank: SampleBankEntry[];
 }
+
+export type {
+  ScaleName,
+  DrumStyle,
+  DroneLayerParams,
+  SampleBankEntry,
+};
