@@ -10,14 +10,41 @@ import type {
 import { LiveEngine } from "@ambient-engine/LiveEngine";
 import { renderAndDownloadWav } from "@ambient-engine/renderAmbient";
 
-export function useProceduralEngine(masterDestination: AudioNode | null = null) {
+const DEFAULT_ROOT_HZ = 220;
+const ANALYSER_FFT_SIZE = 256;
+const ANALYSER_SMOOTHING = 0.8;
+const ANALYSER_DATA_BINS = 128;
+const SCENE_POLL_INTERVAL_MS = 2000;
+const SECONDS_PER_MINUTE = 60;
+
+// ponytail: compares id membership only, not order or content — an in-place
+
+// edit to an existing layer/sample (e.g. changing Hz) keeps the same id set
+
+// and intentionally skips resync, since that change already takes effect via
+
+// the plain engine.params.drone/sampleBank assignment above. Upgrading to
+
+// detect in-place changes would mean diffing full objects, not just ids.
+
+function idSetEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const setB = new Set(b);
+  return a.every((id) => setB.has(id));
+}
+
+export function useProceduralEngine(
+  masterDestination: AudioNode | null = null,
+) {
   const engineRef = useRef<LiveEngine | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const scenePollRef = useRef<number | null>(null);
+  const prevDroneIdsRef = useRef<string[]>([]);
+  const prevSampleIdsRef = useRef<string[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [currentScene, setCurrentScene] = useState("Calm");
   const [analyserData, setAnalyserData] = useState<Uint8Array>(
-    new Uint8Array(128),
+    new Uint8Array(ANALYSER_DATA_BINS),
   );
   const animFrameRef = useRef<number | null>(null);
   const [exportProgress, setExportProgress] = useState(0);
@@ -35,7 +62,7 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
   const buildParams = useCallback((): EngineParams => {
     return {
       scale: generator.scale,
-      rootHz: 220,
+      rootHz: DEFAULT_ROOT_HZ,
       bpm: generator.tempo,
       complexity: generator.complexity,
       mix: generator.space,
@@ -43,7 +70,8 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
       enableScenes: generator.enableScenes,
       enableHarmonicLoop: true,
       enableBeats: generator.enableBeats,
-      drone: generator.drone.length > 0 ? { layers: generator.drone } : undefined,
+      drone:
+        generator.drone.length > 0 ? { layers: generator.drone } : undefined,
       sampleBank:
         generator.sampleBank.length > 0 ? generator.sampleBank : undefined,
       swing: generator.swing,
@@ -98,6 +126,8 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
       }
       engineRef.current = null;
     }
+    prevDroneIdsRef.current = [];
+    prevSampleIdsRef.current = [];
     setIsRunning(false);
     setGeneratorRunning(false);
     setIsPlaying(false);
@@ -133,7 +163,11 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
 
     try {
       // ✅ FIX: Use a const for TypeScript narrowing across the await boundary
-      const newEngine = new LiveEngine(buildParams(), undefined, masterDestination);
+      const newEngine = new LiveEngine(
+        buildParams(),
+        undefined,
+        masterDestination,
+      );
 
       // Assign to the outer let so cleanupStartedEngine can still access it
       engine = newEngine;
@@ -148,10 +182,13 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
       }
 
       const analyser = newEngine.ctx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.8;
+      analyser.fftSize = ANALYSER_FFT_SIZE;
+      analyser.smoothingTimeConstant = ANALYSER_SMOOTHING;
       newEngine.getMasterNode().connect(analyser);
       analyserRef.current = analyser;
+
+      prevDroneIdsRef.current = generator.drone.map((layer) => layer.id);
+      prevSampleIdsRef.current = generator.sampleBank.map((entry) => entry.id);
 
       setIsRunning(true);
       setGeneratorRunning(true);
@@ -165,7 +202,7 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
           setCurrentScene(name);
           setGeneratorScene(name);
         }
-      }, 2000);
+      }, SCENE_POLL_INTERVAL_MS);
 
       const updateAnalyser = () => {
         // ✅ TypeScript now knows newEngine is never null
@@ -201,13 +238,15 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
     showToast,
     setGeneratorScene,
     masterDestination,
+    generator.drone,
+    generator.sampleBank,
   ]);
 
   const stop = useCallback(() => {
     performTeardown();
     setCurrentScene("Calm");
     setGeneratorScene("Calm");
-    setAnalyserData(new Uint8Array(128));
+    setAnalyserData(new Uint8Array(ANALYSER_DATA_BINS));
     addLog("Procedural generator stopped", "info");
   }, [performTeardown, setGeneratorScene, addLog]);
 
@@ -229,6 +268,18 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
       generator.drone.length > 0 ? { layers: generator.drone } : undefined;
     engine.params.sampleBank =
       generator.sampleBank.length > 0 ? generator.sampleBank : undefined;
+
+    const droneIds = generator.drone.map((layer) => layer.id);
+    if (!idSetEqual(droneIds, prevDroneIdsRef.current)) {
+      engine.resyncDroneLayers();
+      prevDroneIdsRef.current = droneIds;
+    }
+
+    const sampleIds = generator.sampleBank.map((entry) => entry.id);
+    if (!idSetEqual(sampleIds, prevSampleIdsRef.current)) {
+      void engine.reloadSampleBank(generator.sampleBank);
+      prevSampleIdsRef.current = sampleIds;
+    }
   }, [
     generator.tempo,
     generator.complexity,
@@ -250,7 +301,7 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
       setExportProgress(0);
       try {
         const params = buildParams();
-        const durationSeconds = durationMinutes * 60;
+        const durationSeconds = durationMinutes * SECONDS_PER_MINUTE;
         // Pass current engine state for continuity — RNG position is already past noise buffer
         const startState: EngineState | undefined =
           engineRef.current?.getCurrentState();
