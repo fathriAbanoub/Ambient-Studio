@@ -33,7 +33,10 @@ const MAX_SAMPLE_BANK_ENTRIES = 16;
 const BLOB_URL_PREFIX = "blob:";
 const TOAST_AUTO_HIDE_MS = 5000;
 
-function toastVariant(type: "success" | "error" | "warning" | "info") {
+// ─── Type alias for toasts ──────────────────────────────────────────────
+type ToastType = "success" | "error" | "warning" | "info";
+
+function toastVariant(type: ToastType) {
   if (type === "error") return "destructive" as const;
   if (type === "warning") return "warning" as const;
   return "default" as const;
@@ -71,7 +74,7 @@ interface StudioState {
 
   // Toast notifications
   toastMessage: string | null;
-  toastType: "success" | "error" | "warning" | "info";
+  toastType: ToastType; // ← using type alias
 
   // Custom presets
   customPresets: CustomPreset[];
@@ -129,7 +132,7 @@ interface StudioState {
   // Toast actions
   showToast: (
     message: string,
-    type?: "success" | "error" | "warning" | "info",
+    type?: ToastType, // ← using type alias
   ) => void;
   hideToast: () => void;
 
