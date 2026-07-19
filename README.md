@@ -1,5 +1,6 @@
 # AMBIENT.STUDIO
 
+[![Built with Codex](https://img.shields.io/badge/Built%20with-Codex-10a37f.svg)](https://openai.com/index/introducing-upgrades-to-codex/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Version](https://img.shields.io/badge/version-3.1.0-brightgreen.svg)](https://github.com/fathriAbanoub/Ambient-Studio/releases)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js&logoColor=white)](https://nextjs.org/)
@@ -10,8 +11,48 @@
 
 > Create ambient soundscapes in your browser. Mix procedurally-generated ambient music or blend up to 8 custom audio tracks with volume, pan, EQ, loop analysis, stochastic variation, and export to WAV or MP4 video — with optional GPU acceleration.
 
+## Built for OpenAI Build Week (Codex + GPT-5.6)
+
+Ambient.Studio is an established project that predates Build
+Week. The **Sample Bank / Field Recordings** feature — the sample
+event type and RNG-order guarantees in `musicalLogic.ts`, the
+fetch/decode/timeout logic in `sampleBank.ts`, and the shared
+`scheduleSamplePlayback()` used by both `LiveEngine.ts` and
+`renderAmbient.ts` — was designed and implemented with Codex during
+the Build Week submission period, using GPT-5.6.
+
+**How it was built:**
+
+1. **Spec-first, not one-shot.** Codex was given hard constraints
+   before writing anything: the new logic had to stay pure and
+   deterministic like the rest of `musicalLogic.ts` (zero Web Audio
+   dependencies), and had to stay structurally isolated from the
+   existing manual `Track` upload system rather than reusing it.
+2. **Design note before code.** Codex had to commit to answers on
+   specific open questions — how to sequence async sample decoding
+   against the engine's synchronous, deterministic beat clock, how
+   duplicate sample IDs should resolve — and get sign-off before
+   implementing anything.
+3. **A review pass caught a real concurrency bug.** Duplicate sample
+   IDs were resolving based on whichever network fetch happened to
+   finish last, not deterministically. Codex fixed it by routing both
+   the trigger logic (`playableSampleEntries()`) and the decoder
+   (`decodeSampleBank()`) through the same exported function, so the
+   two layers can't disagree. The same pass added the 15-second fetch
+   timeout and fixed a lifecycle bug where triggered samples kept
+   playing past `stop()`/`dispose()`.
+4. **Credits ran out before UI integration.** The engine work shipped
+   fully tested and reviewed; the Sample Bank controls in
+   `ProceduralTrack.tsx`, the `studioStore.ts` wiring (stable IDs,
+   caps, blob URL cleanup), and the mid-playback reconciliation in
+   `useProceduralEngine.ts` were then built by hand, following the
+   patterns Codex's own engine code had already established.
+
+GPT-5.6, via Codex, powered every one of these rounds.
+
 ## Table of Contents
 
+- [Built for OpenAI Build Week](#built-for-openai-build-week-codex--gpt-56)
 - [Features](#features)
   - [Procedural Ambient Engine](#procedural-ambient-engine)
   - [Manual Track Mixing](#manual-track-mixing)
@@ -48,7 +89,7 @@
 - **Beatless Drone Mode** — Toggle drums off entirely for a sustained, evolving drone bed; up to 8 drone layers (hz, amp, pan, timbre, optional detune/sweep) addable and editable live.
 - **Drum Styles & Swing** — Switch between the default Euclidean pattern and a 4-on-the-floor kick style, with an adjustable swing amount (0–60%) applied to off-beat timing.
 - **Sidechain Ducking** — Adjustable sidechain depth ducks the tonal bus against the kick for a pumping, club-adjacent feel.
-- **Sample Bank / Field Recordings** — Upload up to 16 of your own audio samples into the generator's sample bank; they're decoded and scheduled alongside the procedural layers, with object URLs safely revoked as entries are removed or replaced.
+- **Sample Bank / Field Recordings** _(built with Codex during OpenAI Build Week — [see above](#built-for-openai-build-week-codex--gpt-56))_ — Upload up to 16 of your own audio samples into the sample bank; they're decoded and scheduled alongside the procedural layers, with object URLs safely revoked as entries are removed or replaced.
 - **Live Parameter Reconciliation** — Scale, drum style, swing, sidechain, drone layers, and sample bank edits all apply mid-playback — no need to stop and restart the generator to hear a change.
 - **Deterministic Rendering** — Offline export via OfflineAudioContext with 4-bar pre-roll and automatic trimming. Same seed + parameters = byte-identical WAV output.
 - **Real-time & Export** — LiveEngine for browser playback with precise event scheduling and parameter slewing; renderAmbient for offline WAV export with progress tracking.
@@ -89,7 +130,7 @@
 
 | Requirement                 | Version                 | Notes                                                           |
 | --------------------------- | ----------------------- | --------------------------------------------------------------- |
-| Node.js                     | 18+                     | Frontend runtime                                                |
+| Node.js                     | 20.9.0+                 | Frontend runtime (Next.js 16 requirement)                       |
 | Python                      | 3.9+                    | Backend runtime                                                 |
 | FFmpeg                      | 6.0+                    | Audio/video processing (`ffmpeg` and `ffprobe` on PATH)         |
 | NVIDIA GPU (optional)       | Compute Capability 7.0+ | Required for CUDA visualizer and NVENC encoding                 |
@@ -128,7 +169,9 @@ npm install
 
 ```bash
 cd backend
-pip install -r requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+python -m pip install -r requirements.txt
 ```
 
 #### 4. Environment variables
@@ -401,7 +444,7 @@ The procedural engine uses a three-layer architecture for deterministic, reprodu
 
 #### 1. Pure Musical Logic (`musicalLogic.ts`)
 
-- **Zero dependencies** on Web Audio API or browser globals — fully Node.js compatible
+- **Zero dependencies** on Web Audio API or browser globals — the pure procedural decision engine is fully Node.js compatible, while the `OfflineAudioContext` rendering shell remains browser-only.
 - **Deterministic PRNG** — mulberry32 seeded random number generator replaces `Math.random()`
 - **Musical decision engine** — `getMusicalEvents(beat, state, params) → { events, nextState }`
   - Markov chain melody generation with complexity-based interval weighting
@@ -429,7 +472,7 @@ The procedural engine uses a three-layer architecture for deterministic, reprodu
 
 #### 3. Offline Rendering Shell (`renderAmbient.ts`)
 
-- **OfflineAudioContext** — Deterministic offline rendering with progress callbacks
+- **Browser-only shell** — Uses the browser's `OfflineAudioContext` for deterministic offline rendering with progress callbacks (unlike the pure logic layer, this requires a browser environment).
 - **4-bar pre-roll** — Ensures attack envelopes are fully realized before export starts
 - **Automatic pre-roll trimming** — Extracts target duration from offset sample
 - **WAV export** — 16-bit PCM, 44.1kHz stereo, compatible with backend pipeline
