@@ -55,6 +55,7 @@ export {
 
 export {
   decodeSampleBank,
+  decodeNewSampleBankEntries,
   getDecodedSampleBuffer,
   scheduleSamplePlayback,
   type DecodedSampleBank,

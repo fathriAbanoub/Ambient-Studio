@@ -138,6 +138,13 @@ export interface LoopAnalysis {
   alternatives: LoopAlternative[];
 }
 
+/**
+ * UI-only `id` for React keys / store lookups.
+ * Engine code must keep reading only the DroneLayerParams fields and must not
+ * assume `id` exists on layers it receives.
+ */
+export type DroneLayer = DroneLayerParams & { id: string };
+
 export interface GeneratorState {
   isRunning: boolean;
   seed: number;
@@ -150,7 +157,7 @@ export interface GeneratorState {
   currentScene: string;
   scale: ScaleName;
   enableBeats: boolean;
-  drone: DroneLayerParams[];
+  drone: DroneLayer[];
   swing: number; // 0..MAX_SWING
   drumStyle: DrumStyle;
   sidechainAmount: number; // 0..1
