@@ -32,6 +32,10 @@ const toastVariants = cva(
         default: "border bg-background text-foreground",
         destructive:
           "destructive group border-destructive bg-destructive text-destructive-foreground",
+        // ponytail: --warn and --destructive currently share the same hex;
+        // outline-on-surface keeps warning visually distinct from solid
+        // destructive. A dedicated amber caution token would let both be fills.
+        warning: "border-warn bg-surface text-warn",
       },
     },
     defaultVariants: {

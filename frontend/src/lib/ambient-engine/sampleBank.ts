@@ -47,6 +47,25 @@ export async function decodeSampleBank(
   return buffers;
 }
 
+/**
+ * Decode only entries whose `id` is not already present in `into`, then merge.
+ * Existing map entries are left untouched (no re-fetch / re-decode).
+ */
+export async function decodeNewSampleBankEntries(
+  ctx: BaseAudioContext,
+  sampleBank: SampleBankEntry[] | undefined,
+  into: DecodedSampleBank,
+): Promise<void> {
+  const missing = playableSampleEntries(sampleBank).filter(
+    (entry) => !into.has(entry.id),
+  );
+  if (!missing.length) return;
+  const decoded = await decodeSampleBank(ctx, missing);
+  for (const [id, buffer] of decoded) {
+    into.set(id, buffer);
+  }
+}
+
 export function getDecodedSampleBuffer(
   buffers: DecodedSampleBank,
   sampleId?: string,

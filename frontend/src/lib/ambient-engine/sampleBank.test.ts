@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { decodeSampleBank, getDecodedSampleBuffer } from "./sampleBank";
+import {
+  decodeSampleBank,
+  decodeNewSampleBankEntries,
+  getDecodedSampleBuffer,
+} from "./sampleBank";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -58,5 +62,36 @@ describe("sample bank helpers", () => {
 
     await expect(pending).resolves.toEqual(new Map());
     expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("decodeNewSampleBankEntries only fetches ids missing from the map", async () => {
+    const existingBuffer = { label: "existing" } as unknown as AudioBuffer;
+    const newBuffer = { label: "new" } as unknown as AudioBuffer;
+    const into = new Map<string, AudioBuffer>([["keep", existingBuffer]]);
+    const decodeAudioData = vi
+      .fn()
+      .mockResolvedValueOnce(newBuffer);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: () => Promise.resolve(new ArrayBuffer(1)),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await decodeNewSampleBankEntries(
+      { decodeAudioData } as unknown as BaseAudioContext,
+      [
+        { id: "keep", url: "/keep.wav" },
+        { id: "fresh", url: "/fresh.wav" },
+      ],
+      into,
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/fresh.wav",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(into.get("keep")).toBe(existingBuffer);
+    expect(into.get("fresh")).toBe(newBuffer);
   });
 });

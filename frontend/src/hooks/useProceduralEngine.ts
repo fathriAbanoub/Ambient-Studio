@@ -10,14 +10,25 @@ import type {
 import { LiveEngine } from "@ambient-engine/LiveEngine";
 import { renderAndDownloadWav } from "@ambient-engine/renderAmbient";
 
-export function useProceduralEngine(masterDestination: AudioNode | null = null) {
+const DEFAULT_ROOT_HZ = 220;
+const ANALYSER_FFT_SIZE = 256;
+const ANALYSER_SMOOTHING = 0.8;
+const ANALYSER_DATA_BINS = 128;
+const SCENE_POLL_INTERVAL_MS = 2000;
+const SECONDS_PER_MINUTE = 60;
+
+export function useProceduralEngine(
+  masterDestination: AudioNode | null = null,
+) {
   const engineRef = useRef<LiveEngine | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const scenePollRef = useRef<number | null>(null);
+  const prevDroneConfigRef = useRef<string>("");
+  const prevSampleIdsRef = useRef<string[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [currentScene, setCurrentScene] = useState("Calm");
   const [analyserData, setAnalyserData] = useState<Uint8Array>(
-    new Uint8Array(128),
+    new Uint8Array(ANALYSER_DATA_BINS),
   );
   const animFrameRef = useRef<number | null>(null);
   const [exportProgress, setExportProgress] = useState(0);
@@ -34,33 +45,42 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
 
   const buildParams = useCallback((): EngineParams => {
     return {
-      scale: "majorPent",
-      rootHz: 220,
+      scale: generator.scale,
+      rootHz: DEFAULT_ROOT_HZ,
       bpm: generator.tempo,
       complexity: generator.complexity,
       mix: generator.space,
       sceneDurationBars: generator.sceneDuration,
       enableScenes: generator.enableScenes,
       enableHarmonicLoop: true,
+      enableBeats: generator.enableBeats,
+      drone:
+        generator.drone.length > 0 ? { layers: generator.drone } : undefined,
+      sampleBank:
+        generator.sampleBank.length > 0 ? generator.sampleBank : undefined,
+      swing: generator.swing,
+      drumStyle: generator.drumStyle,
+      sidechainAmount: generator.sidechainAmount,
       seed: generator.seed,
       drumLevel: generator.drumLevel,
     };
   }, [
+    generator.scale,
     generator.tempo,
     generator.complexity,
     generator.space,
     generator.sceneDuration,
     generator.enableScenes,
+    generator.enableBeats,
+    generator.drone,
+    generator.sampleBank,
+    generator.swing,
+    generator.drumStyle,
+    generator.sidechainAmount,
     generator.seed,
     generator.drumLevel,
   ]);
 
-  // ✅ FIX (CodeRabbit): Shared teardown used by both start() and stop() so
-  // failure paths leave scenePollRef / animFrameRef / analyserRef / isRunning /
-  // store flags consistent. Previously start() only disposed engineRef.current
-  // and bypassed this cleanup, leaking the scene poll interval and leaving
-  // isRunning/setGeneratorRunning/setIsPlaying stuck at true if LiveEngine
-  // construction or start() threw.
   const performTeardown = useCallback(() => {
     if (scenePollRef.current) {
       clearInterval(scenePollRef.current);
@@ -84,23 +104,16 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
       }
       engineRef.current = null;
     }
+    prevDroneConfigRef.current = "";
+    prevSampleIdsRef.current = [];
     setIsRunning(false);
     setGeneratorRunning(false);
     setIsPlaying(false);
   }, [setGeneratorRunning, setIsPlaying]);
 
-  // ✅ FIX: start() now returns Promise<boolean> — true on success, false on
-  // failure (thrown error OR early-return when the engine was disposed during
-  // the async start). Previously start() swallowed errors internally, so
-  // ProceduralTrack.handlePlayStop's catch never fired and
-  // setActivePlaybackSource("generator") was called unconditionally even when
-  // the engine failed to start.
   const start = useCallback(async (): Promise<boolean> => {
-    // ✅ FIX (CodeRabbit): Full teardown of any previous engine so state is
-    // consistent even if LiveEngine construction or start() throws downstream.
     performTeardown();
 
-    // ✅ Cleanup helper for a newly created engine that failed to start
     let engine: LiveEngine | null = null;
     const cleanupStartedEngine = () => {
       if (!engine) return;
@@ -118,26 +131,30 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
     };
 
     try {
-      // ✅ FIX: Use a const for TypeScript narrowing across the await boundary
-      const newEngine = new LiveEngine(buildParams(), undefined, masterDestination);
+      const newEngine = new LiveEngine(
+        buildParams(),
+        undefined,
+        masterDestination,
+      );
 
-      // Assign to the outer let so cleanupStartedEngine can still access it
       engine = newEngine;
       engineRef.current = newEngine;
 
       await newEngine.start();
 
-      // ✅ Guard: ensure we weren't stopped/disposed during the async start
       if (engineRef.current !== newEngine || !newEngine.running) {
         cleanupStartedEngine();
         return false;
       }
 
       const analyser = newEngine.ctx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.8;
+      analyser.fftSize = ANALYSER_FFT_SIZE;
+      analyser.smoothingTimeConstant = ANALYSER_SMOOTHING;
       newEngine.getMasterNode().connect(analyser);
       analyserRef.current = analyser;
+
+      prevDroneConfigRef.current = JSON.stringify(generator.drone);
+      prevSampleIdsRef.current = generator.sampleBank.map((entry) => entry.id);
 
       setIsRunning(true);
       setGeneratorRunning(true);
@@ -145,16 +162,14 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
       addLog("Procedural generator started", "ok");
 
       scenePollRef.current = window.setInterval(() => {
-        // ✅ TypeScript now knows newEngine is never null
         if (newEngine.running) {
           const name = newEngine.getCurrentSceneName();
           setCurrentScene(name);
           setGeneratorScene(name);
         }
-      }, 2000);
+      }, SCENE_POLL_INTERVAL_MS);
 
       const updateAnalyser = () => {
-        // ✅ TypeScript now knows newEngine is never null
         if (newEngine.running && analyserRef.current) {
           try {
             const data = new Uint8Array(analyserRef.current.frequencyBinCount);
@@ -172,8 +187,6 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
       return true;
     } catch (error) {
       cleanupStartedEngine();
-      // ✅ performTeardown() at the top already reset isRunning / store flags /
-      // scenePollRef / animFrameRef, so the UI stays consistent on failure.
       addLog(`Generator start failed: ${error}`, "err");
       showToast(`Generator failed: ${error}`, "error");
       return false;
@@ -187,13 +200,15 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
     showToast,
     setGeneratorScene,
     masterDestination,
+    generator.drone,
+    generator.sampleBank,
   ]);
 
   const stop = useCallback(() => {
     performTeardown();
     setCurrentScene("Calm");
     setGeneratorScene("Calm");
-    setAnalyserData(new Uint8Array(128));
+    setAnalyserData(new Uint8Array(ANALYSER_DATA_BINS));
     addLog("Procedural generator stopped", "info");
   }, [performTeardown, setGeneratorScene, addLog]);
 
@@ -204,11 +219,44 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
     engine.setComplexity(generator.complexity);
     engine.setMix(generator.space);
     engine.setDrumLevel(generator.drumLevel);
+    engine.setScale(generator.scale);
+    engine.params.enableBeats = generator.enableBeats;
+    engine.params.swing = generator.swing;
+    engine.params.drumStyle = generator.drumStyle;
+    engine.params.sidechainAmount = generator.sidechainAmount;
+    engine.params.drone =
+      generator.drone.length > 0 ? { layers: generator.drone } : undefined;
+    engine.params.sampleBank =
+      generator.sampleBank.length > 0 ? generator.sampleBank : undefined;
+
+    // ponytail: JSON.stringify catches all fields (including future ones like
+    // detuneCents) without maintaining a fragile manual field list. For <= 8
+    // layers, the micro-allocation is negligible and guarantees correctness.
+    // Upgrading would require a custom deep-equal utility to avoid allocation,
+    // which is overkill for this specific bounded array.
+    const currentDroneConfig = JSON.stringify(generator.drone);
+    if (currentDroneConfig !== prevDroneConfigRef.current) {
+      engine.resyncDroneLayers();
+      prevDroneConfigRef.current = currentDroneConfig;
+    }
+
+    const sampleIds = generator.sampleBank.map((entry) => entry.id);
+    if (!idSetEqual(sampleIds, prevSampleIdsRef.current)) {
+      void engine.reloadSampleBank(generator.sampleBank);
+      prevSampleIdsRef.current = sampleIds;
+    }
   }, [
     generator.tempo,
     generator.complexity,
     generator.space,
     generator.drumLevel,
+    generator.scale,
+    generator.enableBeats,
+    generator.swing,
+    generator.drumStyle,
+    generator.sidechainAmount,
+    generator.drone,
+    generator.sampleBank,
   ]);
 
   const exportWav = useCallback(
@@ -218,8 +266,7 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
       setExportProgress(0);
       try {
         const params = buildParams();
-        const durationSeconds = durationMinutes * 60;
-        // Pass current engine state for continuity — RNG position is already past noise buffer
+        const durationSeconds = durationMinutes * SECONDS_PER_MINUTE;
         const startState: EngineState | undefined =
           engineRef.current?.getCurrentState();
         addLog(`Exporting generator WAV (${durationMinutes} min)...`, "info");
@@ -247,7 +294,6 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
     if (isRunning && engineRef.current?.running) updateParams();
   }, [isRunning, updateParams]);
 
-  // ✅ FIX: On unmount, reuse performTeardown to prevent logic duplication
   useEffect(() => {
     return () => {
       performTeardown();
@@ -265,4 +311,15 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
     exportProgress,
     isExporting,
   };
+}
+
+// ponytail: compares ID membership only, not order or content. An in-place
+// edit to an existing sample keeps the same ID set and intentionally skips
+// reload, since that change already takes effect via the plain
+// engine.params.sampleBank assignment above. Upgrading to detect in-place
+// changes would mean diffing full objects, not just IDs.
+function idSetEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const setB = new Set(b);
+  return a.every((id) => setB.has(id));
 }

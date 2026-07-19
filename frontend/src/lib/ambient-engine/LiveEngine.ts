@@ -86,6 +86,7 @@ import {
   type EngineState,
   type MusicalEvent,
   type ScaleName,
+  type SampleBankEntry,
   type TimbreMode,
   getMusicalEvents,
   createInitialState,
@@ -100,6 +101,7 @@ import {
 } from "./musicalLogic";
 import {
   decodeSampleBank,
+  decodeNewSampleBankEntries,
   getDecodedSampleBuffer,
   scheduleSamplePlayback,
   type DecodedSampleBank,
@@ -344,6 +346,31 @@ export class LiveEngine {
     }
     this.activeSampleSources.clear();
     this.running = false;
+  }
+
+  /**
+   * Stop and reset all drone oscillators so the next tick re-fires against
+   * whatever `this.params.drone` currently holds.
+   *
+   * ponytail: full reset rather than surgical single-layer stop; drone
+   * indices are positional, so a mid-list removal reshuffles every later
+   * index anyway, and a clean retrigger is simpler and more correct than
+   * diffing old-index-to-new-index mappings; a surgical version would need
+   * the engine to track layers by a stable id instead of positional index.
+   */
+  resyncDroneLayers(): void {
+    if (this.disposed || !this.running) return;
+    this.stopDroneLayers(this.ctx.currentTime);
+    this.state = { ...this.state, droneLayersStarted: false };
+  }
+
+  /**
+   * Decode newly added sample-bank entries into `this.sampleBuffers` without
+   * re-decoding ids that are already present.
+   */
+  async reloadSampleBank(entries: SampleBankEntry[]): Promise<void> {
+    if (this.disposed) return;
+    await decodeNewSampleBankEntries(this.ctx, entries, this.sampleBuffers);
   }
 
   /**
