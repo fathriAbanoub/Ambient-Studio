@@ -421,6 +421,13 @@ test.describe("Advanced Generator Parameters", () => {
     await expect(page.getByTestId("generator-complexity")).toBeVisible();
     await expect(page.getByTestId("generator-space")).toBeVisible();
     await expect(page.getByTestId("generator-scene-duration")).toBeVisible();
+    await expect(page.getByTestId("generator-scale")).toBeVisible();
+    await expect(page.getByTestId("generator-beatless-toggle")).toBeVisible();
+    await expect(page.getByTestId("generator-drum-style")).toBeVisible();
+    await expect(page.getByTestId("generator-swing")).toBeVisible();
+    await expect(page.getByTestId("generator-sidechain")).toBeVisible();
+    await expect(page.getByTestId("generator-drone-add")).toBeVisible();
+    await expect(page.getByTestId("generator-sample-upload-btn")).toBeVisible();
   });
 
   test("should change seed value", async ({ page }) => {
@@ -477,5 +484,89 @@ test.describe("Advanced Generator Parameters", () => {
     await expect(page.getByTestId("generator-export-wav")).toBeVisible({
       timeout: 5000,
     });
+  });
+
+  test("should change scale selection", async ({ page }) => {
+    await setupAllMocks(page);
+    await page.goto("/", { waitUntil: "networkidle" });
+    await page.getByTestId("generator-expand").click();
+    const scaleSelect = page.getByTestId("generator-scale");
+    await expect(scaleSelect).toBeVisible();
+    await expect(scaleSelect).toHaveValue("majorPent");
+    await scaleSelect.selectOption("dorian");
+    await expect(scaleSelect).toHaveValue("dorian");
+  });
+
+  test("should toggle beatless mode and dim drum controls", async ({
+    page,
+  }) => {
+    await setupAllMocks(page);
+    await page.goto("/", { waitUntil: "networkidle" });
+    await page.getByTestId("generator-expand").click();
+    const beatless = page.getByTestId("generator-beatless-toggle");
+    await expect(beatless).toHaveAttribute("aria-checked", "false");
+    await beatless.click();
+    await expect(beatless).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByTestId("generator-drum-style")).toBeDisabled();
+    await expect(page.getByTestId("generator-swing")).toBeDisabled();
+    await expect(page.getByTestId("generator-sidechain")).toBeDisabled();
+  });
+
+  test("should adjust swing and sidechain sliders", async ({ page }) => {
+    await setupAllMocks(page);
+    await page.goto("/", { waitUntil: "networkidle" });
+    await page.getByTestId("generator-expand").click();
+    const swing = page.getByTestId("generator-swing");
+    const sidechain = page.getByTestId("generator-sidechain");
+    await expect(swing).toHaveValue("0");
+    await expect(sidechain).toHaveValue("0");
+    await swing.focus();
+    await swing.press("ArrowRight");
+    await swing.press("ArrowRight");
+    await expect(swing).not.toHaveValue("0");
+    await sidechain.focus();
+    for (let i = 0; i < 10; i++) await sidechain.press("ArrowRight");
+    await expect(sidechain).not.toHaveValue("0");
+    await expect(page.getByTestId("generator-sidechain-value")).not.toHaveText(
+      "0%",
+    );
+  });
+
+  test("should switch drum style", async ({ page }) => {
+    await setupAllMocks(page);
+    await page.goto("/", { waitUntil: "networkidle" });
+    await page.getByTestId("generator-expand").click();
+    const drumStyle = page.getByTestId("generator-drum-style");
+    await expect(drumStyle).toHaveValue("euclideanTrap");
+    await drumStyle.selectOption("fourFloor");
+    await expect(drumStyle).toHaveValue("fourFloor");
+  });
+
+  test("should add and remove a drone layer", async ({ page }) => {
+    await setupAllMocks(page);
+    await page.goto("/", { waitUntil: "networkidle" });
+    await page.getByTestId("generator-expand").click();
+    await page.getByTestId("generator-drone-add").click();
+    await expect(page.getByTestId("generator-drone-layer-0")).toBeVisible();
+    await expect(page.getByTestId("generator-drone-hz-0")).toHaveValue("55");
+    await page.getByTestId("generator-drone-timbre-0").selectOption("triangle");
+    await expect(page.getByTestId("generator-drone-timbre-0")).toHaveValue(
+      "triangle",
+    );
+    await page.getByTestId("generator-drone-remove-0").click();
+    await expect(page.getByTestId("generator-drone-layer-0")).not.toBeVisible();
+  });
+
+  test("should upload a sample bank entry", async ({ page }) => {
+    await setupAllMocks(page);
+    await page.goto("/", { waitUntil: "networkidle" });
+    await page.getByTestId("generator-expand").click();
+    await page.getByTestId("generator-sample-upload").setInputFiles(FIXTURE_WAV);
+    await expect(page.getByTestId("generator-sample-bank-list")).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(
+      page.getByTestId("generator-sample-bank-list").getByText(/dummy-1sec/),
+    ).toBeVisible();
   });
 });
