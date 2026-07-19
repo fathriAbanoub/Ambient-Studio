@@ -34,7 +34,7 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
 
   const buildParams = useCallback((): EngineParams => {
     return {
-      scale: "majorPent",
+      scale: generator.scale,
       rootHz: 220,
       bpm: generator.tempo,
       complexity: generator.complexity,
@@ -42,15 +42,29 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
       sceneDurationBars: generator.sceneDuration,
       enableScenes: generator.enableScenes,
       enableHarmonicLoop: true,
+      enableBeats: generator.enableBeats,
+      drone: generator.drone.length > 0 ? { layers: generator.drone } : undefined,
+      sampleBank:
+        generator.sampleBank.length > 0 ? generator.sampleBank : undefined,
+      swing: generator.swing,
+      drumStyle: generator.drumStyle,
+      sidechainAmount: generator.sidechainAmount,
       seed: generator.seed,
       drumLevel: generator.drumLevel,
     };
   }, [
+    generator.scale,
     generator.tempo,
     generator.complexity,
     generator.space,
     generator.sceneDuration,
     generator.enableScenes,
+    generator.enableBeats,
+    generator.drone,
+    generator.sampleBank,
+    generator.swing,
+    generator.drumStyle,
+    generator.sidechainAmount,
     generator.seed,
     generator.drumLevel,
   ]);
@@ -204,11 +218,29 @@ export function useProceduralEngine(masterDestination: AudioNode | null = null) 
     engine.setComplexity(generator.complexity);
     engine.setMix(generator.space);
     engine.setDrumLevel(generator.drumLevel);
+    engine.setScale(generator.scale);
+    // LiveEngine.params is public — mutate remaining fields so mid-playback
+    // UI changes take effect on the next beat without restarting.
+    engine.params.enableBeats = generator.enableBeats;
+    engine.params.swing = generator.swing;
+    engine.params.drumStyle = generator.drumStyle;
+    engine.params.sidechainAmount = generator.sidechainAmount;
+    engine.params.drone =
+      generator.drone.length > 0 ? { layers: generator.drone } : undefined;
+    engine.params.sampleBank =
+      generator.sampleBank.length > 0 ? generator.sampleBank : undefined;
   }, [
     generator.tempo,
     generator.complexity,
     generator.space,
     generator.drumLevel,
+    generator.scale,
+    generator.enableBeats,
+    generator.swing,
+    generator.drumStyle,
+    generator.sidechainAmount,
+    generator.drone,
+    generator.sampleBank,
   ]);
 
   const exportWav = useCallback(
