@@ -30,6 +30,7 @@
   - [Frontend State](#frontend-state)
 - [GPU Acceleration](#gpu-acceleration)
 - [Project Structure](#project-structure)
+- [Testing](#testing)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
@@ -39,14 +40,22 @@
 ## Features
 
 ### Procedural Ambient Engine
+
 - **Generative Music** — Built-in procedural ambient generator with deterministic synthesis using seeded PRNG (mulberry32). Produces infinite, evolving soundscapes from pure algorithms.
 - **Musical Intelligence** — Markov chain melody generation, Euclidean rhythms for drums, harmonic loop progressions (A3 → F#3 → D3 → E3), and scene-based parameter interpolation.
+- **Nine Scales/Modes** — Major and minor pentatonic plus the seven diatonic modes (Ionian, Dorian, Phrygian, Lydian, Mixolydian, Aeolian, Locrian), selectable from the Synthesis panel.
 - **Three Scenes** — "Calm" (major pentatonic, 72 BPM), "Nocturne" (minor pentatonic, 62 BPM), "Ether" (major pentatonic, 68 BPM, FM timbre) with automatic crossfading.
+- **Beatless Drone Mode** — Toggle drums off entirely for a sustained, evolving drone bed; up to 8 drone layers (hz, amp, pan, timbre, optional detune/sweep) addable and editable live.
+- **Drum Styles & Swing** — Switch between the default Euclidean pattern and a 4-on-the-floor kick style, with an adjustable swing amount (0–60%) applied to off-beat timing.
+- **Sidechain Ducking** — Adjustable sidechain depth ducks the tonal bus against the kick for a pumping, club-adjacent feel.
+- **Sample Bank / Field Recordings** — Upload up to 16 of your own audio samples into the generator's sample bank; they're decoded and scheduled alongside the procedural layers, with object URLs safely revoked as entries are removed or replaced.
+- **Live Parameter Reconciliation** — Scale, drum style, swing, sidechain, drone layers, and sample bank edits all apply mid-playback — no need to stop and restart the generator to hear a change.
 - **Deterministic Rendering** — Offline export via OfflineAudioContext with 4-bar pre-roll and automatic trimming. Same seed + parameters = byte-identical WAV output.
 - **Real-time & Export** — LiveEngine for browser playback with precise event scheduling and parameter slewing; renderAmbient for offline WAV export with progress tracking.
-- **Configurable Parameters** — Seed, tempo (BPM), complexity (0–1), reverb/delay mix (0–1), drum level (0–1), scene duration, and scene enable/disable.
+- **Configurable Parameters** — Seed, tempo (BPM), complexity (0–1), reverb/delay mix (0–1), drum level (0–1), scale/mode, drum style, swing, sidechain amount, drone layers, sample bank, scene duration, and scene enable/disable.
 
 ### Manual Track Mixing
+
 - **Multi-track Audio Mixer** — Browser-based interface with 8 track slots. The backend imposes no hard track limit.
 - **Real-time EQ Control** — 7-band equalizer (Sub 60 Hz, Bass 200 Hz, Low-Mid 500 Hz, Mid 1 kHz, Upper-Mid 3 kHz, Presence 8 kHz, Air 16 kHz) with live frequency-response curve.
 - **Per-track Controls** — Volume (0.0–1.5), pan (−1.0 to 1.0), mute, solo, color, and microphone input toggle.
@@ -55,6 +64,7 @@
 - **Presets** — Built-in presets (Forest, Ocean, Space, Café) plus save/delete custom presets integrated into the header.
 
 ### Loop Analysis & Rendering
+
 - **Loop Analysis** — Pre-render loop point detection via the "Analyze Loop" button. Detects optimal loop start/end with crossfade and seamlessness scoring, displays candidates and alternatives, warns on low-confidence seams (<70%), and feeds the result directly into the export as a manual override. Analysis can be re-run at any time; stale results are cleared automatically.
 - **Stochastic Variation** — Per-loop randomization of volume, pan, and EQ micro-shifts via an entropy layer with slow drift — keeps long ambient tracks evolving.
 - **WAV Export** — Server-side via the async job system with full loop processing and entropy layer.
@@ -66,6 +76,7 @@
 - **Frequency Visualizer** — Bar-style mel-spectrogram overlay on video output (64 bars) with configurable FPS.
 
 ### System & UI
+
 - **Unified Design System** — Cohesive single-surface layout with ProceduralTrack card, unified transport control, bottom drawer with tabbed Export/Console panels, and shadcn/ui components (Button, Switch, Progress, Tooltip, Tabs).
 - **One-glow-at-a-time** — Visual feedback for active playback source (manual tracks vs. procedural generator) via `activePlaybackSource` state.
 - **Job Management** — Queue system with real-time progress tracking, cancellation, and concurrent render limiting (2 slots).
@@ -76,39 +87,51 @@
 
 ## Prerequisites
 
-| Requirement | Version | Notes |
-|---|---|---|
-| Node.js | 18+ | Frontend runtime |
-| Python | 3.9+ | Backend runtime |
-| FFmpeg | 6.0+ | Audio/video processing (`ffmpeg` and `ffprobe` on PATH) |
-| NVIDIA GPU (optional) | Compute Capability 7.0+ | Required for CUDA visualizer and NVENC encoding |
-| CUDA Toolkit (optional) | 12.0+ | Required for CUDA visualizer |
-| OpenCV with CUDA (optional) | 4.8+ | Custom build needed — see [GPU Acceleration](#gpu-acceleration) |
+| Requirement                 | Version                 | Notes                                                           |
+| --------------------------- | ----------------------- | --------------------------------------------------------------- |
+| Node.js                     | 18+                     | Frontend runtime                                                |
+| Python                      | 3.9+                    | Backend runtime                                                 |
+| FFmpeg                      | 6.0+                    | Audio/video processing (`ffmpeg` and `ffprobe` on PATH)         |
+| NVIDIA GPU (optional)       | Compute Capability 7.0+ | Required for CUDA visualizer and NVENC encoding                 |
+| CUDA Toolkit (optional)     | 12.0+                   | Required for CUDA visualizer                                    |
+| OpenCV with CUDA (optional) | 4.8+                    | Custom build needed — see [GPU Acceleration](#gpu-acceleration) |
 
 ## Installation
 
-### 1. Clone the repository
+### Quick start (recommended)
+
+```bash
+git clone https://github.com/fathriAbanoub/Ambient-Studio.git
+cd Ambient-Studio
+./start.sh
+```
+
+`start.sh` does the manual steps below for you: checks for `python3`/`node`/`ffmpeg`, creates a Python virtualenv at `backend/.venv` and installs `requirements.txt` into it, installs frontend workspace dependencies (`bun install` if `bun` is available, otherwise `npm install`), writes `frontend/.env.local` with `NEXT_PUBLIC_API_URL` if it doesn't already exist, then starts the backend on port 3003 and the frontend on port 3002 together, shutting both down cleanly on Ctrl+C.
+
+### Manual setup
+
+#### 1. Clone the repository
 
 ```bash
 git clone https://github.com/fathriAbanoub/Ambient-Studio.git
 cd Ambient-Studio
 ```
 
-### 2. Frontend setup
+#### 2. Frontend setup
 
 ```bash
 cd frontend
 npm install
 ```
 
-### 3. Backend setup
+#### 3. Backend setup
 
 ```bash
 cd backend
 pip install -r requirements.txt
 ```
 
-### 4. Environment variables
+#### 4. Environment variables
 
 Create `frontend/.env.local` (see [Configuration](#configuration)). The backend reads from environment variables — no `.env` file required.
 
@@ -134,7 +157,7 @@ API available at `http://localhost:3003`.
 
 Open `http://localhost:3002` in your browser. You can:
 
-1. **Use the procedural generator** — Click play on the "PROCEDURAL GENERATOR" track (track 0) to start infinite ambient music. Adjust seed, tempo, complexity, reverb mix, and drum level. Toggle scenes for automatic mood changes. Export to WAV with configurable duration.
+1. **Use the procedural generator** — Click play on the "PROCEDURAL GENERATOR" track (track 0) to start infinite ambient music. Adjust seed, tempo, complexity, reverb mix, and drum level. Pick a scale/mode, switch drum style or dial in swing and sidechain amount, or flip on Beatless for a drone-only texture and add drone layers. Upload your own samples into the sample bank. Toggle scenes for automatic mood changes. Export to WAV with configurable duration.
 
 2. **Mix custom audio files** — Drag audio files onto track cards (tracks 1-8), adjust controls, and export.
 
@@ -162,10 +185,10 @@ If you skip loop analysis entirely, the backend auto-detects loop points from th
 
 Create `frontend/.env.local`:
 
-| Variable | Default | Description |
-|---|---|---|
-| `NEXT_PUBLIC_API_URL` | `http://localhost:3003` | Public URL of the FastAPI backend (used by browser-side fetch) |
-| `BACKEND_API_URL` | `http://localhost:3003` | Server-only URL used by Next.js API proxy routes (e.g. `GET /api/download/[jobId]`) |
+| Variable              | Default                 | Description                                                                         |
+| --------------------- | ----------------------- | ----------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:3003` | Public URL of the FastAPI backend (used by browser-side fetch)                      |
+| `BACKEND_API_URL`     | `http://localhost:3003` | Server-only URL used by Next.js API proxy routes (e.g. `GET /api/download/[jobId]`) |
 
 > **Note:** `next.config.ts` sets `typescript: { ignoreBuildErrors: true }`. Resolve type errors before deploying.
 
@@ -173,25 +196,25 @@ Create `frontend/.env.local`:
 
 All settings are in `backend/config.py`. Override with environment variables.
 
-| Variable | Default | Description |
-|---|---|---|
-| `HOST` | `0.0.0.0` | Server bind address |
-| `PORT` | `3003` | Server port |
-| `ALLOWED_ORIGINS` | `http://localhost:3002,http://localhost:3003` | Comma-separated CORS origins |
-| `SAMPLE_RATE` | `44100` | Audio sample rate (Hz) |
-| `CHANNELS` | `2` | Output channels (stereo) |
-| `BIT_DEPTH` | `16` | WAV PCM bit depth |
-| `MAX_DURATION` | `28800` | Maximum render duration in seconds (8 hours) |
-| `VIDEO_WIDTH` | `1920` | Output video width (px) |
-| `VIDEO_HEIGHT` | `1080` | Output video height (px) |
-| `VIDEO_FPS` | `25` | Output video frame rate |
-| `VIDEO_CODEC` | `h264_nvenc` | FFmpeg video codec (`h264_nvenc`, `libx264`, or `auto`) |
-| `AUDIO_CODEC` | `aac` | FFmpeg audio codec |
-| `FFMPEG_PRESET` | `veryfast` | libx264 encoding preset |
-| `CRF` | `23` | Video quality (lower = better, larger file); used by libx264 |
-| `NVENC_QP` | `23` | NVENC quality scale (0 = best, 51 = worst) |
-| `USE_CUDA_VISUALIZER` | `true` | Use CUDA GPU visualizer when available; falls back to CPU or FFmpeg |
-| `AUDIO_DEBUG` | `true` | Log detailed per-stage audio diagnostics |
+| Variable              | Default                                       | Description                                                         |
+| --------------------- | --------------------------------------------- | ------------------------------------------------------------------- |
+| `HOST`                | `0.0.0.0`                                     | Server bind address                                                 |
+| `PORT`                | `3003`                                        | Server port                                                         |
+| `ALLOWED_ORIGINS`     | `http://localhost:3002,http://localhost:3003` | Comma-separated CORS origins                                        |
+| `SAMPLE_RATE`         | `44100`                                       | Audio sample rate (Hz)                                              |
+| `CHANNELS`            | `2`                                           | Output channels (stereo)                                            |
+| `BIT_DEPTH`           | `16`                                          | WAV PCM bit depth                                                   |
+| `MAX_DURATION`        | `28800`                                       | Maximum render duration in seconds (8 hours)                        |
+| `VIDEO_WIDTH`         | `1920`                                        | Output video width (px)                                             |
+| `VIDEO_HEIGHT`        | `1080`                                        | Output video height (px)                                            |
+| `VIDEO_FPS`           | `25`                                          | Output video frame rate                                             |
+| `VIDEO_CODEC`         | `h264_nvenc`                                  | FFmpeg video codec (`h264_nvenc`, `libx264`, or `auto`)             |
+| `AUDIO_CODEC`         | `aac`                                         | FFmpeg audio codec                                                  |
+| `FFMPEG_PRESET`       | `veryfast`                                    | libx264 encoding preset                                             |
+| `CRF`                 | `23`                                          | Video quality (lower = better, larger file); used by libx264        |
+| `NVENC_QP`            | `23`                                          | NVENC quality scale (0 = best, 51 = worst)                          |
+| `USE_CUDA_VISUALIZER` | `true`                                        | Use CUDA GPU visualizer when available; falls back to CPU or FFmpeg |
+| `AUDIO_DEBUG`         | `true`                                        | Log detailed per-stage audio diagnostics                            |
 
 ## API Reference
 
@@ -264,8 +287,6 @@ DELETE /job/{job_id}
 Cancels a queued or processing job. Signals the render thread via `threading.Event`, terminates any active FFmpeg subprocess, and cleans up temporary files. Returns `{"status": "cancelled", "job_id": "..."}`.
 Returns 404 if not found, 400 if not cancellable.
 
-
-
 ### Render Full Pipeline (async)
 
 ```http
@@ -274,21 +295,21 @@ POST /render-video-full
 
 Asynchronous pipeline: audio mix → loop analysis → stochastic rotation → entropy layer → video encode. Returns a `job_id` immediately.
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `duration` | int | *required* | Duration in seconds (1–28800) |
-| `files` | UploadFile[] | *required* | Audio track files |
-| `volumes` | str | `""` | Comma-separated floats per track |
-| `pans` | str | `""` | Comma-separated floats per track |
-| `muted` | str | `""` | Comma-separated "0"/"1" per track |
-| `solo` | str | `""` | Comma-separated "0"/"1" per track |
-| `master_gain` | float | `1.0` | Master gain multiplier |
-| `eq_gains` | str | `""` | Comma-separated EQ band gains in dB (7 bands) |
-| `background_image` | UploadFile | `None` | Optional custom background image |
-| `show_visualizer` | str | `"0"` | `"0"` or `"1"` — show frequency spectrum overlay |
-| `use_gpu_encoding` | str | `"1"` | `"0"` or `"1"` — use NVENC if available |
-| `loop_start` | float | `None` | Manual loop start in seconds — skips backend auto-analysis when provided with `loop_end` |
-| `loop_end` | float | `None` | Manual loop end in seconds — must be greater than `loop_start` and within track bounds; returns 422 if invalid |
+| Parameter          | Type         | Default    | Description                                                                                                    |
+| ------------------ | ------------ | ---------- | -------------------------------------------------------------------------------------------------------------- |
+| `duration`         | int          | _required_ | Duration in seconds (1–28800)                                                                                  |
+| `files`            | UploadFile[] | _required_ | Audio track files                                                                                              |
+| `volumes`          | str          | `""`       | Comma-separated floats per track                                                                               |
+| `pans`             | str          | `""`       | Comma-separated floats per track                                                                               |
+| `muted`            | str          | `""`       | Comma-separated "0"/"1" per track                                                                              |
+| `solo`             | str          | `""`       | Comma-separated "0"/"1" per track                                                                              |
+| `master_gain`      | float        | `1.0`      | Master gain multiplier                                                                                         |
+| `eq_gains`         | str          | `""`       | Comma-separated EQ band gains in dB (7 bands)                                                                  |
+| `background_image` | UploadFile   | `None`     | Optional custom background image                                                                               |
+| `show_visualizer`  | str          | `"0"`      | `"0"` or `"1"` — show frequency spectrum overlay                                                               |
+| `use_gpu_encoding` | str          | `"1"`      | `"0"` or `"1"` — use NVENC if available                                                                        |
+| `loop_start`       | float        | `None`     | Manual loop start in seconds — skips backend auto-analysis when provided with `loop_end`                       |
+| `loop_end`         | float        | `None`     | Manual loop end in seconds — must be greater than `loop_start` and within track bounds; returns 422 if invalid |
 
 Returns: `{"status": "queued", "job_id": "...", "queue_position": N}`.
 Poll `GET /job/{job_id}/progress` for status. Download via `GET /download/{job_id}` (backend direct) or `GET /api/download/[jobId]` (frontend proxy, e.g. `/api/download/abc123`).
@@ -303,18 +324,18 @@ POST /render-audio-job
 
 Asynchronous audio-only pipeline: mix → loop analysis → stochastic rotation → entropy layer. Returns a `job_id` immediately.
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `duration` | int | *required* | Duration in seconds (1–28800) |
-| `files` | UploadFile[] | *required* | Audio track files |
-| `volumes` | str | `""` | Comma-separated floats per track |
-| `pans` | str | `""` | Comma-separated floats per track |
-| `muted` | str | `""` | Comma-separated "0"/"1" per track |
-| `solo` | str | `""` | Comma-separated "0"/"1" per track |
-| `master_gain` | float | `1.0` | Master gain multiplier |
-| `eq_gains` | str | `""` | Comma-separated EQ band gains in dB (7 bands) |
-| `loop_start` | float | `None` | Manual loop start in seconds |
-| `loop_end` | float | `None` | Manual loop end in seconds |
+| Parameter     | Type         | Default    | Description                                   |
+| ------------- | ------------ | ---------- | --------------------------------------------- |
+| `duration`    | int          | _required_ | Duration in seconds (1–28800)                 |
+| `files`       | UploadFile[] | _required_ | Audio track files                             |
+| `volumes`     | str          | `""`       | Comma-separated floats per track              |
+| `pans`        | str          | `""`       | Comma-separated floats per track              |
+| `muted`       | str          | `""`       | Comma-separated "0"/"1" per track             |
+| `solo`        | str          | `""`       | Comma-separated "0"/"1" per track             |
+| `master_gain` | float        | `1.0`      | Master gain multiplier                        |
+| `eq_gains`    | str          | `""`       | Comma-separated EQ band gains in dB (7 bands) |
+| `loop_start`  | float        | `None`     | Manual loop start in seconds                  |
+| `loop_end`    | float        | `None`     | Manual loop end in seconds                    |
 
 Returns: `{"status": "queued", "job_id": "...", "queue_position": N}`.
 
@@ -328,9 +349,9 @@ POST /analyze-loop
 
 Analyzes a single audio file for optimal loop points using PyMusicLooper. Returns the best candidate plus scored alternatives. Called by the frontend "Analyze Loop" button before export.
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `file` | UploadFile | *required* | Audio file to analyze (WAV, MP3, OGG, FLAC) |
+| Parameter | Type       | Default    | Description                                 |
+| --------- | ---------- | ---------- | ------------------------------------------- |
+| `file`    | UploadFile | _required_ | Audio file to analyze (WAV, MP3, OGG, FLAC) |
 
 Returns:
 
@@ -379,27 +400,35 @@ Returns: `FileResponse`. Returns 404 if job/file not found, 400 if not completed
 The procedural engine uses a three-layer architecture for deterministic, reproducible ambient music generation:
 
 #### 1. Pure Musical Logic (`musicalLogic.ts`)
+
 - **Zero dependencies** on Web Audio API or browser globals — fully Node.js compatible
 - **Deterministic PRNG** — mulberry32 seeded random number generator replaces `Math.random()`
 - **Musical decision engine** — `getMusicalEvents(beat, state, params) → { events, nextState }`
   - Markov chain melody generation with complexity-based interval weighting
-  - Euclidean rhythm distribution for kick, snare, hi-hat patterns
+  - Euclidean rhythm distribution for kick, snare, hi-hat patterns, or a 4-on-the-floor kick when `drumStyle: "fourFloor"`
   - Harmonic loop progression: A3 (220Hz) → F#3 (185Hz) → D3 (147Hz) → E3 (165Hz)
   - Scene interpolation across Calm/Nocturne/Ether with automatic crossfading
-  - Pentatonic scales (major/minor) with octave-shifted bass/pad/melody voices
-- **Event types** — melody, pad, bass, bell, kick, snare, hihat with hz, amp, duration, pan, timbre
+  - Nine scales/modes — major/minor pentatonic plus the seven diatonic modes (Ionian, Dorian, Phrygian, Lydian, Mixolydian, Aeolian, Locrian) — with octave-shifted bass/pad/melody voices
+  - Drone layers (up to 8) with a one-shot latch in beatless mode (`enableBeats: false`) so drones fire once per layer instead of retriggering every beat
+  - Sample bank entries validated via `playableSampleEntries()` and scheduled alongside procedural events
+- **Event types** — melody, pad, bass, bell, kick, snare, hihat, drone with hz, amp, duration, pan, timbre
 - **Sub-beat timing** — Drum events use `subBeatIndex` (0–3) for sixteenth-note precision
-- **RNG order guarantee** — Matches original engine.ts constructor + tick() call sequence exactly
+- **RNG order guarantee** — Matches original engine.ts constructor + tick() call sequence exactly, including the sample-lane RNG draw when a valid sample bank entry is present
+- **Scheduling helpers (`scheduling.ts`)** — Pure, shell-shared helpers for swing (`getSubBeatEventTime`, offsetting odd sub-beats by up to 60% of a sixteenth note) and sidechain ducking (`getSidechainDuckShape`, returning duck depth/attack/release for the tonal bus around each kick)
+- **Sample decoding (`sampleBank.ts`)** — Fetches and decodes uploaded sample URLs into `AudioBuffer`s (15s timeout per sample, per-sample failure isolation) for the live/offline shells to schedule
 
 #### 2. Real-time Synthesis Shell (`LiveEngine.ts`)
+
 - **Web Audio API graph** — OscillatorNode + GainNode + BiquadFilterNode topology
-- **Precise event scheduling** — Uses `AudioContext.currentTime` + lookahead buffer
+- **Precise event scheduling** — Uses `AudioContext.currentTime` + lookahead buffer, with swing and sidechain applied via `scheduling.ts`
 - **Parameter slewing** — 600ms linear ramps for harmonic root changes
 - **Scene crossfading** — Smooth BPM, complexity, mix, density, timbre transitions
 - **Noise buffer** — 0.5s pink noise generated once, shared across drum voices
-- **Start/stop lifecycle** — Clean node creation/disposal, deterministic state reset
+- **Start/stop lifecycle** — Clean node creation/disposal, deterministic state reset, including the beatless drone latch
+- **Mid-playback reconciliation** — `useProceduralEngine` diffs incoming drone config and sample bank IDs against the previous render each tick; on a change it calls `engine.resyncDroneLayers()` and/or `engine.reloadSampleBank()` so edits while the generator is already playing take effect without a stop/start cycle
 
 #### 3. Offline Rendering Shell (`renderAmbient.ts`)
+
 - **OfflineAudioContext** — Deterministic offline rendering with progress callbacks
 - **4-bar pre-roll** — Ensures attack envelopes are fully realized before export starts
 - **Automatic pre-roll trimming** — Extracts target duration from offset sample
@@ -433,6 +462,8 @@ queued → processing → completed / failed / cancelled
 - **Cleanup** — Temp directories are cleaned on job completion, cancellation, or pre-job validation failure. Output filenames include the `job_id` to prevent collisions.
 
 ### Full Render Sequence
+
+> This diagram covers the **manual-track backend pipeline** (`/render-audio-job`, `/render-video-full`) — file uploads, loop analysis, and the job-queue-based WAV/MP4 export. The **procedural generator's** WAV export is a separate, entirely client-side path: `renderAmbient()` renders through `OfflineAudioContext` in the browser and `renderAndDownloadWav()` triggers the download directly — it never touches the backend or the job system described below.
 
 ```mermaid
 sequenceDiagram
@@ -560,12 +591,12 @@ Single-page app with Zustand store (`studioStore.ts`) managing tracks, playback,
 
 ### Rendering Paths (ordered by speed)
 
-| Path | Speed | Requirements |
-|---|---|---|
-| CUDA visualizer + NVENC | ~6× faster than FFmpeg | NVIDIA GPU, CUDA 12.0+, OpenCV built with CUDA |
-| CPU visualizer + NVENC | ~3–4× faster than FFmpeg | NVIDIA GPU (NVENC only) |
-| FFmpeg showfreqs + NVENC | Baseline | NVIDIA GPU (NVENC only) |
-| FFmpeg showfreqs + libx264 | Slowest | CPU only |
+| Path                       | Speed                    | Requirements                                   |
+| -------------------------- | ------------------------ | ---------------------------------------------- |
+| CUDA visualizer + NVENC    | ~6× faster than FFmpeg   | NVIDIA GPU, CUDA 12.0+, OpenCV built with CUDA |
+| CPU visualizer + NVENC     | ~3–4× faster than FFmpeg | NVIDIA GPU (NVENC only)                        |
+| FFmpeg showfreqs + NVENC   | Baseline                 | NVIDIA GPU (NVENC only)                        |
+| FFmpeg showfreqs + libx264 | Slowest                  | CPU only                                       |
 
 Auto-detection runs at startup: the backend probes `cv2.cuda.getCudaEnabledDeviceCount()` and `ffmpeg h264_nvenc` to select the best available path.
 
@@ -590,43 +621,67 @@ source backend/set_cuda_env.sh
 
 ```text
 ambient-studio/
-├── start.sh                          # One-command startup script (frontend + backend)
-├── config.json                       # Project configuration (ports, workspace paths)
+├── start.sh                          # One-command startup: creates backend venv, installs
+│                                      # frontend+backend deps, writes .env.local, runs both
+├── config.json                       # Project configuration (ports, workspaces, steering rules)
 ├── frontend/                         # Next.js 16 frontend (React 19, TypeScript)
 │   ├── src/
 │   │   ├── app/                      # Next.js App Router
 │   │   │   ├── page.tsx              # Single-page studio app
 │   │   │   ├── layout.tsx            # Root layout (fonts, providers)
 │   │   │   ├── globals.css           # Tailwind + custom styles + range inputs
-│   │   │   └── api/download/[jobId]/ # Video/audio download proxy route
-│   │   ├── components/studio/        # Core UI components
-│   │   │   ├── TrackCard.tsx         # Track mixer card (volume, pan, mute, solo)
-│   │   │   ├── ProceduralTrack.tsx   # Procedural generator card (track 0)
-│   │   │   ├── Transport.tsx         # Unified circular play/stop, master volume, timer
-│   │   │   ├── EQPanel.tsx           # 7-band EQ with frequency response canvas
-│   │   │   ├── ExportPanel.tsx       # Export dialog: loop analysis, job progress, download
-│   │   │   ├── VideoPreview.tsx      # Video preview canvas
-│   │   │   ├── Header.tsx            # Top bar with backend health + preset controls
-│   │   │   ├── BottomDrawer.tsx      # Tabbed drawer (Export/Console panels)
-│   │   │   └── LogConsole.tsx        # Timestamped render event log
+│   │   │   └── api/
+│   │   │       ├── route.ts          # Default Next.js stub route (unused)
+│   │   │       └── download/[jobId]/ # Video/audio download proxy route
+│   │   ├── components/
+│   │   │   ├── studio/               # Core UI components
+│   │   │   │   ├── TrackCard.tsx         # Track mixer card (volume, pan, mute, solo)
+│   │   │   │   ├── ProceduralTrack.tsx   # Procedural generator card (track 0), incl.
+│   │   │   │   │                         # scale/drum-style/swing/sidechain/drone/sample-bank UI
+│   │   │   │   ├── Transport.tsx         # Unified circular play/stop, master volume, timer
+│   │   │   │   ├── EQPanel.tsx           # 7-band EQ with frequency response canvas
+│   │   │   │   ├── ExportPanel.tsx       # Export dialog: loop analysis, job progress, download
+│   │   │   │   ├── VideoPreview.tsx      # Video preview canvas
+│   │   │   │   ├── Header.tsx            # Top bar with backend health + preset controls
+│   │   │   │   ├── BottomDrawer.tsx      # Tabbed drawer (Export/Console panels)
+│   │   │   │   └── LogConsole.tsx        # Timestamped render event log
+│   │   │   └── ui/                   # shadcn/ui primitives (button, progress, slider,
+│   │   │                             # switch, tabs, toast, toaster, tooltip)
 │   │   ├── hooks/
 │   │   │   ├── useAudioEngine.ts     # Web Audio API bridge (playback, analyser, seam preview)
-│   │   │   └── useProceduralEngine.ts # Procedural generator bridge (LiveEngine, export)
+│   │   │   ├── useProceduralEngine.ts # Procedural generator bridge: LiveEngine lifecycle,
+│   │   │   │                         # mid-playback drone/sample-bank reconciliation, export
+│   │   │   ├── use-mobile.ts         # Responsive breakpoint hook
+│   │   │   └── use-toast.ts          # Toast notification hook
 │   │   ├── store/
-│   │   │   └── studioStore.ts        # Zustand store (tracks, EQ, presets, export, generator, activePlaybackSource)
+│   │   │   └── studioStore.ts        # Zustand store (tracks, EQ, presets, export, generator
+│   │   │                             # incl. stable drone/sample IDs, caps, blob URL cleanup)
 │   │   ├── types/
 │   │   │   └── index.ts              # Shared TypeScript types and constants
 │   │   ├── lib/
 │   │   │   ├── api.ts                # Backend API client (analyzeLoop, renderJob, download)
+│   │   │   ├── audioContext.ts       # Shared/singleton browser AudioContext accessor
 │   │   │   ├── audioRenderer.ts      # Client-side OfflineAudioContext renderer
 │   │   │   ├── ambient-engine/       # Procedural ambient music engine
 │   │   │   │   ├── index.ts          # Public API exports
-│   │   │   │   ├── musicalLogic.ts   # Pure decision engine (Markov, Euclidean, scenes)
+│   │   │   │   ├── musicalLogic.ts   # Pure decision engine (Markov, Euclidean, scenes,
+│   │   │   │   │                     # modes, drone, samples) — 8 describe blocks / 30 tests
+│   │   │   │   ├── musicalLogic.test.ts # Vitest suite for musicalLogic.ts
+│   │   │   │   ├── scheduling.ts     # Shell-shared swing/sidechain timing helpers
+│   │   │   │   ├── sampleBank.ts     # Sample bank fetch/decode for live/offline shells
+│   │   │   │   ├── sampleBank.test.ts # Vitest suite for sampleBank.ts (1 describe / 4 tests)
 │   │   │   │   ├── LiveEngine.ts     # Real-time Web Audio synthesis shell
 │   │   │   │   └── renderAmbient.ts  # Offline OfflineAudioContext renderer
 │   │   │   └── utils.ts              # Tailwind utility (cn)
 │   │   ├── public/                   # Static assets
 │   │   └── package.json
+│   ├── tests/                        # Playwright e2e suite (65 tests across 3 spec files)
+│   │   ├── playback-and-tracks.spec.ts   # Playback, track mixing, procedural generator params
+│   │   ├── export-and-jobs.spec.ts       # Loop analysis, export, job polling/download
+│   │   ├── ui-and-global-state.spec.ts   # Presets, header, drawer, global UI state
+│   │   ├── helpers/                      # base-test.ts fixture + mocks.ts route mocking
+│   │   └── fixtures/                     # dummy-1sec.wav test fixture
+│   └── vitest.config.ts              # Vitest configuration (unit tests for ambient-engine)
 ├── backend/                          # FastAPI backend (Python 3.9+)
 │   ├── main.py                       # App entry: endpoints, JobManager, job lifecycle
 │   ├── config.py                     # Settings class (all env var overrides)
@@ -634,6 +689,7 @@ ambient-studio/
 │   ├── services/
 │   │   ├── audio_renderer.py         # Multi-track mixing with pedalboard EQ
 │   │   ├── video_renderer.py         # FFmpeg-based video encoding (NVENC/libx264)
+│   │   ├── visualizer_base.py        # Shared visualizer infrastructure (CPU + CUDA)
 │   │   ├── cuda_visualizer.py        # GPU-accelerated mel-spectrogram visualizer (OpenCV CUDA)
 │   │   ├── cpu_visualizer.py         # CPU-optimized mel-spectrogram visualizer (3–4× faster)
 │   │   ├── loop_processor.py         # Loop creation, seamless extension, rotation assembly
@@ -647,15 +703,59 @@ ambient-studio/
 │   ├── tmp/                          # Temporary render work files
 │   ├── logs/                         # Structured render logs (rotating 10 MB)
 │   ├── build_opencv_cuda.sh          # OpenCV CUDA build script
-│   └── set_cuda_env.sh               # CUDA library path setup
+│   ├── set_cuda_env.sh               # CUDA library path setup
+│   ├── diagnose_cuda.py              # Manual diagnostic: CUDA/OpenCV environment report
+│   ├── verify_cuda_env.py            # Manual diagnostic: verifies CUDA env vars/paths
+│   ├── test_cuda.py                  # Manual script: checks OpenCV CUDA visualizer deps
+│   └── test_loop_pipeline.py         # Manual script: exercises loop_analyzer/loop_processor
+│                                      # against a real input file (not part of an automated suite)
 └── LICENSE                           # MIT License
+```
+
+## Testing
+
+### Frontend unit tests (Vitest)
+
+```bash
+cd frontend
+npm test          # run once
+npm run test:watch # watch mode
+```
+
+Covers the `ambient-engine` pure logic layer: 30 tests in `musicalLogic.test.ts` across 8 `describe` blocks (determinism, sample-bank/soundscape lane, scale intervals, beatless mode, drum styles, swing/sidechain no-op isolation, scene pack lookup, scene progress agreement) plus 4 tests in `sampleBank.test.ts`.
+
+### Frontend end-to-end tests (Playwright)
+
+```bash
+cd frontend
+npm run test:e2e     # headless
+npm run test:e2e:ui  # interactive UI mode
+```
+
+65 tests across three spec files: `playback-and-tracks.spec.ts` (playback, track mixing, procedural generator parameters), `export-and-jobs.spec.ts` (loop analysis, export flow, job polling/download), and `ui-and-global-state.spec.ts` (presets, header, drawer, global UI state). Shared fixtures and route mocks live in `tests/helpers/`.
+
+### Backend diagnostics
+
+The backend has no automated pytest suite. Instead, a few standalone scripts under `backend/` are run manually to verify an environment before relying on GPU rendering or the loop pipeline:
+
+```bash
+cd backend
+python3 test_cuda.py          # checks OpenCV/CUDA visualizer dependencies are importable
+python3 diagnose_cuda.py      # reports on the CUDA/OpenCV environment
+python3 verify_cuda_env.py    # verifies CUDA env vars and library paths are set correctly
+python3 test_loop_pipeline.py <input_file>  # exercises loop_analyzer + loop_processor end to end
 ```
 
 ## Roadmap
 
 - [ ] Procedural engine backend integration (server-side rendering with same deterministic algorithm)
+- [ ] MCP server exposing `musicalLogic.ts` as a tool surface — blocked on deciding the Node.js execution path for the pure-logic layer (it's OfflineAudioContext-adjacent code that currently only runs in the browser; needs a Node-compatible offline render path before it can be wrapped as an MCP server)
 - [ ] Procedural engine parameter automation curves (tempo ramps, complexity arcs)
 - [ ] Procedural engine MIDI export
+- [ ] Berlin-school step sequencer mode for the procedural engine (classic arpeggiated sequencer pattern, distinct from the current Markov/Euclidean generation)
+- [ ] Atonal scale/mode option (alongside the current 9 pentatonic/diatonic scales)
+- [ ] Noise bed layer (continuous filtered-noise texture layer, separate from the existing drum noise buffer)
+- [ ] Convolution reverb (impulse-response based, replacing/supplementing the current delay-based mix control)
 - [ ] Interactive loop candidate picker (choose between detected alternatives before export)
 - [ ] Client-side mixdown for loop analysis (analyze the blended mix, not just the first track)
 - [ ] Waveform canvas with draggable loop point markers
@@ -663,7 +763,6 @@ ambient-studio/
 - [ ] Expose VariationScheduler params (max consecutive, salience budget, temporal jitter)
 - [ ] Mood/evolution curve over time (tension arc presets: Flat, Build, Arc)
 - [ ] 30-second preview render for fast parameter iteration
-- [ ] More audio effects (reverb, delay, chorus)
 - [ ] Additional video animation options (zoom, particle effects)
 - [ ] User authentication and project saving
 - [ ] Expand preset library
