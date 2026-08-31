@@ -15,6 +15,10 @@
  *       gain multiplier, attack time, and release time for a kick at
  *       `kickTime`. Returns null when sidechainAmount is 0/undefined so
  *       the shells can early-out without scheduling any automation.
+ *   ✅ ADD (cancelAndHold helper): Shared cancel-and-hold automation
+ *       primitive. Both shells use it to re-anchor gain/filter ramps
+ *       to their true current value instead of jumping to a stale
+ *       target when automation is superseded mid-flight.
  *   ✅ ADD (self-checks): testSchedulingHelpers() IIFE asserts:
  *       - swing=0 leaves odd sub-beat timing unchanged
  *       - swing=0.5 offsets odd sub-beats by 0.5 * sixteenthSec
@@ -121,6 +125,27 @@ export function getSidechainDuckShape(
     attackTime: kickTime + SIDECHAIN_ATTACK_SEC,
     releaseTime: kickTime + SIDECHAIN_RELEASE_SEC,
   };
+}
+
+/**
+ * Cancels future automation on `param` and holds its value at `t` so the
+ * caller's next automation anchors to the current automated value.
+ *
+ * `cancelAndHoldAtTime` is the spec-correct primitive. Engines without it
+ * fall back to the last explicit target, which avoids a crash but cannot
+ * reproduce an in-progress interpolated value.
+ *
+ * ponytail: the fallback can jump when a curve is mid-flight; upgrading means
+ * requiring cancelAndHoldAtTime support, because Web Audio exposes no way to
+ * read the true interpolated value for a lossless polyfill.
+ */
+export function cancelAndHold(param: AudioParam, t: number): void {
+  if (typeof param.cancelAndHoldAtTime === "function") {
+    param.cancelAndHoldAtTime(t);
+  } else {
+    param.cancelScheduledValues(t);
+    param.setValueAtTime(param.value, t);
+  }
 }
 
 (function testSchedulingHelpers() {
