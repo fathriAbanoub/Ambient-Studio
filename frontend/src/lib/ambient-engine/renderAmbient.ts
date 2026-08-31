@@ -12,6 +12,11 @@
  *   ✅ FIX (continue in-progress live slew): seed offline slew from startState
  *   ✅ FIX (params mutation): clone params to avoid mutating caller
  *   ✅ FIX (beat-loop cap): use minimum possible BPM across scenes to prevent truncation
+ *   ✅ FIX (drone layer updates): scheduleDrone() now mirrors LiveEngine's
+ *       per-beat parameter updates (frequency, detune, pan, filter, FM
+ *       modulator tracking) instead of the old first-write-wins behavior
+ *       that silently dropped updates after the layer's first beat.
+ *       Re-anchors the release curve on every update via cancelAndHold().
  *
  * Layered additions (swing / sidechain / beatless drone latch reset):
  *   ✅ ADD (scheduling helpers): Imports getSubBeatEventTime() and
@@ -60,6 +65,7 @@ import {
   type DecodedSampleBank,
 } from "./sampleBank";
 import {
+  cancelAndHold,
   getSidechainDuckShape,
   getSubBeatEventTime,
   resolveToneEnvelope,
@@ -70,6 +76,13 @@ const FM_MOD_RATIO = 1.5;
 const FM_INDEX = 1.8;
 
 const SAMPLE_FADE_SEC = 0.01;
+const DRONE_PAN_TIME_CONSTANT_SEC = 0.25;
+const DRONE_FILTER_CUTOFF_HZ = 3600;
+const DRONE_PARAMETER_TIME_CONSTANT_SEC = 0.5;
+const DRONE_FADE_TARGET_DIVISOR = 3;
+const DRONE_FILTER_LFO_DEPTH_HZ = 800;
+const DRONE_TAIL_SEC = 0.05;
+const DRONE_RELEASE_SILENCE_GAIN = 0.0001;
 // CodeRabbit nitpick: DRONE_FADE_SEC now imported from musicalLogic.ts
 // (single source of truth shared with LiveEngine).
 // TONAL_BUS_GAIN is imported from ./scheduling (single source of truth
@@ -152,6 +165,8 @@ export async function renderAmbient(
   const dronePans: StereoPannerNode[] = [];
   const droneGains: GainNode[] = [];
   const droneFilters: BiquadFilterNode[] = [];
+  const droneOscs: Array<OscillatorNode | null> = [];
+  const droneModOscs: Array<OscillatorNode | null> = [];
   const scheduledDroneLayers = new Set<number>();
   for (let i = 0; i < MAX_DRONE_LAYERS; i++) {
     const pan = offlineCtx.createStereoPanner();
@@ -168,6 +183,8 @@ export async function renderAmbient(
     dronePans.push(pan);
     droneGains.push(g);
     droneFilters.push(droneFilter);
+    droneOscs.push(null);
+    droneModOscs.push(null);
   }
 
   onProgress?.({ phase: "scheduling", percent: 10 });
@@ -183,7 +200,19 @@ export async function renderAmbient(
     // latched droneLayersStarted=true would otherwise render with zero
     // drone events in beatless mode.
     state = { ...startState, droneLayersStarted: false };
-    noiseBuffer = createNoiseBufferFromSnapshot(offlineCtx, state.rngState);
+    // ponytail: seeded from createInitialState(effectiveParams).rngState —
+    // the constructor-time RNG point LiveEngine used to build its one and
+    // only noise buffer — not from state.rngState (the snapshot's current,
+    // mid-session position). LiveEngine never regenerates its noise buffer
+    // after construction, so a byte-identical resumed render has to hit
+    // that same origin point regardless of which beat startState was
+    // captured at. createInitialState is deterministic given the same
+    // seed/params, so this reconstructs it without needing it stored
+    // anywhere in the snapshot itself.
+    noiseBuffer = createNoiseBufferFromSnapshot(
+      offlineCtx,
+      createInitialState(effectiveParams).rngState,
+    );
   } else {
     state = createInitialState(effectiveParams);
     noiseBuffer = createNoiseBufferFromState(offlineCtx, state); // advances ~22k in main stream
@@ -264,8 +293,14 @@ export async function renderAmbient(
       currentTime,
     );
 
-    delay.delayTime.setValueAtTime(0.3 + 0.4 * sceneMix, currentTime);
-    fb.gain.setValueAtTime(0.2 + 0.5 * sceneMix, currentTime);
+    // ponytail: setTargetAtTime (0.1s time constant) replaces setValueAtTime on
+    // delay.delayTime/fb.gain to match LiveEngine.setMix(). Stepping these
+    // instantly on every beat during scene crossfades caused a hard jump
+    // inside the feedback loop, echoing as a background crackle.
+    // filter.frequency intentionally left as instant setValueAtTime to
+    // match the documented Live/offline divergence (see LiveEngine.setMix).
+    delay.delayTime.setTargetAtTime(0.3 + 0.4 * sceneMix, currentTime, 0.1);
+    fb.gain.setTargetAtTime(0.2 + 0.5 * sceneMix, currentTime, 0.1);
     filter.frequency.setValueAtTime(5000 + sceneMix * 4000, currentTime);
 
     for (const event of events) {
@@ -294,6 +329,8 @@ export async function renderAmbient(
           pans: dronePans,
           gains: droneGains,
           filters: droneFilters,
+          oscs: droneOscs,
+          modOscs: droneModOscs,
           scheduledLayers: scheduledDroneLayers,
         },
         targetEndTime,
@@ -398,7 +435,24 @@ interface DroneGraph {
   pans: StereoPannerNode[];
   gains: GainNode[];
   filters: BiquadFilterNode[];
+  oscs: Array<OscillatorNode | null>;
+  modOscs: Array<OscillatorNode | null>;
   scheduledLayers: Set<number>;
+}
+
+function assertScheduledDroneHasOscillator(
+  droneGraph: DroneGraph,
+  layerIndex: number,
+): void {
+  if (process.env.NODE_ENV === "production") return;
+  if (
+    droneGraph.scheduledLayers.has(layerIndex) &&
+    !droneGraph.oscs[layerIndex]
+  ) {
+    throw new Error(
+      `[ambient-engine] scheduled drone layer ${layerIndex} has no oscillator`,
+    );
+  }
 }
 
 function scheduleEvent(
@@ -493,14 +547,18 @@ function scheduleSample(
  * getSidechainDuckShape() (pure, shell-side helper from ./scheduling) and
  * applies a 3-segment gain automation on `mainGain.gain` (the tonal bus):
  *
- *   1. setValueAtTime(TONAL_BUS_GAIN, t0)           — anchor to steady level
+ *   1. cancelAndHold(param, t0)                      — anchor to current value
  *   2. linearRampToValueAtTime(ducked, attackTime)   — duck over 10ms
  *   3. linearRampToValueAtTime(TONAL_BUS_GAIN, releaseTime) — return over 180ms
  *
- * cancelScheduledValues(t0) first so any in-flight per-beat mix automation
- * on delay/fb/filter (separate params) doesn't interact. mainGain.gain has
- * no other queued automation in the original code, so the cancel is a
- * defensive no-op against future changes.
+ * ponytail: switched from cancelScheduledValues()+setValueAtTime(TONAL_BUS_GAIN, t0)
+ * to cancelAndHold(param, t0), so an overlapping kick anchors its duck ramp
+ * to gain's true current value instead of forcibly jumping to TONAL_BUS_GAIN
+ * first — that jump was the click when kicks arrived faster than the
+ * previous duck's release. Ceiling: cancelAndHold() falls back to a lossy
+ * jump-to-last-target on engines without cancelAndHoldAtTime (see that
+ * method's own doc comment), so this exact click can still happen there on
+ * fast overlapping kicks — same upgrade path noted in cancelAndHold() itself.
  *
  * Why `mainGain` (the tonal bus) and not `out` (the master): `out` is
  * downstream of both `gain` (tonal bus) and `drumBus` (drum bus). Ducking
@@ -520,8 +578,7 @@ function scheduleSidechain(
   if (!shape) return;
 
   const param = mainGain.gain;
-  param.cancelScheduledValues(t0);
-  param.setValueAtTime(TONAL_BUS_GAIN, t0);
+  cancelAndHold(param, t0);
   param.linearRampToValueAtTime(
     TONAL_BUS_GAIN * shape.duckGainMultiplier,
     shape.attackTime,
@@ -540,69 +597,89 @@ function scheduleDrone(
 ): void {
   if (event.hz === undefined) return;
   const layerIndex = event.droneLayerIndex ?? 0;
-  // ponytail: first-write-wins for drone layers; upgrading means scheduling
-  // per-beat parameter updates (frequency, amp, pan) like LiveEngine does,
-  // or precomputing automation curves and scheduling them as setValueAtTime
-  // ramps. Once a layer is scheduled, subsequent beats for that layer are
-  // silently dropped — the layer's osc/gain/pan/filter run unchanged until
-  // stopTime.
-  if (
-    layerIndex < 0 ||
-    layerIndex >= MAX_DRONE_LAYERS ||
-    droneGraph.scheduledLayers.has(layerIndex)
-  ) {
-    return;
-  }
-  droneGraph.scheduledLayers.add(layerIndex);
+  if (layerIndex < 0 || layerIndex >= MAX_DRONE_LAYERS) return;
 
   const pan = droneGraph.pans[layerIndex];
   const gain = droneGraph.gains[layerIndex];
   const filter = droneGraph.filters[layerIndex];
-  pan.pan.setValueAtTime(event.pan, t0);
-  filter.frequency.setValueAtTime(3600, t0);
+  const gainParam = gain.gain;
+  // ponytail: every beat cancels and rebuilds the end release, an O(updates)
+  // cost per layer; upgrading means only rebuilding when event.amp changes.
+  cancelAndHold(gainParam, t0);
+  pan.pan.setTargetAtTime(event.pan, t0, DRONE_PAN_TIME_CONSTANT_SEC);
+  filter.frequency.setTargetAtTime(
+    DRONE_FILTER_CUTOFF_HZ,
+    t0,
+    DRONE_PARAMETER_TIME_CONSTANT_SEC,
+  );
 
-  const [osc, modOsc] = createOscillator(ctx, event.hz, event.timbre ?? "sine");
-  osc.detune.setValueAtTime(event.detuneCents ?? 0, t0);
-  osc.connect(filter);
+  if (!droneGraph.scheduledLayers.has(layerIndex)) {
+    const [osc, modOsc] = createOscillator(
+      ctx,
+      event.hz,
+      event.timbre ?? "sine",
+    );
+    osc.detune.setValueAtTime(event.detuneCents ?? 0, t0);
+    osc.connect(filter);
 
-  if (event.sweepSec) {
-    // ponytail: naive sine filter sweep only; upgrading means a real per-layer
-    // modulation matrix shared by live and offline renderers.
-    const lfo = ctx.createOscillator();
-    const lfoGain = ctx.createGain();
-    lfo.frequency.value = 1 / event.sweepSec;
-    lfoGain.gain.value = 800;
-    lfo.connect(lfoGain).connect(filter.frequency);
-    lfo.start(t0);
-    lfo.stop(stopTime + 0.05);
+    if (event.sweepSec) {
+      // ponytail: naive sine filter sweep only; upgrading means a real per-layer
+      // modulation matrix shared by live and offline renderers.
+      const lfo = ctx.createOscillator();
+      const lfoGain = ctx.createGain();
+      lfo.frequency.value = 1 / event.sweepSec;
+      lfoGain.gain.value = DRONE_FILTER_LFO_DEPTH_HZ;
+      lfo.connect(lfoGain).connect(filter.frequency);
+      lfo.start(t0);
+      lfo.stop(stopTime + DRONE_TAIL_SEC);
+    }
+
+    if (modOsc) {
+      modOsc.start(t0);
+      modOsc.stop(stopTime + DRONE_TAIL_SEC);
+      droneGraph.modOscs[layerIndex] = modOsc;
+    }
+    osc.start(t0);
+    osc.stop(stopTime + DRONE_TAIL_SEC);
+    droneGraph.oscs[layerIndex] = osc;
+    droneGraph.scheduledLayers.add(layerIndex);
+  } else {
+    assertScheduledDroneHasOscillator(droneGraph, layerIndex);
+    const osc = droneGraph.oscs[layerIndex]!;
+    osc.frequency.setTargetAtTime(
+      event.hz,
+      t0,
+      DRONE_PARAMETER_TIME_CONSTANT_SEC,
+    );
+    osc.detune.setTargetAtTime(
+      event.detuneCents ?? 0,
+      t0,
+      DRONE_PARAMETER_TIME_CONSTANT_SEC,
+    );
+    droneGraph.modOscs[layerIndex]?.frequency.setTargetAtTime(
+      event.hz * FM_MOD_RATIO,
+      t0,
+      DRONE_PARAMETER_TIME_CONSTANT_SEC,
+    );
+    // ponytail: this update only adjusts the modulator's *frequency*.
+    // The FM mod index (depth, set as modGain.gain.value = freq * FM_INDEX
+    // at creation in createOscillator) is NOT re-scaled here because the
+    // per-layer modGain node isn't retained. Upgrading means storing
+    // modGain nodes alongside droneModOscs and scaling them in lockstep
+    // with the carrier frequency so the index tracks freq changes too.
   }
 
-  // B3: fade-in shape now matches LiveEngine.playDrone — both use
-  // setTargetAtTime(event.amp, t0, DRONE_FADE_SEC / 3) for the attack.
-  // Previously this was linearRampToValueAtTime over DRONE_FADE_SEC,
-  // which produced audibly punchier offline drone attacks than live.
-  // The release segment below is unique to offline (live has no per-layer
-  // release — it fades all drones via stopDroneLayers() at stop time).
-  // ponytail: unifying the release would mean either adding per-layer
-  // release to live (more state to track per drone layer) or removing it
-  // from offline (audible cutoff at stopTime). Accept the divergence.
-  gain.gain.setValueAtTime(0, t0);
-  gain.gain.setTargetAtTime(event.amp, t0, DRONE_FADE_SEC / 3);
-  // Snap to exactly event.amp before the release ramp starts so the release
-  // duration is predictable (setTargetAtTime is asymptotic and would
-  // otherwise leave the gain slightly below amp when the release begins).
-  gain.gain.setValueAtTime(
+  assertScheduledDroneHasOscillator(droneGraph, layerIndex);
+  gainParam.setTargetAtTime(
+    event.amp,
+    t0,
+    DRONE_FADE_SEC / DRONE_FADE_TARGET_DIVISOR,
+  );
+  gainParam.setValueAtTime(
     event.amp,
     Math.max(t0 + DRONE_FADE_SEC, stopTime - DRONE_FADE_SEC),
   );
-  gain.gain.linearRampToValueAtTime(0.0001, stopTime);
-
-  if (modOsc) {
-    modOsc.start(t0);
-    modOsc.stop(stopTime + 0.05);
-  }
-  osc.start(t0);
-  osc.stop(stopTime + 0.05);
+  gainParam.linearRampToValueAtTime(DRONE_RELEASE_SILENCE_GAIN, stopTime);
 }
 
 function scheduleTonal(
