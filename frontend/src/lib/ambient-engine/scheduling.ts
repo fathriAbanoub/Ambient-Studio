@@ -27,6 +27,10 @@
  *       models the spec's ramp-replaces-setTarget behaviour (a LinearRamp
  *       scheduled after a not-yet-started SetTarget replaces it), so the
  *       fallback matches the curve actually rendered.
+ *   ✅ ADD (drone curve state): DroneCurveState — the per-layer piecewise
+ *       gain-curve record consumed by evaluateDroneEnvelope() — moved here
+ *       from renderAmbient.ts so the type ships beside the evaluator that
+ *       consumes it and both shells import it from one place.
  *   ✅ ADD (shared pan-drift time constant): PAN_DRIFT_TIME_CONSTANT_SEC is
  *       the single source of truth for the pan-drift smoothing used by
  *       LiveEngine.tick() and renderAmbient's beat loop.
@@ -69,6 +73,25 @@ export interface SidechainDuckShape {
 export interface ToneEnvelope {
   env: { a: number; d: number; s: number; r: number };
   vibratoAmount?: number;
+}
+
+/**
+ * The piecewise gain-automation curve the offline renderer's scheduleDrone()
+ * writes for one drone layer event, tracked per layer so the Firefox
+ * cancelAndHold fallback can re-anchor to the true automated value at a
+ * re-anchor time instead of a stale stored target. Consumed by
+ * evaluateDroneEnvelope(); see its doc comment for the segment semantics
+ * each field maps to.
+ */
+export interface DroneCurveState {
+  fromValue: number;
+  toValue: number;
+  startTime: number;
+  timeConstant: number;
+  sustainTime: number | null;
+  sustainValue: number;
+  releaseEndTime: number;
+  releaseTarget: number;
 }
 
 export function resolveToneEnvelope(
@@ -157,10 +180,7 @@ export function cancelAndHold(
     param.cancelAndHoldAtTime(t);
   } else {
     param.cancelScheduledValues(t);
-    param.setValueAtTime(
-      fallbackValue !== undefined ? fallbackValue : param.value,
-      t,
-    );
+    param.setValueAtTime(fallbackValue ?? param.value, t);
   }
 }
 
@@ -185,8 +205,8 @@ export function evaluateExponentialApproach(
 }
 
 /**
- * Evaluates the full piecewise drone gain envelope at `now`, mirroring the
- * exact automation scheduleDrone() writes for one event.
+ * Evaluates the full piecewise drone gain envelope in `curve` at `now`,
+ * mirroring the exact automation scheduleDrone() writes for one event.
  *
  * Sustain scheduled (sustainTime non-null):
  *   1. now before sustainTime: exponential approach toward toValue.
@@ -205,16 +225,19 @@ export function evaluateExponentialApproach(
  * the cancelAndHold fallback anchored to what is actually on the AudioParam.
  */
 export function evaluateDroneEnvelope(
-  fromValue: number,
-  toValue: number,
-  startTime: number,
-  timeConstant: number,
-  sustainTime: number | null,
-  sustainValue: number,
-  releaseEndTime: number,
-  releaseTarget: number,
+  curve: DroneCurveState,
   now: number,
 ): number {
+  const {
+    fromValue,
+    toValue,
+    startTime,
+    timeConstant,
+    sustainTime,
+    sustainValue,
+    releaseEndTime,
+    releaseTarget,
+  } = curve;
   if (sustainTime === null) {
     // See the doc comment: with no sustain anchor, the LinearRamp replaces
     // the SetTarget, so the true curve is linear from (startTime, fromValue)
@@ -300,51 +323,33 @@ export function evaluateDroneEnvelope(
   );
 
   // evaluateDroneEnvelope checks
+  // Sustained curve: approach → hold at the approach value at sustainTime →
+  // linear release. Sampled before/at/mid/after the seam below.
+  const sustainCurve: DroneCurveState = {
+    fromValue: 0.1,
+    toValue: 0.5,
+    startTime: 0,
+    timeConstant: 1 / 3,
+    sustainTime: 2.0,
+    sustainValue: 0.5,
+    releaseEndTime: 3.0,
+    releaseTarget: 0.0001,
+  };
   // Before sustain point → exponential-approach value.
-  const beforeSustain = evaluateDroneEnvelope(
-    0.1,
-    0.5,
-    0,
-    1 / 3,
-    2.0,
-    0.5,
-    3.0,
-    0.0001,
-    1.0,
-  );
+  const beforeSustain = evaluateDroneEnvelope(sustainCurve, 1.0);
   const expectedExp = 0.5 + (0.1 - 0.5) * Math.exp(-1.0 / (1 / 3));
   assert(
     Math.abs(beforeSustain - expectedExp) < 1e-9,
     "drone envelope before sustain should match exponential approach",
   );
   // At sustain point → sustain value.
-  const atSustain = evaluateDroneEnvelope(
-    0.1,
-    0.5,
-    0,
-    1 / 3,
-    2.0,
-    0.5,
-    3.0,
-    0.0001,
-    2.0,
-  );
+  const atSustain = evaluateDroneEnvelope(sustainCurve, 2.0);
   assert(
     Math.abs(atSustain - 0.5) < 1e-9,
     "drone envelope at sustain should equal sustain value",
   );
   // Partway through release → strictly between sustain and release target.
-  const midRelease = evaluateDroneEnvelope(
-    0.1,
-    0.5,
-    0,
-    1 / 3,
-    2.0,
-    0.5,
-    3.0,
-    0.0001,
-    2.5,
-  );
+  const midRelease = evaluateDroneEnvelope(sustainCurve, 2.5);
   assert(
     midRelease > 0.0001 && midRelease < 0.5,
     "drone envelope mid-release should be between sustain and release target",
@@ -354,32 +359,12 @@ export function evaluateDroneEnvelope(
     "drone envelope mid-release should be the linear midpoint",
   );
   // At/after stopTime → release target.
-  const atStop = evaluateDroneEnvelope(
-    0.1,
-    0.5,
-    0,
-    1 / 3,
-    2.0,
-    0.5,
-    3.0,
-    0.0001,
-    3.0,
-  );
+  const atStop = evaluateDroneEnvelope(sustainCurve, 3.0);
   assert(
     Math.abs(atStop - 0.0001) < 1e-12,
     "drone envelope at stop should equal release target",
   );
-  const afterStop = evaluateDroneEnvelope(
-    0.1,
-    0.5,
-    0,
-    1 / 3,
-    2.0,
-    0.5,
-    3.0,
-    0.0001,
-    4.0,
-  );
+  const afterStop = evaluateDroneEnvelope(sustainCurve, 4.0);
   assert(
     Math.abs(afterStop - 0.0001) < 1e-12,
     "drone envelope after stop should equal release target",
@@ -387,35 +372,57 @@ export function evaluateDroneEnvelope(
   // Null sustainTime → the LinearRamp replaces the SetTarget per spec, so
   // the curve is a straight line from (startTime, fromValue) to
   // (releaseEndTime, releaseTarget), NOT the exponential approach.
-  const nullSustain = evaluateDroneEnvelope(
-    0.1,
-    0.5,
-    0,
-    1 / 3,
-    null,
-    0.5,
-    3.0,
-    0.0001,
-    2.5,
-  );
+  const nullSustainCurve: DroneCurveState = {
+    fromValue: 0.1,
+    toValue: 0.5,
+    startTime: 0,
+    timeConstant: 1 / 3,
+    sustainTime: null,
+    sustainValue: 0.5,
+    releaseEndTime: 3.0,
+    releaseTarget: 0.0001,
+  };
+  const nullSustain = evaluateDroneEnvelope(nullSustainCurve, 2.5);
   const expectedLinear = 0.1 + (0.0001 - 0.1) * (2.5 / 3.0);
   assert(
     Math.abs(nullSustain - expectedLinear) < 1e-9,
     "drone envelope with null sustain should follow the replacing linear ramp",
   );
-  const nullSustainAtEnd = evaluateDroneEnvelope(
-    0.1,
-    0.5,
-    0,
-    1 / 3,
-    null,
-    0.5,
-    3.0,
-    0.0001,
-    3.0,
-  );
+  const nullSustainAtEnd = evaluateDroneEnvelope(nullSustainCurve, 3.0);
   assert(
     Math.abs(nullSustainAtEnd - 0.0001) < 1e-12,
     "drone envelope with null sustain should reach release target at stopTime",
+  );
+
+  // Sustain-seam continuity: scheduleDrone() anchors the sustain
+  // setValueAtTime (and the tracked curve's sustainValue) to the true
+  // exponential-approach value at sustainTime, so the modeled curve must be
+  // continuous across the seam instead of stepping up to toValue. Worst case
+  // is a sustain anchor only 3 time constants into the approach (the
+  // renderer's DRONE_FADE_SEC / 3 time constant), where the approach has
+  // closed only ~95% of the gap — a sustainValue of toValue would leave a
+  // ~5%-of-swing step right at the anchor.
+  const seamCurve: DroneCurveState = {
+    fromValue: 0.1,
+    toValue: 0.5,
+    startTime: 0,
+    timeConstant: 1 / 3,
+    sustainTime: 1.0, // 3 time constants after startTime — the worst case.
+    sustainValue: evaluateExponentialApproach(0.1, 0.5, 0, 1 / 3, 1.0),
+    releaseEndTime: 2.0,
+    releaseTarget: 0.0001,
+  };
+  assert(
+    approx(evaluateDroneEnvelope(seamCurve, 1.0), seamCurve.sustainValue),
+    "drone envelope at the sustain seam should equal the approach value",
+  );
+  const seamProbeOffsetSec = 1e-9;
+  const seamEpsilon = 1e-8;
+  assert(
+    Math.abs(
+      evaluateDroneEnvelope(seamCurve, 1.0 + seamProbeOffsetSec) -
+        seamCurve.sustainValue,
+    ) < seamEpsilon,
+    "drone envelope just after the sustain seam should not step",
   );
 })();
