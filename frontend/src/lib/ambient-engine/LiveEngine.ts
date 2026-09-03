@@ -112,6 +112,7 @@ import {
   cancelAndHold,
   getSidechainDuckShape,
   getSubBeatEventTime,
+  PAN_DRIFT_TIME_CONSTANT_SEC,
   resolveToneEnvelope,
   TONAL_BUS_GAIN,
 } from "./scheduling";
@@ -124,8 +125,9 @@ const FM_INDEX = 1.8;
 const SAMPLE_FADE_SEC = 0.01;
 // CodeRabbit nitpick: DRONE_FADE_SEC now imported from musicalLogic.ts
 // (single source of truth shared with renderAmbient).
-// TONAL_BUS_GAIN is imported from ./scheduling (single source of truth
-// shared with renderAmbient) — see scheduling.ts for why it lives there.
+// TONAL_BUS_GAIN and PAN_DRIFT_TIME_CONSTANT_SEC are imported from
+// ./scheduling (single source of truth shared with renderAmbient) — see
+// scheduling.ts for why they live there.
 
 export class LiveEngine {
   ctx: AudioContext;
@@ -571,20 +573,23 @@ export class LiveEngine {
 
     const beatSec = 60 / preTickParams.bpm;
     const sixteenthSec = beatSec / 4;
-    // ponytail: setTargetAtTime(..., 0.1) replaces setValueAtTime on the
-    // pad/bell pan drift, which tick() was stepping ~40x/sec (LOOKAHEAD_INTERVAL)
-    // with hard jumps — inaudible individually but a constant buzz under
-    // sustained pad/bell notes. Ceiling: 0.1s reused from Fix 1's delay/feedback
-    // smoothing for consistency, not re-derived for pan-specific perceptual
-    // thresholds — if drift still zippers at fast panDriftPhase rates, retune
-    // this independently rather than assuming it has to match setMix's constant.
+    // ponytail: setTargetAtTime with PAN_DRIFT_TIME_CONSTANT_SEC replaces
+    // setValueAtTime on the pad/bell pan drift. Pan events fire once per
+    // beat, but stepping them instantly with setValueAtTime caused audible
+    // zipper noise under sustained pad/bell notes. The 0.1s time constant
+    // smooths the per-beat transitions; the constant is shared with
+    // renderAmbient so live and offline panning stay identical.
     const panValue = Math.sin(this.state.panDriftPhase) * 0.1;
-    this.padPanL.pan.setTargetAtTime(-panValue, t0, 0.1);
-    this.padPanR.pan.setTargetAtTime(panValue, t0, 0.1);
+    this.padPanL.pan.setTargetAtTime(
+      -panValue,
+      t0,
+      PAN_DRIFT_TIME_CONSTANT_SEC,
+    );
+    this.padPanR.pan.setTargetAtTime(panValue, t0, PAN_DRIFT_TIME_CONSTANT_SEC);
     this.bellPan.pan.setTargetAtTime(
       Math.sin(this.state.panDriftPhase * 1.3) * 0.15,
       t0,
-      0.1,
+      PAN_DRIFT_TIME_CONSTANT_SEC,
     );
 
     for (const event of events) {
@@ -744,17 +749,20 @@ export class LiveEngine {
       );
       osc.detune.setValueAtTime(event.detuneCents ?? 0, t0);
       osc.connect(filter);
-      // ponytail: explicit setValueAtTime(0, t0) anchors gain to silence before
-      // osc.start(t0), so the setTargetAtTime(event.amp, ...) fade below starts
-      // from 0 instead of GainNode's implicit default of 1 — was producing a
-      // full-volume pop the instant a drone layer was added. Must run for every
-      // new oscillator regardless of timbre, so it sits above the modOsc check,
-      // not inside it (fm-only placement would leave sine/triangle/softsq
-      // layers — most of them — still popping). Ceiling: only covers oscillator
-      // creation through this branch; any future code path that starts a drone
-      // oscillator outside this if-block needs the same pre-anchor-to-0 or the
-      // pop comes back.
-      gain.gain.setValueAtTime(0, t0);
+
+      // ponytail: no explicit gain anchor here — the fade-in below inherits
+      // whatever value is currently on this gain node (0 for a first-ever use
+      // per the constructor default, or the interpolated residual for a
+      // reused layer index), which is correct in both cases because
+      // setTargetAtTime continues smoothly from the node's current value. The
+      // real remaining gap: stopDroneLayers() nulls droneOscs[i] synchronously
+      // even though the old oscillator's osc.stop(t0 + 0.25) hasn't fired yet,
+      // so a restart inside that 0.25s window creates a second overlapping
+      // oscillator via the create branch instead of retargeting the one still
+      // fading out via the update branch. Upgrade path: don't null droneOscs[i]
+      // until the old oscillator's onended fires, so fast restarts route
+      // through the update branch instead.
+
       if (modOsc) {
         modOsc.start(t0);
         this.droneModOscs[layerIndex] = modOsc;
