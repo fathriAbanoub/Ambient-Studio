@@ -52,6 +52,8 @@
  *       useAudioEngine routing the output through a shared master gain),
  *       this.out connects to it instead of ctx.destination. Falls back to
  *       ctx.destination to preserve existing behaviour when omitted.
+ *   ✅ REFACTOR (cancelAndHold): Private cancelAndHold() method removed;
+ *       now imports the shared primitive from ./scheduling.
  *
  * Layered additions (swing / sidechain / beatless drone latch reset):
  *   ✅ ADD (scheduling helpers): Imports getSubBeatEventTime() and
@@ -107,8 +109,10 @@ import {
   type DecodedSampleBank,
 } from "./sampleBank";
 import {
+  cancelAndHold,
   getSidechainDuckShape,
   getSubBeatEventTime,
+  PAN_DRIFT_TIME_CONSTANT_SEC,
   resolveToneEnvelope,
   TONAL_BUS_GAIN,
 } from "./scheduling";
@@ -121,8 +125,9 @@ const FM_INDEX = 1.8;
 const SAMPLE_FADE_SEC = 0.01;
 // CodeRabbit nitpick: DRONE_FADE_SEC now imported from musicalLogic.ts
 // (single source of truth shared with renderAmbient).
-// TONAL_BUS_GAIN is imported from ./scheduling (single source of truth
-// shared with renderAmbient) — see scheduling.ts for why it lives there.
+// TONAL_BUS_GAIN and PAN_DRIFT_TIME_CONSTANT_SEC are imported from
+// ./scheduling (single source of truth shared with renderAmbient) — see
+// scheduling.ts for why they live there.
 
 export class LiveEngine {
   ctx: AudioContext;
@@ -471,53 +476,26 @@ export class LiveEngine {
    * Accept the divergence — both shells already diverge similarly on
    * drone-fade shape, see renderAmbient.scheduleDrone.
    */
+  // ponytail: setTargetAtTime (0.1s time constant) replaces setValueAtTime on
+  // delay.delayTime/fb.gain, which stepped instantly on every setMix() call
+  // (once per beat during scene crossfades) — a hard jump inside a feedback
+  // loop, so it echoed and repeated as a background crackle. Ceiling: 0.1s
+  // was picked to sound right, not derived from the delay line's feedback
+  // characteristics — if a still-audible artifact shows up at fast mix
+  // automation rates, retune this constant, don't revert to setValueAtTime.
   setMix(mix: number, t0?: number): void {
     if (this.disposed) return;
     this.params.mix = mix;
     const startTime = t0 ?? this.ctx.currentTime;
-    this.delay.delayTime.setValueAtTime(0.3 + 0.4 * mix, startTime);
-    this.fb.gain.setValueAtTime(0.2 + 0.5 * mix, startTime);
+    this.delay.delayTime.setTargetAtTime(0.3 + 0.4 * mix, startTime, 0.1);
+    this.fb.gain.setTargetAtTime(0.2 + 0.5 * mix, startTime, 0.1);
     const cutoff = 5000 + mix * 4000;
     // Hold the previous automation at startTime so the new ramp anchors to
     // the actual current automated value, not the stale .value target. See
     // cancelAndHold()'s doc comment for the fallback rationale.
     const freqParam = this.filter.frequency;
-    this.cancelAndHold(freqParam, startTime);
+    cancelAndHold(freqParam, startTime);
     freqParam.linearRampToValueAtTime(cutoff, startTime + 0.5);
-  }
-
-  /**
-   * Cancels all scheduled future automation on `param` and holds its value
-   * at `t`, so a subsequent setValueAtTime/linearRampToValueAtTime call
-   * anchors to what the param actually was at `t` instead of jumping to
-   * whatever target a prior, now-superseded ramp was heading toward.
-   *
-   * cancelAndHoldAtTime is the spec-correct primitive for this but shipped
-   * late in Firefox (v92, Sep 2021) — older Firefox and any engine missing
-   * it would throw TypeError. Feature-detect at runtime and fall back to
-   * cancelScheduledValues + setValueAtTime(.value, t), which is lossy
-   * (jumps to the last explicit target rather than the true interpolated
-   * value — Web Audio has no public API to read the interpolated value) but
-   * never crashes and keeps the caller's next automation call anchored to
-   * *something* deterministic.
-   *
-   * Used by setMix() (filter cutoff ramp) and stopDroneLayers() (gain
-   * fade-to-zero, which must cancel any look-ahead-scheduled
-   * setTargetAtTime(event.amp, futureT0, ...) calls queued by playDrone()
-   * before the fade-to-zero, or the drone can audibly blip back up mid-fade).
-   *
-   * ponytail: this fallback's jump-back-to-target is audible if a previous
-   * ramp was mid-flight; upgrading means dropping support for engines
-   * without cancelAndHoldAtTime, since there's no public API to read the
-   * true interpolated value to polyfill it properly.
-   */
-  private cancelAndHold(param: AudioParam, t: number): void {
-    if (typeof param.cancelAndHoldAtTime === "function") {
-      param.cancelAndHoldAtTime(t);
-    } else {
-      param.cancelScheduledValues(t);
-      param.setValueAtTime(param.value, t);
-    }
   }
 
   setBpm(bpm: number): void {
@@ -595,13 +573,23 @@ export class LiveEngine {
 
     const beatSec = 60 / preTickParams.bpm;
     const sixteenthSec = beatSec / 4;
-
+    // ponytail: setTargetAtTime with PAN_DRIFT_TIME_CONSTANT_SEC replaces
+    // setValueAtTime on the pad/bell pan drift. Pan events fire once per
+    // beat, but stepping them instantly with setValueAtTime caused audible
+    // zipper noise under sustained pad/bell notes. The 0.1s time constant
+    // smooths the per-beat transitions; the constant is shared with
+    // renderAmbient so live and offline panning stay identical.
     const panValue = Math.sin(this.state.panDriftPhase) * 0.1;
-    this.padPanL.pan.setValueAtTime(-panValue, t0);
-    this.padPanR.pan.setValueAtTime(panValue, t0);
-    this.bellPan.pan.setValueAtTime(
+    this.padPanL.pan.setTargetAtTime(
+      -panValue,
+      t0,
+      PAN_DRIFT_TIME_CONSTANT_SEC,
+    );
+    this.padPanR.pan.setTargetAtTime(panValue, t0, PAN_DRIFT_TIME_CONSTANT_SEC);
+    this.bellPan.pan.setTargetAtTime(
       Math.sin(this.state.panDriftPhase * 1.3) * 0.15,
       t0,
+      PAN_DRIFT_TIME_CONSTANT_SEC,
     );
 
     for (const event of events) {
@@ -710,15 +698,9 @@ export class LiveEngine {
    * shell-side helper from ./scheduling) and applies a 3-segment gain
    * automation on this.gain.gain:
    *
-   *   1. setValueAtTime(TONAL_BUS_GAIN, t0)           — anchor to steady level
+   *   1. cancelAndHold(param, t0)                      — anchor to current value
    *   2. linearRampToValueAtTime(ducked, attackTime)   — duck over 10ms
    *   3. linearRampToValueAtTime(TONAL_BUS_GAIN, releaseTime) — return over 180ms
-   *
-   * cancelScheduledValues(t0) first so any in-flight setMix() ramp on the
-   * filter (separate param) or any prior sidechain curve doesn't fight this
-   * one. We don't use cancelAndHold here because we explicitly want to
-   * reset to TONAL_BUS_GAIN at t0 — the duck is a per-kick absolute shape,
-   * not a relative continuation.
    *
    * Why this.gain and not this.out: this.gain is the tonal bus that feeds
    * the delay/feedback/filter chain and then into this.out. Ducking this.out
@@ -727,19 +709,21 @@ export class LiveEngine {
    * The drum bus joins the graph at this.out, downstream of this.gain, so
    * ducking this.gain leaves drums untouched.
    *
-   * ponytail: cancelScheduledValues(t0) on this.gain.gain will also wipe
-   * any queued setMix() ramp on this.gain? No — setMix() automates
-   * this.filter.frequency, this.delay.delayTime, and this.fb.gain, NOT
-   * this.gain.gain. So this is safe. If a future change moves mix onto
-   * this.gain, this cancel call would need to switch to cancelAndHold.
+   * ponytail: switched from cancelScheduledValues()+setValueAtTime(TONAL_BUS_GAIN, t0)
+   * to cancelAndHold(param, t0), so an overlapping kick anchors its duck ramp
+   * to gain's true current value instead of forcibly jumping to TONAL_BUS_GAIN
+   * first — that jump was the click when kicks arrived faster than the
+   * previous duck's release. Ceiling: cancelAndHold() falls back to a lossy
+   * jump-to-last-target on engines without cancelAndHoldAtTime (see that
+   * method's own doc comment), so this exact click can still happen there on
+   * fast overlapping kicks — same upgrade path noted in cancelAndHold() itself.
    */
   private applySidechain(t0: number): void {
     const shape = getSidechainDuckShape(t0, this.params.sidechainAmount);
     if (!shape) return;
 
     const param = this.gain.gain;
-    param.cancelScheduledValues(t0);
-    param.setValueAtTime(TONAL_BUS_GAIN, t0);
+    cancelAndHold(param, t0);
     param.linearRampToValueAtTime(
       TONAL_BUS_GAIN * shape.duckGainMultiplier,
       shape.attackTime,
@@ -765,6 +749,20 @@ export class LiveEngine {
       );
       osc.detune.setValueAtTime(event.detuneCents ?? 0, t0);
       osc.connect(filter);
+
+      // ponytail: no explicit gain anchor here — the fade-in below inherits
+      // whatever value is currently on this gain node (0 for a first-ever use
+      // per the constructor default, or the interpolated residual for a
+      // reused layer index), which is correct in both cases because
+      // setTargetAtTime continues smoothly from the node's current value. The
+      // real remaining gap: stopDroneLayers() nulls droneOscs[i] synchronously
+      // even though the old oscillator's osc.stop(t0 + 0.25) hasn't fired yet,
+      // so a restart inside that 0.25s window creates a second overlapping
+      // oscillator via the create branch instead of retargeting the one still
+      // fading out via the update branch. Upgrade path: don't null droneOscs[i]
+      // until the old oscillator's onended fires, so fast restarts route
+      // through the update branch instead.
+
       if (modOsc) {
         modOsc.start(t0);
         this.droneModOscs[layerIndex] = modOsc;
@@ -825,7 +823,7 @@ export class LiveEngine {
         // t0 + 50ms), causing the drone to blip back to its sustain level
         // before osc.stop(t0 + 0.25) silences it. See cancelAndHold()'s doc
         // comment for the fallback rationale.
-        this.cancelAndHold(gainParam, t0);
+        cancelAndHold(gainParam, t0);
         gainParam.setTargetAtTime(0, t0, 0.1);
       }
       for (const osc of [

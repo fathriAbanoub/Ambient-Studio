@@ -1,6 +1,5 @@
 /**
  * musicalLogic.ts — Pure musical decision engine for ambient music generation.
- *
  * ZERO Web Audio API dependencies. Importable in Node.js with no polyfills.
  * All randomness flows through mulberry32 seeded PRNG — fully deterministic.
  *
@@ -9,12 +8,12 @@
  * Both LiveEngine (real-time) and renderAmbient (offline) call this function.
  *
  * RNG ORDER (must match original engine.ts constructor + tick() exactly):
- *   1. createInitialState() sets rngState = seed
- *   2. advanceRngPastNoiseBuffer() consumes ~22,050 calls (matching createNoiseBuffer)
- *   3. initializeBell() consumes 1 call (nextBellBeat)
- *   4. initializeSampleLane() consumes 1 call only when sampleBank contains an
- *      entry that passes playableSampleEntries() validation
- *   5. getMusicalEvents() per-beat calls follow
+ * - createInitialState() sets rngState = seed
+ * - advanceRngPastNoiseBuffer() consumes ~22,050 calls (matching createNoiseBuffer)
+ * - initializeBell() consumes 1 call (nextBellBeat)
+ * - initializeSampleLane() consumes 1 call only when sampleBank contains an
+ *   entry that passes playableSampleEntries() validation
+ * - getMusicalEvents() per-beat calls follow
  *
  * HARMONIC SLEW: This module only tracks targetRootHz changes.
  * The 600ms linear slew is handled by the synthesis shells (LiveEngine,
@@ -22,51 +21,46 @@
  *
  * Fixes applied:
  *   ✅ FIX (default-enabled flags): enableScenes and enableHarmonicLoop are
- *       documented as default true, but the guards used truthy checks
- *       (`!params.enableScenes` / `!params.enableHarmonicLoop`) which
- *       evaluated to true when the field was omitted (undefined), disabling
- *       the behavior. Switched to explicit `=== false` checks so callers
- *       that omit these optional fields get the documented default-enabled
- *       behavior. Affected: updateSceneEngine(), updateHarmonicLoop(),
- *       getEffectiveSceneParams().
+ *     documented as default true, but the guards used truthy checks
+ *     (`!params.enableScenes` / `!params.enableHarmonicLoop`) which
+ *     evaluated to true when the field was omitted (undefined), disabling
+ *     the behavior. Switched to explicit `=== false` checks so callers
+ *     that omit these optional fields get the documented default-enabled
+ *     behavior. Affected: updateSceneEngine(), updateHarmonicLoop(),
+ *     getEffectiveSceneParams().
  *   ✅ FIX (beat-0 harmonic advance): updateHarmonicLoop() previously
- *       advanced harmonicLoopIndex on beat 0 because barCount=0 satisfies
- *       `barCount % 8 === 0 && beat % 4 === 0`. This skipped the initial
- *       root segment that createInitialState() set up (harmonicLoopIndex=0,
- *       targetRootHz=params.rootHz, typically A3=220Hz). Added a
- *       `state.beat > 0` guard so the loop only advances after the first
- *       beat cycle has begun — the first advance now fires at beat 32
- *       (bar 8) instead of beat 0. harmonicLoopIndex and targetRootHz
- *       update behavior is unchanged.
+ *     advanced harmonicLoopIndex on beat 0 because barCount=0 satisfies
+ *     `barCount % 8 === 0 && beat % 4 === 0`. This skipped the initial
+ *     root segment that createInitialState() set up (harmonicLoopIndex=0,
+ *     targetRootHz=params.rootHz, typically A3=220Hz). Added a
+ *     `state.beat > 0` guard so the loop only advances after the first
+ *     beat cycle has begun — the first advance now fires at beat 32
+ *     (bar 8) instead of beat 0. harmonicLoopIndex and targetRootHz
+ *     update behavior is unchanged.
  *
  * Layered additions (swing / drumStyle / sidechain / beatless drone latch):
  *   ✅ ADD (DrumStyle): New `DrumStyle` named type — `"euclideanTrap" |
- *       "fourFloor"`. Surfaced as a public type export so callers (and
- *       index.ts) can name it without re-declaring the literal union.
+ *     "fourFloor"`. Surfaced as a public type export so callers (and
+ *     index.ts) can name it without re-declaring the literal union.
  *   ✅ ADD (EngineParams swing / drumStyle / sidechainAmount): Three new
- *       optional fields. `swing` (0..0.6) and `sidechainAmount` (0..1) are
- *       pure values — they are NOT consumed inside this module. The
- *       synthesis shells (LiveEngine, renderAmbient) read them and apply
- *       them at the `subBeatIndex → eventTime` conversion (swing) and on
- *       the tonal-bus gain (sidechain). Keeping them on EngineParams means
- *       a single object describes the musical request end-to-end.
+ *     optional fields. `swing` (0..0.6) and `sidechainAmount` (0..1) are
+ *     pure values — they are NOT consumed inside this module. The
+ *     synthesis shells (LiveEngine, renderAmbient) read them and apply
+ *     them at the `subBeatIndex → eventTime` conversion (swing) and on
+ *     the tonal-bus gain (sidechain). Keeping them on EngineParams means
+ *     a single object describes the musical request end-to-end.
  *   ✅ ADD (EngineState.droneLayersStarted): New boolean latch. In beatless
- *       mode (`enableBeats === false`) the engine now emits drone events
- *       exactly once per layer (on the first beatless beat) and then
- *       latches. The synthesis shells reset this flag on `start()` (live)
- *       and on the `startState` clone (offline) so a stopped/restarted
- *       beatless playback re-fires the drone oscillators. In beat-enabled
- *       mode the flag is unused — drones are re-emitted every beat there
- *       so the shells can re-trigger amp/pan/filter automation.
+ *     mode (`enableBeats === false`) the engine now emits drone events
+ *     exactly once per layer (on the first beatless beat) and then
+ *     latches. The synthesis shells reset this flag on `start()` (live)
+ *     and on the `startState` clone (offline) so a stopped/restarted
+ *     beatless playback re-fires the drone oscillators. In beat-enabled
+ *     mode the flag is unused — drones are re-emitted every beat there
+ *     so the shells can re-trigger amp/pan/filter automation.
  *   ✅ ADD (fourFloor kicks): `drumStyle === "fourFloor"` fires a kick on
- *       every quarter note (subBeatIndex 0 of each beat). The original
- *       `euclideanTrap` behavior (5/16 euclidean pattern) is preserved as
- *       the default when `drumStyle` is omitted.
- *   ✅ ADD (self-checks): Two runnable IIFE assertions at the bottom — one
- *       for the one-shot beatless drone count, one for the fourFloor kick
- *       count. These are layered on top of the existing test-file comment
- *       (which still applies to the broader determinism / scale-interval
- *       suite in musicalLogic.test.ts).
+ *     every quarter note (subBeatIndex 0 of each beat). The original
+ *     `euclideanTrap` behavior (5/16 euclidean pattern) is preserved as
+ *     the default when `drumStyle` is omitted.
  */
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -228,11 +222,11 @@ export const SCALE_INTERVALS: Record<ScaleName, readonly number[]> = {
 // preallocated drone panner/gain/filter arrays in LiveEngine and renderAmbient.
 export const MAX_DRONE_LAYERS = 8;
 
-// CodeRabbit nitpick: DRONE_FADE_SEC was duplicated between LiveEngine and
-// renderAmbient, allowing live and offline fade shapes to diverge silently.
-// Single source of truth here, imported by both shells. The value (1.0s) is
-// the fade duration used by both the attack (setTargetAtTime with time
-// constant DRONE_FADE_SEC / 3) and the offline release ramp.
+// DRONE_FADE_SEC was duplicated between LiveEngine and renderAmbient,
+// allowing live and offline fade shapes to diverge silently. Single source
+// of truth here, imported by both shells. The value (1.0s) is the fade
+// duration used by both the attack (setTargetAtTime with time constant
+// DRONE_FADE_SEC / 3) and the offline release ramp.
 export const DRONE_FADE_SEC = 1.0;
 
 const BEATS_PER_BAR = 4;
@@ -240,20 +234,16 @@ const BAR_LENGTH = 8;
 const BASS_HITS = 3;
 const CADENCE_INTERVAL = 16;
 const PHRASE_LENGTH = 32;
-
 const DRUM_GHOST_PROBABILITY = 0.25;
 const DRUM_SNARE_AMP = 0.45;
 const DRUM_KICK_AMP = 0.6;
 const DRUM_HAT_AMP = 0.25;
 const DRUM_HAT_CLOSED_PROB = 0.85;
-
 const SAMPLE_TRIGGER_PROBABILITY = 0.35;
 const SAMPLE_MIN_GAP_BEATS = 8;
 const SAMPLE_JITTER_BEATS = 9;
 const SAMPLE_DEFAULT_GAIN = 0.25;
-
 export const NOISE_BUFFER_SAMPLES = 22050; // sampleRate(44100) * 0.5s — must match synthesis shells
-
 const ROOT_LOOP_HZ = [220, 185, 147, 165]; // A3 → F#3 → D3 → E3
 
 export interface Scene {
@@ -386,7 +376,6 @@ function droneEvents(
     ) {
       return [];
     }
-
     const detuneCents = layer.detuneCents;
     const sweepSec = layer.sweepSec;
     return [
@@ -442,7 +431,6 @@ function maybeSampleEvent(
 ): MusicalEvent[] {
   const samples = playableSampleEntries(params.sampleBank);
   if (samples.length === 0 || state.beat < state.nextSampleBeat) return [];
-
   const events: MusicalEvent[] = [];
   // ponytail: one sparse global sample lane with fixed probability/gap;
   // upgrading means per-sample probabilities, duration metadata, and overlap policy.
@@ -461,7 +449,6 @@ function maybeSampleEvent(
       subBeatIndex: 0,
     });
   }
-
   state.nextSampleBeat =
     state.beat + SAMPLE_MIN_GAP_BEATS + Math.floor(rng() * SAMPLE_JITTER_BEATS);
   return events;
@@ -507,14 +494,11 @@ export function updateSceneEngine(
   // default-enabled behavior. Previously `!params.enableScenes` was true
   // when the field was undefined, disabling scenes silently.
   if (params.enableScenes === false) return { params, state: {} };
-
   const barCount = Math.floor(state.beat / BEATS_PER_BAR);
   const sceneDurationBars = params.sceneDurationBars ?? 32;
   const scenes = getScenePackScenes(params);
-
   let newSceneIndex = state.currentSceneIndex % scenes.length;
   let newSceneStartBeat = state.sceneStartBeat;
-
   // A2: use computeSceneProgress for the transition boundary check so the
   // floor-of-sceneStartBeat lives in one place. The check compares the
   // unclamped bar count delta against sceneDurationBars; the helper clamps
@@ -524,7 +508,6 @@ export function updateSceneEngine(
     newSceneIndex = (newSceneIndex + 1) % scenes.length;
     newSceneStartBeat = state.beat;
   }
-
   const currentScene = scenes[newSceneIndex];
   const nextScene = scenes[(newSceneIndex + 1) % scenes.length];
   const progress = computeSceneProgress(
@@ -536,7 +519,6 @@ export function updateSceneEngine(
     progress < 0.5
       ? 2 * progress * progress
       : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-
   const newParams = { ...params };
   newParams.bpm = currentScene.bpm + (nextScene.bpm - currentScene.bpm) * t;
   newParams.mix = currentScene.mix + (nextScene.mix - currentScene.mix) * t;
@@ -547,7 +529,6 @@ export function updateSceneEngine(
     currentScene.density + (nextScene.density - currentScene.density) * t;
   newParams.scale = progress < 0.5 ? currentScene.scale : nextScene.scale;
   const newTimbre = progress < 0.5 ? currentScene.timbre : nextScene.timbre;
-
   return {
     params: newParams,
     state: {
@@ -589,9 +570,7 @@ function updateHarmonicLoop(
       currentRootHz: params.rootHz,
     };
   }
-
   const barCount = Math.floor(state.beat / BEATS_PER_BAR);
-
   // ✅ FIX (beat-0 harmonic advance): `state.beat > 0` prevents the first
   // beat from advancing the loop. The boundary check still fires every 8
   // bars (beat 32, 64, 96, ...), preserving the original cadence after
@@ -611,7 +590,6 @@ function updateHarmonicLoop(
       };
     }
   }
-
   return {};
 }
 
@@ -639,6 +617,7 @@ export function getMusicalEvents(
   s.panDriftPhase += 0.01;
 
   const beatSec = 60 / effectiveParams.bpm;
+
   // currentRootHz is owned by synthesis shell; musicalLogic uses it read-only for note freq
   const currentRootHz = s.currentRootHz;
   const currentScaleName = effectiveParams.scale;
@@ -646,6 +625,7 @@ export function getMusicalEvents(
   const currentTimbre = s.currentTimbre;
   const currentDensity = s.currentDensity;
   const drumLevel = effectiveParams.drumLevel ?? 0.5;
+
   // ✅ ADD (fourFloor): resolve the drum style once. Default keeps the
   // original 5/16 euclidean kick pattern. "fourFloor" fires a kick on
   // every quarter note (subBeatIndex 0 of each beat).
@@ -673,9 +653,11 @@ export function getMusicalEvents(
   }
 
   // Emit configured drone layers in beat-enabled mode every beat so the
-  // synthesis shells can re-trigger amp/pan/filter automation. (LiveEngine
-  // updates existing oscillator frequency/detune in playDrone(); renderAmbient
-  // ignores re-emitted layers via its scheduledLayers set.)
+  // synthesis shells can re-trigger amp/pan/filter automation. Both
+  // LiveEngine.playDrone() and renderAmbient.scheduleDrone() now re-anchor
+  // the gain envelope and update frequency/detune/pan/filter on every event
+  // for a layer; renderAmbient's scheduledLayers set only gates whether a
+  // new oscillator gets created, not whether the event is processed.
   //
   // ✅ ADD (latch reset for beatless ↔ beat-enabled transitions): Reset the
   // beatless drone latch here so a future toggle of enableBeats from true →
@@ -692,7 +674,6 @@ export function getMusicalEvents(
   // 4. Drums — FIX C1: set subBeatIndex (0–3) on each drum event
   for (let i = 0; i < 4; i++) {
     const sixteenthStep = s.sixteenthCount + i;
-
     // ✅ ADD (fourFloor): "fourFloor" fires a kick on every quarter note
     // (i === 0). "euclideanTrap" preserves the original 5/16 euclidean
     // kick pattern. Both branch on `drumLevel > 0` identically below.
@@ -700,7 +681,6 @@ export function getMusicalEvents(
       drumStyle === "fourFloor"
         ? i === 0
         : euclideanRhythm(sixteenthStep % 16, 5, 16);
-
     if (drumLevel > 0 && shouldKick) {
       events.push({
         type: "kick",
@@ -711,7 +691,6 @@ export function getMusicalEvents(
         subBeatIndex: i, // FIX C1
       });
     }
-
     if (drumLevel > 0) {
       const beatStep = sixteenthStep % 16;
       if (beatStep === 4 || beatStep === 12) {
@@ -739,7 +718,6 @@ export function getMusicalEvents(
         });
       }
     }
-
     if (drumLevel > 0 && euclideanRhythm(sixteenthStep % 16, 9, 16)) {
       const isClosed = rng() < DRUM_HAT_CLOSED_PROB;
       events.push({
@@ -901,9 +879,9 @@ export function createInitialState(params: EngineParams): EngineState {
  * the original engine.ts createNoiseBuffer() which consumed from the same
  * this.rng() stream. This must be called after createInitialState() and
  * before initializeBell(), matching original constructor order:
- *   1. this.rng = mulberry32(seed)
- *   2. this.noiseBuffer = this.createNoiseBuffer()  ← ~22k calls
- *   3. this.nextBellBeat = Math.floor(this.rng() * 8) + 8  ← 1 call
+ *   this.rng = mulberry32(seed)
+ *   this.noiseBuffer = this.createNoiseBuffer()  ← ~22k calls
+ *   this.nextBellBeat = Math.floor(this.rng() * 8) + 8  ← 1 call
  */
 export function advanceRngPastNoiseBuffer(state: EngineState): EngineState {
   const s = { ...state };
@@ -975,11 +953,9 @@ export function getEffectiveSceneParams(
       complexity: params.complexity,
     };
   }
-
   const sceneDurationBars = params.sceneDurationBars ?? 32;
   const scenes = getScenePackScenes(params);
   const barCount = Math.floor(state.beat / BEATS_PER_BAR);
-
   // A2: mirror updateSceneEngine's transition check exactly, using the same
   // floor-of-sceneStartBeat step. After a transition, sceneStartBeat becomes
   // barCount * BEATS_PER_BAR so progress recomputes to 0.
@@ -989,7 +965,6 @@ export function getEffectiveSceneParams(
     sceneIndex = (sceneIndex + 1) % scenes.length;
     sceneStartBar = barCount;
   }
-
   const currentScene = scenes[sceneIndex];
   const nextScene = scenes[(sceneIndex + 1) % scenes.length];
   const progress = computeSceneProgress(
@@ -1001,7 +976,6 @@ export function getEffectiveSceneParams(
     progress < 0.5
       ? 2 * progress * progress
       : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-
   // B2: surface scale and complexity so LiveEngine.tick() can write them
   // back into this.params for UI display. density and timbre are already on
   // EngineState (currentDensity/currentTimbre) and don't need to round-trip
@@ -1020,11 +994,11 @@ export function getEffectiveSceneParams(
 // They were previously self-executing IIFEs at the bottom of this file,
 // which meant they shipped in every build and ran on every import. Moving
 // them to a real test file also fixed a recurring problem: a hardcoded
-// scale-interval oracle table here kept getting flagged by SonarCloud as
-// duplicating SCALE_INTERVALS, "fixed" by referencing SCALE_INTERVALS
-// directly (which made the test tautological — it could never fail), then
-// flagged again for that. Test files are excluded from duplication
-// analysis, so the oracle table can safely live there permanently.
+// scale-interval oracle table here kept being treated as a duplicate of
+// SCALE_INTERVALS, "fixed" by referencing SCALE_INTERVALS directly (which
+// made the test tautological — it could never fail), then flagged again for
+// that. Test files are excluded from duplication analysis, so the oracle
+// table can safely live there permanently.
 //
 // The new beatless-drone-latch and fourFloor-kick self-checks also live in
 // musicalLogic.test.ts — see the "beatless mode" and "drum styles"
