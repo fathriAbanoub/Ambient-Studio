@@ -43,6 +43,16 @@
  *       tracking the full piecewise curve (exponential approach + sustain +
  *       release) in DroneCurveState so the Firefox fallback anchors to the
  *       true automated value at the re-anchor time.
+ *   ✅ ADD (SynthGraph): scheduleEvent()'s loose audio-graph/buffer params
+ *       are bundled into one struct that also carries DroneGraph and
+ *       droneStopTime, dropping the signature from 14 positional params to
+ *       6. The grouping is structural — no behaviour change.
+ *   ✅ FIX (drone sustain anchor): the sustain setValueAtTime now anchors to
+ *       the exponential approach's actual value at sustainTime — the same
+ *       value stored in DroneCurveState.sustainValue — instead of event.amp.
+ *       The approach has only partially closed the gap by then (worst case 3
+ *       time constants ≈ 95%), so pinning event.amp there stepped the gain
+ *       audibly on a layer's final scheduled event.
  */
 
 import {
@@ -69,7 +79,9 @@ import {
 } from "./sampleBank";
 import {
   cancelAndHold,
+  type DroneCurveState,
   evaluateDroneEnvelope,
+  evaluateExponentialApproach,
   getSidechainDuckShape,
   getSubBeatEventTime,
   PAN_DRIFT_TIME_CONSTANT_SEC,
@@ -90,8 +102,8 @@ const DRONE_TAIL_SEC = 0.05;
 const DRONE_RELEASE_SILENCE_GAIN = 0.0001;
 // PAN_DRIFT_TIME_CONSTANT_SEC is imported from ./scheduling (single source
 // of truth shared with LiveEngine.tick()).
-// CodeRabbit nitpick: DRONE_FADE_SEC now imported from musicalLogic.ts
-// (single source of truth shared with LiveEngine).
+// DRONE_FADE_SEC is imported from musicalLogic.ts (single source of truth
+// shared with LiveEngine).
 // TONAL_BUS_GAIN is imported from ./scheduling (single source of truth
 // shared with LiveEngine) — see scheduling.ts for why it lives there.
 
@@ -100,20 +112,8 @@ export interface RenderProgress {
   percent: number;
 }
 
-// Tracks the piecewise gain-automation curve for one drone layer so the
-// Firefox cancelAndHold fallback can anchor to the true automated value at a
-// re-anchor time instead of a stale stored target. Fields are populated by
-// scheduleDrone() every beat and read back by evaluateDroneEnvelope().
-interface DroneCurveState {
-  fromValue: number;
-  toValue: number;
-  startTime: number;
-  timeConstant: number;
-  sustainTime: number | null;
-  sustainValue: number;
-  releaseEndTime: number;
-  releaseTarget: number;
-}
+// DroneCurveState is imported from ./scheduling (single source of truth
+// with evaluateDroneEnvelope, which consumes it) — see scheduling.ts.
 
 // Per-render sidechain automation tracker. Mirrors DroneCurveState: records
 // the attack and release segments scheduled by the most recent kick so the
@@ -292,6 +292,29 @@ export async function renderAmbient(
     releaseEndV: TONAL_BUS_GAIN,
   };
 
+  // ✅ ADD (SynthGraph): the graph struct shared by every scheduleEvent()
+  // call in the beat loop — built once, outside the loop.
+  const droneGraph: DroneGraph = {
+    pans: dronePans,
+    gains: droneGains,
+    filters: droneFilters,
+    oscs: droneOscs,
+    modOscs: droneModOscs,
+    curves: droneCurves,
+    scheduledLayers: scheduledDroneLayers,
+  };
+  const synthGraph: SynthGraph = {
+    mainGain: gain,
+    drumBus,
+    noiseBuffer,
+    sampleBuffers,
+    padPanL,
+    padPanR,
+    bellPan,
+    droneGraph,
+    droneStopTime: targetEndTime,
+  };
+
   while (currentTime < targetEndTime && beatIndex < maxBeats) {
     const slewedRootHz = getSlewedHz(
       currentTime,
@@ -363,23 +386,7 @@ export async function renderAmbient(
         offlineCtx,
         event,
         eventTime,
-        gain,
-        drumBus,
-        noiseBuffer,
-        sampleBuffers,
-        padPanL,
-        padPanR,
-        bellPan,
-        {
-          pans: dronePans,
-          gains: droneGains,
-          filters: droneFilters,
-          oscs: droneOscs,
-          modOscs: droneModOscs,
-          curves: droneCurves,
-          scheduledLayers: scheduledDroneLayers,
-        },
-        targetEndTime,
+        synthGraph,
         // ✅ ADD (sidechain): pass the sidechain amount so kick events can
         // duck the tonal bus. scheduleEvent forwards it to scheduleSidechain.
         effectiveParams.sidechainAmount,
@@ -487,24 +494,44 @@ interface DroneGraph {
   scheduledLayers: Set<number>;
 }
 
+// scheduleEvent's remaining loose params — the shared audio-graph nodes and
+// buffers every event type draws from — are bundled into a single SynthGraph
+// (which also carries the drone layer graph and the drones' stop time) so
+// the signature stays manageable. The grouping is structural — no behaviour
+// change.
+interface SynthGraph {
+  mainGain: GainNode;
+  drumBus: GainNode;
+  noiseBuffer: AudioBuffer;
+  sampleBuffers: DecodedSampleBank;
+  padPanL: StereoPannerNode;
+  padPanR: StereoPannerNode;
+  bellPan: StereoPannerNode;
+  droneGraph: DroneGraph;
+  droneStopTime: number;
+}
+
 function scheduleEvent(
   ctx: OfflineAudioContext,
   event: MusicalEvent,
   t0: number,
-  mainGain: GainNode,
-  drumBus: GainNode,
-  noiseBuffer: AudioBuffer,
-  sampleBuffers: DecodedSampleBank,
-  padPanL: StereoPannerNode,
-  padPanR: StereoPannerNode,
-  bellPan: StereoPannerNode,
-  droneGraph: DroneGraph,
-  droneStopTime: number,
+  graph: SynthGraph,
   // ✅ ADD (sidechain): passed through to scheduleSidechain() on kick
   // events. Optional — undefined/0 leaves the tonal bus untouched.
   sidechainAmount: number | undefined,
   sidechainTracker: SidechainTracker,
 ): void {
+  const {
+    mainGain,
+    drumBus,
+    noiseBuffer,
+    sampleBuffers,
+    padPanL,
+    padPanR,
+    bellPan,
+    droneGraph,
+    droneStopTime,
+  } = graph;
   switch (event.type) {
     case "kick":
       scheduleKick(ctx, t0, event.amp, drumBus);
@@ -669,17 +696,7 @@ function scheduleDrone(
   const curve = droneGraph.curves[layerIndex];
   let fallbackValue = 0;
   if (curve) {
-    fallbackValue = evaluateDroneEnvelope(
-      curve.fromValue,
-      curve.toValue,
-      curve.startTime,
-      curve.timeConstant,
-      curve.sustainTime,
-      curve.sustainValue,
-      curve.releaseEndTime,
-      curve.releaseTarget,
-      t0,
-    );
+    fallbackValue = evaluateDroneEnvelope(curve, t0);
   }
   cancelAndHold(gainParam, t0, fallbackValue);
 
@@ -758,9 +775,25 @@ function scheduleDrone(
   // rendered curve is a straight line from the anchored value at t0 to the
   // release target at stopTime, which evaluateDroneEnvelope's null-sustain
   // branch models exactly.
+  //
+  // When the sustain IS scheduled it must anchor to the approach's actual
+  // value at sustainTime, not to event.amp: by then the exponential approach
+  // has only partially closed the gap (worst case 3 time constants ≈ 95%),
+  // so pinning event.amp there would step the gain audibly on the layer's
+  // final scheduled event (earlier events are cancelled and replaced by the
+  // next beat's cancelAndHold before the sustain ever fires). Anchoring both
+  // the automation and the tracked curve to the same value keeps the Firefox
+  // fallback model continuous with the scheduled audio.
   const sustainTime = Math.max(t0 + DRONE_FADE_SEC, stopTime - DRONE_FADE_SEC);
+  const actualSustainValue = evaluateExponentialApproach(
+    fallbackValue,
+    event.amp,
+    t0,
+    timeConstant,
+    sustainTime,
+  );
   if (sustainTime < stopTime) {
-    gainParam.setValueAtTime(event.amp, sustainTime);
+    gainParam.setValueAtTime(actualSustainValue, sustainTime);
   }
   gainParam.linearRampToValueAtTime(DRONE_RELEASE_SILENCE_GAIN, stopTime);
 
@@ -770,7 +803,7 @@ function scheduleDrone(
     startTime: t0,
     timeConstant: timeConstant,
     sustainTime: sustainTime < stopTime ? sustainTime : null,
-    sustainValue: event.amp,
+    sustainValue: actualSustainValue,
     releaseEndTime: stopTime,
     releaseTarget: DRONE_RELEASE_SILENCE_GAIN,
   };
