@@ -223,6 +223,11 @@ def _render_cuda_blocking(
             raise
         log_with_time("✓ Encoder started")
 
+        # Register FFmpeg encoder process for cancellation support
+        # (closes gap before per-frame stop_event checks begin)
+        if job_manager and job_id:
+            job_manager.register_process(job_id, ffmpeg_proc)
+
         # Step 4: Render loop
         log_with_time(f"🎨 Rendering {num_frames} frames...")
         render_start = time.time()
@@ -280,6 +285,9 @@ def _render_cuda_blocking(
         except Exception as e:
             # Log the error but re-raise after cleanup
             log_with_time(f"❌ Render loop error: {e}")
+            # Unregister process on error before re-raising
+            if job_manager and job_id:
+                job_manager.unregister_process(job_id)
             raise
         finally:
             if ffmpeg_proc is not None:
@@ -310,6 +318,10 @@ def _render_cuda_blocking(
         # Wait for FFmpeg to finish encoding
         log_with_time("⏳ Waiting for encoder to finish...")
         returncode = ffmpeg_proc.wait()
+
+        # Unregister process after successful completion
+        if job_manager and job_id:
+            job_manager.unregister_process(job_id)
 
         # NOW clean up CUDA resources, after FFmpeg is completely done
         if renderer is not None:
