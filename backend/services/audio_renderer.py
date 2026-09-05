@@ -42,6 +42,8 @@ class AudioRenderer:
         eq_gains: list[float],
         progress_callback: Optional[Callable[[int], None]] = None,
         render_source_once: bool = False,
+        job_manager: Optional[object] = None,
+        job_id: Optional[str] = None,
     ) -> None:
         """
         Render audio mix synchronously.
@@ -59,6 +61,8 @@ class AudioRenderer:
             master_gain: Master gain multiplier
             eq_gains: 7-band EQ gains in dB
             progress_callback: Optional callback for progress updates (0-100)
+            job_manager: Optional JobManager instance for subprocess registration
+            job_id: Optional job ID string (required if job_manager is provided)
         """
         is_solo_active = any(solo)
 
@@ -201,29 +205,44 @@ class AudioRenderer:
                     universal_newlines=True,
                 )
 
-                # Monitor stderr for progress
-                stderr_buffer = []
-                for line in process.stderr:
-                    stderr_buffer.append(line)
-                    
-                    # Parse progress from stderr
-                    time_match = re.search(r"time=(\d+):(\d+):(\d+\.?\d*)", line)
-                    if time_match:
-                        hours = int(time_match.group(1))
-                        minutes = int(time_match.group(2))
-                        seconds = float(time_match.group(3))
-                        current_time = hours * 3600 + minutes * 60 + seconds
-                        progress = min(100, int((current_time / duration_seconds) * 100))
-                        progress_callback(progress)
+                # Register process for cancellation support (immediately after creation)
+                if job_manager and job_id:
+                    job_manager.register_process(job_id, process)
 
-                process.wait()
+                try:
+                    # Monitor stderr for progress
+                    stderr_buffer = []
+                    for line in process.stderr:
+                        stderr_buffer.append(line)
+                        
+                        # Parse progress from stderr
+                        time_match = re.search(r"time=(\d+):(\d+):(\d+\.?\d*)", line)
+                        if time_match:
+                            hours = int(time_match.group(1))
+                            minutes = int(time_match.group(2))
+                            seconds = float(time_match.group(3))
+                            current_time = hours * 3600 + minutes * 60 + seconds
+                            progress = min(100, int((current_time / duration_seconds) * 100))
+                            progress_callback(progress)
 
-                if process.returncode != 0:
-                    stderr = "".join(stderr_buffer)
-                    logger.error("FFmpeg audio error:\n%s", stderr)
-                    raise RuntimeError(f"FFmpeg audio failed: {stderr[-500:]}")
+                    process.wait()
+
+                    if process.returncode != 0:
+                        stderr = "".join(stderr_buffer)
+                        logger.error("FFmpeg audio error:\n%s", stderr)
+                        raise RuntimeError(f"FFmpeg audio failed: {stderr[-500:]}")
+                finally:
+                    # Unregister process after completion (success or exception)
+                    if job_manager and job_id:
+                        job_manager.unregister_process(job_id)
             else:
-                # Reuse the cmd built above — it already respects render_source_once.
+                # ponytail: subprocess.run branch is unreached by current callers
+                # (render_task closures in render_video_full and render_audio_job both
+                # pass progress_callback and duration_seconds > 0). If a future caller
+                # invokes this branch, the subprocess runs unregistered and uninterruptible
+                # until completion — not ideal, but fixing it requires restructuring from
+                # run() to Popen + manual wait(), which would only benefit hypothetical
+                # callers. Flag this gap rather than speculatively rewrite it.
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode != 0:
                     raise RuntimeError(f"FFmpeg audio failed: {result.stderr[-500:]}")
