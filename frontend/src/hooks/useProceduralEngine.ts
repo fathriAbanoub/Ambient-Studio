@@ -25,6 +25,7 @@ export function useProceduralEngine(
   const scenePollRef = useRef<number | null>(null);
   const prevDroneConfigRef = useRef<string>("");
   const prevSampleIdsRef = useRef<string[]>([]);
+  const lastPolledSceneRef = useRef<string>("Calm");
   const [isRunning, setIsRunning] = useState(false);
   const [currentScene, setCurrentScene] = useState("Calm");
   const [analyserData, setAnalyserData] = useState<Uint8Array>(
@@ -106,6 +107,7 @@ export function useProceduralEngine(
     }
     prevDroneConfigRef.current = "";
     prevSampleIdsRef.current = [];
+    lastPolledSceneRef.current = "Calm";
     setIsRunning(false);
     setGeneratorRunning(false);
     setIsPlaying(false);
@@ -164,8 +166,11 @@ export function useProceduralEngine(
       scenePollRef.current = window.setInterval(() => {
         if (newEngine.running) {
           const name = newEngine.getCurrentSceneName();
-          setCurrentScene(name);
-          setGeneratorScene(name);
+          if (name !== lastPolledSceneRef.current) {
+            lastPolledSceneRef.current = name;
+            setCurrentScene(name);
+            setGeneratorScene(name);
+          }
         }
       }, SCENE_POLL_INTERVAL_MS);
 
