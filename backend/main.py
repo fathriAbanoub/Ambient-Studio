@@ -28,7 +28,8 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
+from unittest.mock import AsyncMock, Mock
 
 import psutil
 import uvicorn
@@ -96,7 +97,11 @@ class JobManager:
 
     def __init__(self):
         self.jobs: dict[str, dict] = {}
-        self.job_processes: dict[str, asyncio.subprocess.Process] = {}
+        # ponytail: holds either asyncio.subprocess.Process (from video_renderer)
+        # or subprocess.Popen (from audio_renderer, visualizers). Both have
+        # .terminate() and .kill(), but only Popen has blocking .wait(); cancel_job
+        # branches on type to await or to_thread appropriately.
+        self.job_processes: dict[str, Union[asyncio.subprocess.Process, subprocess.Popen]] = {}
         self.job_tasks: dict[str, asyncio.Task] = {}
         self.job_stop_events: dict[str, threading.Event] = {}
         self.queue: list[str] = []
@@ -106,8 +111,65 @@ class JobManager:
         # ponytail: protects self.jobs dict mutations from thread pool workers
         # (audio_renderer progress_callback, cuda_visualizer render loop).
         # Ceiling: global lock; fine because mutations are fast dict writes.
+        # Expanded to guard job_processes dict writes too since audio renders run
+        # via to_thread (real worker threads), creating genuine cross-thread access.
         self._lock = threading.Lock()
         self._load_history()
+
+    async def _verify_process_type_branching(self):
+        """Dev-only self-check (from lifespan(), gated on settings.AUDIO_DEBUG):
+        prove cancel_job routes each registered process shape to the wait
+        strategy it needs — asyncio.subprocess.Process (video_renderer) is
+        awaited; subprocess.Popen (audio_renderer, visualizers) gets
+        to_thread(wait, timeout). Mock(spec=X) passes isinstance(x, X), so
+        cancel_job's real isinstance branch runs end-to-end. Mocks only, no
+        real subprocesses.
+        """
+        # ponytail: happy path only — no SIGTERM-timeout -> SIGKILL escalation
+        # coverage (mock waits return 0 immediately) and no shielded-task /
+        # concurrent-status-change race (no worker task registered). Upgrade
+        # path: sleep a mock wait() past cancel_job's process_wait_timeout_sec
+        # and register a real asyncio task for the test job.
+        # Fixture ids; "__self_check" prefix can't collide with create_job's uuid ids
+        async_job_id = "__self_check_async__"
+        popen_job_id = "__self_check_popen__"
+        try:
+            mock_async_proc = Mock(spec=asyncio.subprocess.Process)
+            mock_async_proc.terminate = Mock()
+            mock_async_proc.kill = Mock()
+            mock_async_proc.wait = AsyncMock(return_value=0)  # awaitable wait()
+            mock_popen_proc = Mock(spec=subprocess.Popen)
+            mock_popen_proc.terminate = Mock()
+            mock_popen_proc.kill = Mock()
+            mock_popen_proc.wait = Mock(return_value=0)  # blocking wait(), takes timeout
+            for test_job_id, mock_proc in (
+                (async_job_id, mock_async_proc),
+                (popen_job_id, mock_popen_proc),
+            ):
+                # Minimal state for cancel_job's early-return guards: non-terminal
+                # status + stop event; no task registered, so task-wait is skipped.
+                self.jobs[test_job_id] = {"status": "processing", "progress": 0}
+                self.job_stop_events[test_job_id] = threading.Event()
+                self.register_process(test_job_id, mock_proc)
+                result = await self.cancel_job(test_job_id)
+                assert result is True, f"cancel_job returned {result!r} for {test_job_id}"
+                assert mock_proc.terminate.called, f"process for {test_job_id} never signalled"
+            # cancel_job swallows wait-strategy failures (logs, then kill()) and
+            # still returns True, so its return value alone can't catch a misroute
+            # — these side-effect asserts are what make the check able to fail:
+            assert mock_async_proc.wait.await_count == 1, "async-shaped: .wait() never awaited — isinstance branch misrouted"
+            assert not mock_async_proc.kill.called, "async-shaped: escalated to kill() on the happy path"
+            assert mock_popen_proc.wait.called, "Popen-shaped: blocking .wait(timeout) never called — isinstance branch misrouted"
+            assert not mock_popen_proc.kill.called, "Popen-shaped: .wait() failed and escalated to kill()"
+            logger.debug("✓ Process type branching self-check passed")
+        except Exception as e:
+            # Log but don't fail startup on self-check issues
+            logger.warning(f"Process type branching self-check failed (dev-time only): {e}")
+        finally:
+            for test_job_id in (async_job_id, popen_job_id):
+                self.jobs.pop(test_job_id, None)
+                self.job_stop_events.pop(test_job_id, None)
+                self.unregister_process(test_job_id)
 
     def _load_history(self):
         """Load job history from JSON file."""
@@ -236,19 +298,44 @@ class JobManager:
             self.job_stop_events[job_id].set()
 
         # Kill the subprocess if it exists
-        if job_id in self.job_processes:
+        # ponytail: 2.0s wait-before-kill timeout (SIGTERM → wait → SIGKILL).
+        # Used for both asyncio.subprocess.Process and subprocess.Popen.
+        process_wait_timeout_sec = 2.0
+
+        # Retrieve process under lock to avoid TOCTOU
+        with self._lock:
+            process = self.job_processes.get(job_id)
+
+        if process is not None:
             try:
-                process = self.job_processes[job_id]
                 try:
                     process.terminate()
                     logger.info(f"Sent SIGTERM to process for job {job_id}")
                 except Exception as e:
                     logger.warning(f"Failed to terminate process: {e}")
 
+                # Branch on process type: asyncio.subprocess.Process vs subprocess.Popen
+                is_async_process = isinstance(process, asyncio.subprocess.Process)
+
                 try:
-                    await asyncio.wait_for(process.wait(), timeout=2.0)
+                    if is_async_process:
+                        # asyncio.subprocess.Process: await the async .wait() method
+                        await asyncio.wait_for(process.wait(), timeout=process_wait_timeout_sec)
+                    else:
+                        # subprocess.Popen: run blocking .wait() in thread pool
+                        await asyncio.wait_for(
+                            asyncio.to_thread(process.wait, process_wait_timeout_sec),
+                            timeout=process_wait_timeout_sec + 0.5,  # Give to_thread a hair extra
+                        )
                     logger.info(f"Process for job {job_id} terminated gracefully")
                 except asyncio.TimeoutError:
+                    try:
+                        process.kill()
+                        logger.info(f"Sent SIGKILL to process for job {job_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to kill process: {e}")
+                except subprocess.TimeoutExpired:
+                    # subprocess.Popen.wait(timeout=X) raises TimeoutExpired, not asyncio.TimeoutError
                     try:
                         process.kill()
                         logger.info(f"Sent SIGKILL to process for job {job_id}")
@@ -263,8 +350,7 @@ class JobManager:
             except Exception as e:
                 logger.error(f"Error killing process for job {job_id}: {e}")
             finally:
-                if job_id in self.job_processes:
-                    del self.job_processes[job_id]
+                self.unregister_process(job_id)
 
         # Wait for the worker thread to finish naturally (shielded from cancellation)
         if job_id in self.job_tasks:
@@ -324,14 +410,21 @@ class JobManager:
         """Get recent job history."""
         return self.history[-limit:][::-1]
 
-    def register_process(self, job_id: str, process: asyncio.subprocess.Process):
-        """Register a subprocess for cancellation support."""
-        self.job_processes[job_id] = process
+    def register_process(self, job_id: str, process: Union[asyncio.subprocess.Process, subprocess.Popen]):
+        """Register a subprocess for cancellation support.
+        
+        Accepts both asyncio.subprocess.Process (from video_renderer.render_async)
+        and subprocess.Popen (from audio_renderer.render, visualizers), which are
+        handled differently in cancel_job.
+        """
+        with self._lock:
+            self.job_processes[job_id] = process
 
     def unregister_process(self, job_id: str):
         """Unregister a subprocess."""
-        if job_id in self.job_processes:
-            del self.job_processes[job_id]
+        with self._lock:
+            if job_id in self.job_processes:
+                del self.job_processes[job_id]
 
     def register_task(self, job_id: str, task: asyncio.Task):
         """Register an asyncio task for cancellation support."""
@@ -386,6 +479,11 @@ async def periodic_cleanup():
 async def lifespan(app: FastAPI):
     """Handle startup and shutdown events."""
     # Startup
+    # Dev-only self-check: cancel_job's Process/Popen wait-strategy branching.
+    # Reuses the backend's existing debug convention (settings.AUDIO_DEBUG) —
+    # same role as the frontend's NODE_ENV-gated testSchedulingHelpers().
+    if settings.AUDIO_DEBUG:
+        await job_manager._verify_process_type_branching()
     await cleanup_old_files()
     cleanup_task = asyncio.create_task(periodic_cleanup())
     
@@ -766,7 +864,12 @@ async def render_video_full(
                     eq_gains=eq_list,
                     progress_callback=audio_progress_cb,
                     render_source_once=True,  # KEY: Don't loop source tracks
+                    job_manager=job_manager,
+                    job_id=job_id,
                 )
+                
+                # Unregister process after completion
+                job_manager.unregister_process(job_id)
                 
                 audio_time = time.time() - audio_start
                 log_with_time(f"✓ Source mix rendered ({audio_time:.2f}s)")
@@ -864,7 +967,10 @@ async def render_video_full(
                             crossfade_ms / 1000.0,
                             loop_start_seconds,
                             loop_end_seconds,
+                            job_manager=job_manager,
+                            job_id=job_id,
                         )
+                        job_manager.unregister_process(job_id)
                     except Exception as exc:
                         log_with_time(f"⚠️ Skipping {segment_id}: {exc}")
                         continue
@@ -906,7 +1012,10 @@ async def render_video_full(
                         assembled_path,
                         float(duration),
                         crossfade_seconds=loop_palette[0].crossfade_duration_ms / 1000.0,
+                        job_manager=job_manager,
+                        job_id=job_id,
                     )
+                    job_manager.unregister_process(job_id)
                 else:
                     log_with_time(f"🎲 Scheduling stochastic rotation across {len(loop_palette)} candidates...")
                     scheduler = StochasticVariationScheduler(
@@ -1186,7 +1295,12 @@ async def render_audio_job(
                     eq_gains=eq_list,
                     progress_callback=audio_progress_cb,
                     render_source_once=True,  # KEY: Don't loop source tracks
+                    job_manager=job_manager,
+                    job_id=job_id,
                 )
+
+                # Unregister process after completion
+                job_manager.unregister_process(job_id)
 
                 audio_time = time.time() - audio_start
                 log_with_time(f"✓ Source mix rendered ({audio_time:.2f}s)")
@@ -1283,7 +1397,10 @@ async def render_audio_job(
                             crossfade_ms / 1000.0,
                             loop_start_seconds,
                             loop_end_seconds,
+                            job_manager=job_manager,
+                            job_id=job_id,
                         )
+                        job_manager.unregister_process(job_id)
                     except Exception as exc:
                         log_with_time(f"⚠️ Skipping {segment_id}: {exc}")
                         continue
@@ -1330,7 +1447,10 @@ async def render_audio_job(
                         assembled_path,
                         float(duration),
                         crossfade_seconds=loop_palette[0].crossfade_duration_ms / 1000.0,
+                        job_manager=job_manager,
+                        job_id=job_id,
                     )
+                    job_manager.unregister_process(job_id)
                 else:
                     log_with_time(f"🎲 Scheduling stochastic rotation across {len(loop_palette)} candidates...")
                     scheduler = StochasticVariationScheduler(

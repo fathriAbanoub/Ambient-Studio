@@ -34,7 +34,12 @@ _MICRO_FADE_MS = 5
 
 
 def get_audio_duration(file_path: Path) -> float:
-    """Get the duration of an audio file in seconds using ffprobe."""
+    """Get the duration of an audio file in seconds using ffprobe.
+    
+    ponytail: left unregistered for cancellation because this is a quick
+    metadata probe (30s timeout, never the long wait-on path) — adding
+    registration machinery isn't worth the complexity for probes.
+    """
     probe = subprocess.run(
         [
             "ffprobe",
@@ -60,6 +65,8 @@ def make_loop(
     crossfade_seconds: float,
     loop_start_seconds: float,
     loop_end_seconds: float,
+    job_manager: Optional[object] = None,
+    job_id: Optional[str] = None,
 ) -> None:
     """
     Creates a single, seamless 'canonical loop unit' from a specified
@@ -108,9 +115,34 @@ def make_loop(
         str(output_path),
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    if result.returncode != 0:
-        raise RuntimeError(f"FFmpeg failed to create loop unit: {result.stderr}")
+    # Convert to Popen + register for cancellation support (120s timeout for loop unit)
+    process_timeout_sec = 120.0
+    process = None
+    try:
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        
+        # Register process for cancellation support
+        if job_manager and job_id:
+            job_manager.register_process(job_id, process)
+        
+        try:
+            stdout, stderr = process.communicate(timeout=process_timeout_sec)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()  # Reap killed process
+            raise RuntimeError(f"FFmpeg failed to create loop unit: timeout after {process_timeout_sec}s")
+        
+        if process.returncode != 0:
+            raise RuntimeError(f"FFmpeg failed to create loop unit: {stderr}")
+
+    finally:
+        if job_manager and job_id:
+            job_manager.unregister_process(job_id)
 
     logger.info("Created seamless loop unit at %s", output_path)
 
@@ -120,6 +152,8 @@ def extend_loop_seamless(
     output_path: Path,
     duration_seconds: float,
     crossfade_seconds: Optional[float] = None,
+    job_manager: Optional[object] = None,
+    job_id: Optional[str] = None,
 ) -> None:
     """
     Extends a seamless loop unit to a target duration.
@@ -147,9 +181,36 @@ def extend_loop_seamless(
             "-acodec", "pcm_s16le",
             str(output_path),
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if result.returncode != 0:
-            raise RuntimeError(f"FFmpeg failed to extend loop: {result.stderr}")
+        
+        # Convert to Popen + register for cancellation support (300s timeout for single repeat)
+        process_timeout_sec = 300.0
+        process = None
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            
+            # Register process for cancellation support
+            if job_manager and job_id:
+                job_manager.register_process(job_id, process)
+            
+            try:
+                stdout, stderr = process.communicate(timeout=process_timeout_sec)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout, stderr = process.communicate()  # Reap killed process
+                raise RuntimeError(f"FFmpeg failed to extend loop: timeout after {process_timeout_sec}s")
+            
+            if process.returncode != 0:
+                raise RuntimeError(f"FFmpeg failed to extend loop: {stderr}")
+        
+        finally:
+            if job_manager and job_id:
+                job_manager.unregister_process(job_id)
+        
         logger.info("Extended loop to %ss at %s", duration_seconds, output_path)
         return
 
@@ -178,9 +239,35 @@ def extend_loop_seamless(
         "-acodec", "pcm_s16le",
         str(output_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    if result.returncode != 0:
-        raise RuntimeError(f"FFmpeg failed to extend loop: {result.stderr}")
+    
+    # Convert to Popen + register for cancellation support (600s timeout for multi-repeat crossfade)
+    process_timeout_sec = 600.0
+    process = None
+    try:
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        
+        # Register process for cancellation support
+        if job_manager and job_id:
+            job_manager.register_process(job_id, process)
+        
+        try:
+            stdout, stderr = process.communicate(timeout=process_timeout_sec)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()  # Reap killed process
+            raise RuntimeError(f"FFmpeg failed to extend loop: timeout after {process_timeout_sec}s")
+        
+        if process.returncode != 0:
+            raise RuntimeError(f"FFmpeg failed to extend loop: {stderr}")
+    
+    finally:
+        if job_manager and job_id:
+            job_manager.unregister_process(job_id)
 
     logger.info("Extended loop to %ss at %s", duration_seconds, output_path)
 
