@@ -25,6 +25,8 @@ export function useProceduralEngine(
   const scenePollRef = useRef<number | null>(null);
   const prevDroneConfigRef = useRef<string>("");
   const prevSampleIdsRef = useRef<string[]>([]);
+  // Sentinel: never equal to a scene name, so the first poll always publishes.
+  const lastPolledSceneRef = useRef<string>("");
   const [isRunning, setIsRunning] = useState(false);
   const [currentScene, setCurrentScene] = useState("Calm");
   const [analyserData, setAnalyserData] = useState<Uint8Array>(
@@ -106,6 +108,7 @@ export function useProceduralEngine(
     }
     prevDroneConfigRef.current = "";
     prevSampleIdsRef.current = [];
+    lastPolledSceneRef.current = "";
     setIsRunning(false);
     setGeneratorRunning(false);
     setIsPlaying(false);
@@ -164,8 +167,11 @@ export function useProceduralEngine(
       scenePollRef.current = window.setInterval(() => {
         if (newEngine.running) {
           const name = newEngine.getCurrentSceneName();
-          setCurrentScene(name);
-          setGeneratorScene(name);
+          if (name !== lastPolledSceneRef.current) {
+            lastPolledSceneRef.current = name;
+            setCurrentScene(name);
+            setGeneratorScene(name);
+          }
         }
       }, SCENE_POLL_INTERVAL_MS);
 
