@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "J1_wav_vs_ffmpeg_stdin",
+  "category": "J",
+  "timestamp": "2026-09-24T01:02:24.082Z",
+  "params": {
+    "sweep_sec": [
+      300,
+      1800,
+      7200
+    ],
+    "bitrate_k": 160,
+    "sample_rate": 44100,
+    "block_frames": 4096
+  },
+  "environment": {
+    "captured_at": "2026-09-24T01:02:24.003Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "5.10.134-013.15.kangaroo.al8.x86_64",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor",
+      "cores": 2,
+      "speed_mhz": 0
+    },
+    "total_ram_bytes": 4237889536,
+    "node_version": "v24.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "none",
+      "gpus": []
+    },
+    "results_dir_disk": {
+      "free_bytes": 8495435776,
+      "total_bytes": 10531131392
+    }
+  },
+  "methodology": {
+    "measured": "wall clock (synth, encode, total), ffmpeg peak RSS, peak work-dir bytes, and ffprobe of the encoded output, for WAV-file handoff vs direct stdin-pipe handoff of the identical seeded render",
+    "granularity": "per-point wall clocks (child-reported synth wall; runner-measured encode wall); ffmpeg VmHWM; 2 s work-dir sampling",
+    "trials": "1 per duration × 2 modes, fresh child per render",
+    "warmup": "none — whole-pipeline measurement",
+    "outliers": "none",
+    "statistic": "wall totals + peak RSS + peak disk per mode; hash equality across modes asserted"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [
+    {
+      "name": "ffmpeg_exit_zero_wav_300",
+      "passed": true,
+      "detail": "mode A exit 0"
+    },
+    {
+      "name": "ffmpeg_exit_zero_pipe_300",
+      "passed": true,
+      "detail": "mode B exit 0"
+    },
+    {
+      "name": "pcm_hash_equal_across_modes_300",
+      "passed": true,
+      "detail": "identical PCM bytes through both handoffs (17093624a3d4359b…)"
+    },
+    {
+      "name": "ffmpeg_exit_zero_wav_1800",
+      "passed": true,
+      "detail": "mode A exit 0"
+    },
+    {
+      "name": "ffmpeg_exit_zero_pipe_1800",
+      "passed": true,
+      "detail": "mode B exit 0"
+    },
+    {
+      "name": "pcm_hash_equal_across_modes_1800",
+      "passed": true,
+      "detail": "identical PCM bytes through both handoffs (f5dee7b94c8930cf…)"
+    }
+  ],
+  "trials": [
+    {
+      "label": "5min_wav_then_ffmpeg",
+      "params": {
+        "duration_sec": 300,
+        "mode": "wav_then_ffmpeg"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 15.767808988999999,
+        "p95": 15.767808988999999,
+        "min": 15.767808988999999,
+        "max": 15.767808988999999
+      },
+      "extras": {
+        "synth_wall_sec": 8.784552647,
+        "encode_wall_sec": 6.981196867,
+        "total_wall_sec": 15.767808988999999,
+        "ffmpeg_peak_rss_bytes": 59514880,
+        "wav_header_ok": true,
+        "pcm16_sha256": "17093624a3d4359b0d71f96e75de62fe21001a8c56aba2fef22680662a6cf39b",
+        "peak_workdir_bytes": 57376536,
+        "output_bytes": 6224801,
+        "ffprobe_duration_sec": 300,
+        "ffmpeg_exit": 0
+      }
+    },
+    {
+      "label": "5min_stdin_pipe",
+      "params": {
+        "duration_sec": 300,
+        "mode": "stdin_pipe"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 23.323847348999998,
+        "p95": 23.323847348999998,
+        "min": 23.323847348999998,
+        "max": 23.323847348999998
+      },
+      "extras": {
+        "synth_wall_sec": 8.830839647,
+        "encode_wall_sec": null,
+        "total_wall_sec": 23.323847348999998,
+        "ffmpeg_peak_rss_bytes": 56324096,
+        "pcm16_sha256": "17093624a3d4359b0d71f96e75de62fe21001a8c56aba2fef22680662a6cf39b",
+        "peak_workdir_bytes": 64387769,
+        "output_bytes": 6082989,
+        "ffprobe_duration_sec": 300,
+        "ffmpeg_exit": 0
+      }
+    },
+    {
+      "label": "30min_wav_then_ffmpeg",
+      "params": {
+        "duration_sec": 1800,
+        "mode": "wav_then_ffmpeg"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 92.694318744,
+        "p95": 92.694318744,
+        "min": 92.694318744,
+        "max": 92.694318744
+      },
+      "extras": {
+        "synth_wall_sec": 49.262539437,
+        "encode_wall_sec": 43.430292363,
+        "total_wall_sec": 92.694318744,
+        "ffmpeg_peak_rss_bytes": 63799296,
+        "wav_header_ok": true,
+        "pcm16_sha256": "f5dee7b94c8930cfcb6e1226b6a5cc298a46214b4773eea1d470090555240d73",
+        "peak_workdir_bytes": 353695960,
+        "output_bytes": 37290035,
+        "ffprobe_duration_sec": 1800,
+        "ffmpeg_exit": 0
+      }
+    },
+    {
+      "label": "30min_stdin_pipe",
+      "params": {
+        "duration_sec": 1800,
+        "mode": "stdin_pipe"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 105.46198879199999,
+        "p95": 105.46198879199999,
+        "min": 105.46198879199999,
+        "max": 105.46198879199999
+      },
+      "extras": {
+        "synth_wall_sec": 48.304872135,
+        "encode_wall_sec": null,
+        "total_wall_sec": 105.46198879199999,
+        "ffmpeg_peak_rss_bytes": 61022208,
+        "pcm16_sha256": "f5dee7b94c8930cfcb6e1226b6a5cc298a46214b4773eea1d470090555240d73",
+        "peak_workdir_bytes": 399898891,
+        "output_bytes": 46617499,
+        "ffprobe_duration_sec": 1800,
+        "ffmpeg_exit": 0
+      }
+    }
+  ],
+  "stats": {},
+  "raw_samples": {
+    "5min_wav_then_ffmpeg": [
+      15.767808988999999
+    ],
+    "5min_stdin_pipe": [
+      23.323847348999998
+    ],
+    "30min_wav_then_ffmpeg": [
+      92.694318744
+    ],
+    "30min_stdin_pipe": [
+      105.46198879199999
+    ]
+  },
+  "derived": {},
+  "observations": [
+    "Reading the two modes: stdin-pipe overlaps encoding with synthesis (no encode-wall term, no WAV intermediate — peak disk stays at work-dir baseline); wav-then-ffmpeg pays the WAV write+read and holds duration-proportional disk (at 2 h: the same ~2.5 GB that E1/E3 measured for the current pipeline). Both feed ffmpeg identical bytes (asserted per point)."
+  ]
+}

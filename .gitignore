@@ -1,135 +1,14 @@
-# Secrets & Environment
-.env
-.env.*
-!.env.example
-credentials.json
-*.pem
-*.key
-config.local.*
-
-# Dependencies
-node_modules
-**/node_modules
-.venv
-**/.venv
-venv
-env
-ENV
-pyvenv.cfg
-.python-version
-jspm_packages
-.pnp*
-
-# Build Output & Distribution
-dist
-build
-out
-.next
-**/.next
-backend/output/*
-backend/tmp/*
-backend/test_output/*
-backend/logs/*
-graphify-out/*
-*.so
-*.dylib
-*.dll
-*.exe
-*.o
-*.obj
-*.egg-info/
-*.egg
+node_modules/
+.next/
+daemon/build/
+daemon/data/
+ui/dev.log
+ui/server.log
+ui/test-results/
+ui/playwright-report/
+ui/.next/
 *.tsbuildinfo
-
-# Preserve empty directory structure
-!backend/output/.gitkeep
-!backend/tmp/.gitkeep
-!backend/test_output/.gitkeep
-!backend/logs/.gitkeep
-
-# Caches & Temporary Files
-__pycache__/
-**/*.pyc
-**/*.pyo
-**/*.pyd
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-.nyc_output/
-.cache/
-.turbo/
-*.log
-*.tmp
-*.bak
-*.cache
-*.pid
-.brain/
-backend/jobs_history.json
-project_structure.txt
-
-# Generated Media (safety net - only ignore output directories)
-/backend/output/**/*.wav
-/backend/output/**/*.mp4
-
-# Testing & Coverage
-coverage/
-*.lcov
-htmlcov/
-.tox/
-.noserc
-.coverage
-.coverage.*
-nosetests.xml
-coverage.xml
-
-# IDE & Editor
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.project
-.classpath
-.settings/
-.kiro/
-.openclaude/
-.opencode/
-
-# OS Generated Files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-Desktop.ini
-
-# Markdown files – removed blanket ignore to allow project documentation
-
-# Temporary auto-generated documentation
-AGENTS.md
-CLAUDE.md
-CLAUDE.*
-GEMINI.md
-backend/CUDA_IMPLEMENTATION_SUMMARY.md
-backend/CUDA_VISUALIZER.md
-backend/IMMEDIATE_FIX.md
-backend/IMPLEMENTATION_CHECKLIST.md
-backend/INSTALL_CUDA.md
-backend/PERFORMANCE_COMPARISON.md
-backend/QUICK_START_CUDA.md
-backend/SOLUTION_SUMMARY.md
-backend/WHY_STILL_SLOW.md
-
-# Miscellaneous
-mempalace.yaml
-entities.json
-.graphifyignore
-
-# Next.js auto-generated type references
-next-env.d.ts
-
-# Catch accidentally generated pip/terminal residue files (e.g., from => typos)
-backend/=*
-=*
+bench/.build/
+bench/.work/
+bench/work/
+*.wav

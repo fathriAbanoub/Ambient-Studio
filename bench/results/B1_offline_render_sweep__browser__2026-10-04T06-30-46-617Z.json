@@ -1,0 +1,311 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "B1_offline_render_sweep__browser",
+  "category": "B",
+  "timestamp": "2026-10-04T06:30:46.617Z",
+  "params": {
+    "environment_label": "headless Chromium (Playwright) — GROUND TRUTH",
+    "browser": "153.0.8010.12",
+    "durations_minutes": [
+      0.02,
+      0.1,
+      0.3,
+      0.6,
+      1.2
+    ],
+    "trials": 1
+  },
+  "environment": {
+    "captured_at": "2026-10-04T06:30:28.313Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "5.10.134-013.15.kangaroo.al8.x86_64",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor",
+      "cores": 2,
+      "speed_mhz": 0
+    },
+    "total_ram_bytes": 4237889536,
+    "node_version": "v24.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "none",
+      "gpus": []
+    },
+    "results_dir_disk": {
+      "free_bytes": 7080337408,
+      "total_bytes": 10531131392
+    },
+    "tools": {
+      "ts_runner": "esbuild",
+      "playwright": true,
+      "node_web_audio_api": true,
+      "web_audio_engine": true
+    },
+    "ui": "/home/z/my-project/ambient-studio/ui",
+    "root": "/home/z/my-project/ambient-studio"
+  },
+  "methodology": {
+    "measured": "wall-clock (phase-split: scheduling vs OfflineAudioContext.startRendering) and peak JS heap for the real renderAmbient() at each sweep duration",
+    "granularity": "per render, performance.now() + performance.memory sampler at 100 ms",
+    "trials": "1 per duration point (single-trial by default; renders are minutes-long)",
+    "warmup": "none — the 1-minute point acts as the smallest, cheapest point; durations ascend so a renderer crash preserves shorter results",
+    "outliers": "none removed; outcome=error points recorded verbatim and terminate the sweep",
+    "statistic": "median/p95/min/max across trials per duration (n=1 by default → equals the single value)"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [
+    {
+      "name": "all_sweep_points_ok",
+      "passed": true,
+      "detail": "ok=5/5"
+    }
+  ],
+  "trials": [
+    {
+      "label": "trial_1",
+      "params": {},
+      "samples_count": 5,
+      "stats": null,
+      "extras": {
+        "points": [
+          {
+            "duration_minutes": 0.02,
+            "scheduling_wall_ms": 14.100000001490116,
+            "startRendering_wall_ms": 364.3999999985099,
+            "total_wall_ms": 381.6000000014901,
+            "trim_wall_ms": null,
+            "peak_heap_bytes": 10000000,
+            "heap_source": "performance.memory.usedJSHeapSize",
+            "output_frames": 52920,
+            "wav_encode_ms": 6.799999998882413,
+            "wav_bytes": 211724,
+            "outcome": "ok"
+          },
+          {
+            "duration_minutes": 0.1,
+            "scheduling_wall_ms": 8.200000001117587,
+            "startRendering_wall_ms": 565.9000000003725,
+            "total_wall_ms": 575.9000000003725,
+            "trim_wall_ms": null,
+            "peak_heap_bytes": 10000000,
+            "heap_source": "performance.memory.usedJSHeapSize",
+            "output_frames": 264600,
+            "wav_encode_ms": 10.800000000745058,
+            "wav_bytes": 1058444,
+            "outcome": "ok"
+          },
+          {
+            "duration_minutes": 0.3,
+            "scheduling_wall_ms": 9.800000000745058,
+            "startRendering_wall_ms": 1351.199999999255,
+            "total_wall_ms": 1366.2000000011176,
+            "trim_wall_ms": null,
+            "peak_heap_bytes": 10000000,
+            "heap_source": "performance.memory.usedJSHeapSize",
+            "output_frames": 793800,
+            "wav_encode_ms": 29.5,
+            "wav_bytes": 3175244,
+            "outcome": "ok"
+          },
+          {
+            "duration_minutes": 0.6,
+            "scheduling_wall_ms": 15.599999999627471,
+            "startRendering_wall_ms": 3540.5999999996275,
+            "total_wall_ms": 3565.2999999988824,
+            "trim_wall_ms": null,
+            "peak_heap_bytes": 10000000,
+            "heap_source": "performance.memory.usedJSHeapSize",
+            "output_frames": 1587600,
+            "wav_encode_ms": 57.79999999888241,
+            "wav_bytes": 6350444,
+            "outcome": "ok"
+          },
+          {
+            "duration_minutes": 1.2,
+            "scheduling_wall_ms": 24.59999999962747,
+            "startRendering_wall_ms": 11490.900000000373,
+            "total_wall_ms": 11532.799999998882,
+            "trim_wall_ms": null,
+            "peak_heap_bytes": 10000000,
+            "heap_source": "performance.memory.usedJSHeapSize",
+            "output_frames": 3175200,
+            "wav_encode_ms": 112.80000000074506,
+            "wav_bytes": 12700844,
+            "outcome": "ok"
+          }
+        ]
+      }
+    }
+  ],
+  "stats": {
+    "per_duration": [
+      {
+        "duration_minutes": 0.02,
+        "total_wall_ms": 381.6000000014901,
+        "peak_heap_bytes": 10000000,
+        "wav_encode_ms": 6.799999998882413,
+        "wav_bytes": 211724,
+        "outcome": "ok"
+      },
+      {
+        "duration_minutes": 0.1,
+        "total_wall_ms": 575.9000000003725,
+        "peak_heap_bytes": 10000000,
+        "wav_encode_ms": 10.800000000745058,
+        "wav_bytes": 1058444,
+        "outcome": "ok"
+      },
+      {
+        "duration_minutes": 0.3,
+        "total_wall_ms": 1366.2000000011176,
+        "peak_heap_bytes": 10000000,
+        "wav_encode_ms": 29.5,
+        "wav_bytes": 3175244,
+        "outcome": "ok"
+      },
+      {
+        "duration_minutes": 0.6,
+        "total_wall_ms": 3565.2999999988824,
+        "peak_heap_bytes": 10000000,
+        "wav_encode_ms": 57.79999999888241,
+        "wav_bytes": 6350444,
+        "outcome": "ok"
+      },
+      {
+        "duration_minutes": 1.2,
+        "total_wall_ms": 11532.799999998882,
+        "peak_heap_bytes": 10000000,
+        "wav_encode_ms": 112.80000000074506,
+        "wav_bytes": 12700844,
+        "outcome": "ok"
+      }
+    ]
+  },
+  "raw_samples": {
+    "points": [
+      {
+        "duration_minutes": 0.02,
+        "scheduling_wall_ms": 14.100000001490116,
+        "startRendering_wall_ms": 364.3999999985099,
+        "total_wall_ms": 381.6000000014901,
+        "trim_wall_ms": null,
+        "peak_heap_bytes": 10000000,
+        "heap_source": "performance.memory.usedJSHeapSize",
+        "output_frames": 52920,
+        "wav_encode_ms": 6.799999998882413,
+        "wav_bytes": 211724,
+        "outcome": "ok"
+      },
+      {
+        "duration_minutes": 0.1,
+        "scheduling_wall_ms": 8.200000001117587,
+        "startRendering_wall_ms": 565.9000000003725,
+        "total_wall_ms": 575.9000000003725,
+        "trim_wall_ms": null,
+        "peak_heap_bytes": 10000000,
+        "heap_source": "performance.memory.usedJSHeapSize",
+        "output_frames": 264600,
+        "wav_encode_ms": 10.800000000745058,
+        "wav_bytes": 1058444,
+        "outcome": "ok"
+      },
+      {
+        "duration_minutes": 0.3,
+        "scheduling_wall_ms": 9.800000000745058,
+        "startRendering_wall_ms": 1351.199999999255,
+        "total_wall_ms": 1366.2000000011176,
+        "trim_wall_ms": null,
+        "peak_heap_bytes": 10000000,
+        "heap_source": "performance.memory.usedJSHeapSize",
+        "output_frames": 793800,
+        "wav_encode_ms": 29.5,
+        "wav_bytes": 3175244,
+        "outcome": "ok"
+      },
+      {
+        "duration_minutes": 0.6,
+        "scheduling_wall_ms": 15.599999999627471,
+        "startRendering_wall_ms": 3540.5999999996275,
+        "total_wall_ms": 3565.2999999988824,
+        "trim_wall_ms": null,
+        "peak_heap_bytes": 10000000,
+        "heap_source": "performance.memory.usedJSHeapSize",
+        "output_frames": 1587600,
+        "wav_encode_ms": 57.79999999888241,
+        "wav_bytes": 6350444,
+        "outcome": "ok"
+      },
+      {
+        "duration_minutes": 1.2,
+        "scheduling_wall_ms": 24.59999999962747,
+        "startRendering_wall_ms": 11490.900000000373,
+        "total_wall_ms": 11532.799999998882,
+        "trim_wall_ms": null,
+        "peak_heap_bytes": 10000000,
+        "heap_source": "performance.memory.usedJSHeapSize",
+        "output_frames": 3175200,
+        "wav_encode_ms": 112.80000000074506,
+        "wav_bytes": 12700844,
+        "outcome": "ok"
+      }
+    ]
+  },
+  "derived": {
+    "scaling": {
+      "consecutive_ratios": [
+        {
+          "from_minutes": 0.02,
+          "to_minutes": 0.1,
+          "wall_ratio": 1.5091719077518964,
+          "duration_ratio": 5,
+          "heap_ratio": 1
+        },
+        {
+          "from_minutes": 0.1,
+          "to_minutes": 0.3,
+          "wall_ratio": 2.3722868553572387,
+          "duration_ratio": 2.9999999999999996,
+          "heap_ratio": 1
+        },
+        {
+          "from_minutes": 0.3,
+          "to_minutes": 0.6,
+          "wall_ratio": 2.6096471966007657,
+          "duration_ratio": 2,
+          "heap_ratio": 1
+        },
+        {
+          "from_minutes": 0.6,
+          "to_minutes": 1.2,
+          "wall_ratio": 3.234734804925952,
+          "duration_ratio": 2,
+          "heap_ratio": 1
+        }
+      ],
+      "extrapolation_to_8h": {
+        "extrapolated": true,
+        "method": "ordinary least squares over measured sweep points; labeled extrapolation, not measurement",
+        "wall_sec_8h": 4574.209390387298,
+        "peak_heap_bytes_8h": 10000000
+      }
+    }
+  },
+  "observations": [
+    "Memory metric is Chromium's performance.memory.usedJSHeapSize, which EXCLUDES AudioBuffer sample data (external/C++ memory in Chrome). Browser heap figures therefore understate true renderer memory; the Node variant records process-level RSS (which includes sample data), so read the two environments together. ponytail: browser renderer-process RSS sampling is the upgrade path if you need exact tab-level memory."
+  ]
+}

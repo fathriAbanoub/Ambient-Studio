@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "J1_wav_vs_ffmpeg_stdin",
+  "category": "J",
+  "timestamp": "2026-09-24T01:32:51.535Z",
+  "params": {
+    "sweep_sec": [
+      300,
+      1800,
+      7200
+    ],
+    "bitrate_k": 160,
+    "sample_rate": 44100,
+    "block_frames": 4096
+  },
+  "environment": {
+    "captured_at": "2026-09-24T01:32:51.453Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "5.10.134-013.15.kangaroo.al8.x86_64",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor",
+      "cores": 2,
+      "speed_mhz": 0
+    },
+    "total_ram_bytes": 4237889536,
+    "node_version": "v24.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "none",
+      "gpus": []
+    },
+    "results_dir_disk": {
+      "free_bytes": 8495403008,
+      "total_bytes": 10531131392
+    }
+  },
+  "methodology": {
+    "measured": "wall clock (synth, encode, total), ffmpeg peak RSS, peak work-dir bytes, and ffprobe of the encoded output, for WAV-file handoff vs direct stdin-pipe handoff of the identical seeded render",
+    "granularity": "per-point wall clocks (child-reported synth wall; runner-measured encode wall); ffmpeg VmHWM; 2 s work-dir sampling",
+    "trials": "1 per duration × 2 modes, fresh child per render",
+    "warmup": "none — whole-pipeline measurement",
+    "outliers": "none",
+    "statistic": "wall totals + peak RSS + peak disk per mode; hash equality across modes asserted"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [
+    {
+      "name": "ffmpeg_exit_zero_pipe_7200",
+      "passed": true,
+      "detail": "mode B exit 0"
+    }
+  ],
+  "trials": [
+    {
+      "label": "120min_stdin_pipe",
+      "params": {
+        "duration_sec": 7200,
+        "mode": "stdin_pipe"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 471.92453287,
+        "p95": 471.92453287,
+        "min": 471.92453287,
+        "max": 471.92453287
+      },
+      "extras": {
+        "synth_wall_sec": 192.668940815,
+        "encode_wall_sec": null,
+        "total_wall_sec": 471.92453287,
+        "ffmpeg_peak_rss_bytes": 77168640,
+        "child_peak_rss_bytes": 186413056,
+        "pcm16_sha256": "7ee9ab9884289442f051a57bc01aaa7d19ea8287101d4fd888b08a4225c4bd87",
+        "peak_workdir_bytes": 150994988,
+        "output_bytes": 153365962,
+        "ffprobe_duration_sec": 7200,
+        "ffmpeg_exit": 0
+      }
+    }
+  ],
+  "stats": {},
+  "raw_samples": {
+    "120min_stdin_pipe": [
+      471.92453287
+    ]
+  },
+  "derived": {},
+  "observations": [
+    "Reading the two modes: stdin-pipe overlaps encoding with synthesis (no encode-wall term, no WAV intermediate — peak disk stays at work-dir baseline); wav-then-ffmpeg pays the WAV write+read and holds duration-proportional disk (at 2 h: the same ~2.5 GB that E1/E3 measured for the current pipeline). Both feed ffmpeg identical bytes (asserted per point)."
+  ]
+}

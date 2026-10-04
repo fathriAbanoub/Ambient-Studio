@@ -1,0 +1,1362 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "G1_rss_duration_sweep",
+  "category": "G",
+  "timestamp": "2026-09-24T02:31:54.252Z",
+  "params": {
+    "sweep_sec_planned": [
+      300,
+      1800,
+      7200,
+      28800
+    ],
+    "block_frames": 4096,
+    "sample_rate": 44100,
+    "scale": 0.1,
+    "chunked_phases": false
+  },
+  "environment": {
+    "captured_at": "2026-09-24T02:30:18.858Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "7.0.0-31-generic",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
+      "cores": 4,
+      "speed_mhz": 4211
+    },
+    "total_ram_bytes": 16594915328,
+    "node_version": "v22.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=3ubuntu5+esm13 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --disable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "nvidia-smi",
+      "gpus": [
+        "NVIDIA GeForce GTX 1650 Ti, 580.173.02"
+      ]
+    },
+    "results_dir_disk": {
+      "free_bytes": 2178629632,
+      "total_bytes": 501809635328
+    },
+    "tools": {
+      "ts_runner": "esbuild",
+      "playwright": true,
+      "node_web_audio_api": true,
+      "web_audio_engine": true
+    },
+    "frontend": "/home/bobaayad/Downloads/Ambient-Studio-bench-GtoL/Ambient-Studio-bench/frontend",
+    "root": "/home/bobaayad/Downloads/Ambient-Studio-bench-GtoL/Ambient-Studio-bench"
+  },
+  "methodology": {
+    "measured": "process RSS over time while one seeded render streams to a WAV file, at 4 durations spanning 48×+; peak via resourceUsage().maxRSS, curve via in-process sampler at block cadence",
+    "granularity": "per-render continuous RSS samples + per-point peak; wall clock per render",
+    "trials": "1 render per duration point, each in a fresh child process (isolation by construction)",
+    "warmup": "not applicable across points (fresh processes); within a render the first blocks ARE the render",
+    "outliers": "none removed",
+    "statistic": "per-point RSS curve stats + cross-point linear fit of peak RSS vs duration"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [
+    {
+      "name": "frames_exact_60",
+      "passed": true,
+      "detail": "expected 2646000 frames, got 2646000"
+    },
+    {
+      "name": "nonfinite_zero_60",
+      "passed": true,
+      "detail": "non-finite samples: 0"
+    },
+    {
+      "name": "frames_exact_180",
+      "passed": true,
+      "detail": "expected 7938000 frames, got 7938000"
+    },
+    {
+      "name": "nonfinite_zero_180",
+      "passed": true,
+      "detail": "non-finite samples: 0"
+    },
+    {
+      "name": "frames_exact_720",
+      "passed": true,
+      "detail": "expected 31752000 frames, got 31752000"
+    },
+    {
+      "name": "nonfinite_zero_720",
+      "passed": true,
+      "detail": "non-finite samples: 0"
+    },
+    {
+      "name": "frames_exact_2880",
+      "passed": true,
+      "detail": "expected 127008000 frames, got 127008000"
+    },
+    {
+      "name": "nonfinite_zero_2880",
+      "passed": true,
+      "detail": "non-finite samples: 0"
+    }
+  ],
+  "trials": [
+    {
+      "label": "1min",
+      "params": {
+        "duration_sec": 60,
+        "block_frames": 4096,
+        "mode": "wav"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 82763776,
+        "p95": 82763776,
+        "min": 82763776,
+        "max": 82763776
+      },
+      "extras": {
+        "rss_curve_stats": {
+          "samples": 5,
+          "first_rss": 76607488,
+          "last_rss": 73228288,
+          "min_rss": 72904704,
+          "max_rss": 76607488,
+          "median_rss": 73228288,
+          "drift_bytes_per_wall_sec": -1342982.8952683317
+        },
+        "rss_curve_downsampled": [
+          {
+            "t": 0.588,
+            "rss": 76607488
+          },
+          {
+            "t": 1.09,
+            "rss": 72904704
+          },
+          {
+            "t": 1.59,
+            "rss": 72904704
+          },
+          {
+            "t": 2.091,
+            "rss": 73228288
+          },
+          {
+            "t": 2.522,
+            "rss": 73228288
+          }
+        ],
+        "frames_written": 2646000,
+        "kernel_event_count": 619,
+        "beats": 85,
+        "peak_concurrent_voices": 12,
+        "realtime_factor": 23.791451398194397,
+        "non_finite": 0
+      }
+    },
+    {
+      "label": "3min",
+      "params": {
+        "duration_sec": 180,
+        "block_frames": 4096,
+        "mode": "wav"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 90849280,
+        "p95": 90849280,
+        "min": 90849280,
+        "max": 90849280
+      },
+      "extras": {
+        "rss_curve_stats": {
+          "samples": 12,
+          "first_rss": 80764928,
+          "last_rss": 84094976,
+          "min_rss": 80764928,
+          "max_rss": 84094976,
+          "median_rss": 83697664,
+          "drift_bytes_per_wall_sec": 368373.49233304523
+        },
+        "rss_curve_downsampled": [
+          {
+            "t": 0.753,
+            "rss": 80764928
+          },
+          {
+            "t": 1.255,
+            "rss": 83009536
+          },
+          {
+            "t": 1.757,
+            "rss": 83009536
+          },
+          {
+            "t": 2.257,
+            "rss": 83697664
+          },
+          {
+            "t": 2.758,
+            "rss": 83697664
+          },
+          {
+            "t": 3.258,
+            "rss": 83697664
+          },
+          {
+            "t": 3.759,
+            "rss": 83697664
+          },
+          {
+            "t": 4.26,
+            "rss": 83697664
+          },
+          {
+            "t": 4.76,
+            "rss": 83828736
+          },
+          {
+            "t": 5.26,
+            "rss": 83828736
+          },
+          {
+            "t": 5.761,
+            "rss": 84094976
+          },
+          {
+            "t": 6.272,
+            "rss": 84094976
+          }
+        ],
+        "frames_written": 7938000,
+        "kernel_event_count": 1543,
+        "beats": 212,
+        "peak_concurrent_voices": 12,
+        "realtime_factor": 28.700527072822524,
+        "non_finite": 0
+      }
+    },
+    {
+      "label": "12min",
+      "params": {
+        "duration_sec": 720,
+        "block_frames": 4096,
+        "mode": "wav"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 90222592,
+        "p95": 90222592,
+        "min": 90222592,
+        "max": 90222592
+      },
+      "extras": {
+        "rss_curve_stats": {
+          "samples": 52,
+          "first_rss": 84738048,
+          "last_rss": 79634432,
+          "min_rss": 79241216,
+          "max_rss": 84996096,
+          "median_rss": 79634432,
+          "drift_bytes_per_wall_sec": -159766.94433841028
+        },
+        "rss_curve_downsampled": [
+          {
+            "t": 0.587,
+            "rss": 84738048
+          },
+          {
+            "t": 1.089,
+            "rss": 84996096
+          },
+          {
+            "t": 1.59,
+            "rss": 84996096
+          },
+          {
+            "t": 2.09,
+            "rss": 81604608
+          },
+          {
+            "t": 2.591,
+            "rss": 81604608
+          },
+          {
+            "t": 3.092,
+            "rss": 81604608
+          },
+          {
+            "t": 3.593,
+            "rss": 81604608
+          },
+          {
+            "t": 4.094,
+            "rss": 81604608
+          },
+          {
+            "t": 4.595,
+            "rss": 81604608
+          },
+          {
+            "t": 5.095,
+            "rss": 81735680
+          },
+          {
+            "t": 5.595,
+            "rss": 81956864
+          },
+          {
+            "t": 6.097,
+            "rss": 81956864
+          },
+          {
+            "t": 6.597,
+            "rss": 81956864
+          },
+          {
+            "t": 7.099,
+            "rss": 81956864
+          },
+          {
+            "t": 7.599,
+            "rss": 81956864
+          },
+          {
+            "t": 8.1,
+            "rss": 82087936
+          },
+          {
+            "t": 8.6,
+            "rss": 82087936
+          },
+          {
+            "t": 9.1,
+            "rss": 82087936
+          },
+          {
+            "t": 9.602,
+            "rss": 82087936
+          },
+          {
+            "t": 10.103,
+            "rss": 82087936
+          },
+          {
+            "t": 10.605,
+            "rss": 79241216
+          },
+          {
+            "t": 11.105,
+            "rss": 79241216
+          },
+          {
+            "t": 11.605,
+            "rss": 79241216
+          },
+          {
+            "t": 12.107,
+            "rss": 79241216
+          },
+          {
+            "t": 12.608,
+            "rss": 79241216
+          },
+          {
+            "t": 13.109,
+            "rss": 79241216
+          },
+          {
+            "t": 13.609,
+            "rss": 79241216
+          },
+          {
+            "t": 14.109,
+            "rss": 79241216
+          },
+          {
+            "t": 14.61,
+            "rss": 79372288
+          },
+          {
+            "t": 15.111,
+            "rss": 79372288
+          },
+          {
+            "t": 15.614,
+            "rss": 79372288
+          },
+          {
+            "t": 16.114,
+            "rss": 79372288
+          },
+          {
+            "t": 16.614,
+            "rss": 79372288
+          },
+          {
+            "t": 17.115,
+            "rss": 79372288
+          },
+          {
+            "t": 17.617,
+            "rss": 79372288
+          },
+          {
+            "t": 18.12,
+            "rss": 79503360
+          },
+          {
+            "t": 18.62,
+            "rss": 79503360
+          },
+          {
+            "t": 19.121,
+            "rss": 79503360
+          },
+          {
+            "t": 19.622,
+            "rss": 79503360
+          },
+          {
+            "t": 20.124,
+            "rss": 79503360
+          },
+          {
+            "t": 20.627,
+            "rss": 79503360
+          },
+          {
+            "t": 21.13,
+            "rss": 79503360
+          },
+          {
+            "t": 21.632,
+            "rss": 79503360
+          },
+          {
+            "t": 22.133,
+            "rss": 79634432
+          },
+          {
+            "t": 22.634,
+            "rss": 79634432
+          },
+          {
+            "t": 23.135,
+            "rss": 79634432
+          },
+          {
+            "t": 23.637,
+            "rss": 79634432
+          },
+          {
+            "t": 24.139,
+            "rss": 79634432
+          },
+          {
+            "t": 24.641,
+            "rss": 79634432
+          },
+          {
+            "t": 25.144,
+            "rss": 79634432
+          },
+          {
+            "t": 25.644,
+            "rss": 79634432
+          },
+          {
+            "t": 26.012,
+            "rss": 79634432
+          }
+        ],
+        "frames_written": 31752000,
+        "kernel_event_count": 5977,
+        "beats": 824,
+        "peak_concurrent_voices": 12,
+        "realtime_factor": 27.68030847553959,
+        "non_finite": 0
+      }
+    },
+    {
+      "label": "48min",
+      "params": {
+        "duration_sec": 2880,
+        "block_frames": 4096,
+        "mode": "wav"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 117792768,
+        "p95": 117792768,
+        "min": 117792768,
+        "max": 117792768
+      },
+      "extras": {
+        "rss_curve_stats": {
+          "samples": 190,
+          "first_rss": 97693696,
+          "last_rss": 117792768,
+          "min_rss": 97693696,
+          "max_rss": 117792768,
+          "median_rss": 100491264,
+          "drift_bytes_per_wall_sec": 263807.2833576162
+        },
+        "rss_curve_downsampled": [
+          {
+            "t": 0.657,
+            "rss": 97693696
+          },
+          {
+            "t": 1.157,
+            "rss": 98521088
+          },
+          {
+            "t": 1.659,
+            "rss": 98521088
+          },
+          {
+            "t": 2.159,
+            "rss": 98734080
+          },
+          {
+            "t": 2.66,
+            "rss": 98734080
+          },
+          {
+            "t": 3.161,
+            "rss": 98734080
+          },
+          {
+            "t": 3.662,
+            "rss": 98734080
+          },
+          {
+            "t": 4.163,
+            "rss": 98734080
+          },
+          {
+            "t": 4.665,
+            "rss": 98734080
+          },
+          {
+            "t": 5.166,
+            "rss": 99414016
+          },
+          {
+            "t": 5.668,
+            "rss": 99414016
+          },
+          {
+            "t": 6.169,
+            "rss": 99414016
+          },
+          {
+            "t": 6.67,
+            "rss": 99414016
+          },
+          {
+            "t": 7.172,
+            "rss": 99414016
+          },
+          {
+            "t": 7.676,
+            "rss": 99414016
+          },
+          {
+            "t": 8.177,
+            "rss": 99414016
+          },
+          {
+            "t": 8.677,
+            "rss": 99414016
+          },
+          {
+            "t": 9.179,
+            "rss": 99414016
+          },
+          {
+            "t": 9.681,
+            "rss": 99414016
+          },
+          {
+            "t": 10.183,
+            "rss": 99676160
+          },
+          {
+            "t": 10.683,
+            "rss": 99676160
+          },
+          {
+            "t": 11.184,
+            "rss": 99676160
+          },
+          {
+            "t": 11.687,
+            "rss": 99676160
+          },
+          {
+            "t": 12.187,
+            "rss": 99676160
+          },
+          {
+            "t": 12.687,
+            "rss": 99807232
+          },
+          {
+            "t": 13.189,
+            "rss": 99807232
+          },
+          {
+            "t": 13.691,
+            "rss": 99807232
+          },
+          {
+            "t": 14.191,
+            "rss": 99807232
+          },
+          {
+            "t": 14.691,
+            "rss": 99807232
+          },
+          {
+            "t": 15.191,
+            "rss": 99938304
+          },
+          {
+            "t": 15.691,
+            "rss": 99938304
+          },
+          {
+            "t": 16.192,
+            "rss": 99938304
+          },
+          {
+            "t": 16.694,
+            "rss": 100069376
+          },
+          {
+            "t": 17.199,
+            "rss": 100069376
+          },
+          {
+            "t": 17.699,
+            "rss": 100069376
+          },
+          {
+            "t": 18.202,
+            "rss": 100069376
+          },
+          {
+            "t": 18.704,
+            "rss": 100069376
+          },
+          {
+            "t": 19.204,
+            "rss": 100069376
+          },
+          {
+            "t": 19.706,
+            "rss": 100069376
+          },
+          {
+            "t": 20.208,
+            "rss": 100069376
+          },
+          {
+            "t": 20.708,
+            "rss": 100069376
+          },
+          {
+            "t": 21.209,
+            "rss": 100069376
+          },
+          {
+            "t": 21.71,
+            "rss": 100069376
+          },
+          {
+            "t": 22.211,
+            "rss": 100069376
+          },
+          {
+            "t": 22.711,
+            "rss": 100200448
+          },
+          {
+            "t": 23.214,
+            "rss": 100200448
+          },
+          {
+            "t": 23.715,
+            "rss": 100200448
+          },
+          {
+            "t": 24.215,
+            "rss": 100200448
+          },
+          {
+            "t": 24.716,
+            "rss": 100200448
+          },
+          {
+            "t": 25.217,
+            "rss": 100200448
+          },
+          {
+            "t": 25.717,
+            "rss": 100491264
+          },
+          {
+            "t": 26.217,
+            "rss": 100491264
+          },
+          {
+            "t": 26.718,
+            "rss": 100491264
+          },
+          {
+            "t": 27.218,
+            "rss": 100491264
+          },
+          {
+            "t": 27.719,
+            "rss": 100491264
+          },
+          {
+            "t": 28.219,
+            "rss": 100491264
+          },
+          {
+            "t": 28.72,
+            "rss": 100491264
+          },
+          {
+            "t": 29.221,
+            "rss": 100491264
+          },
+          {
+            "t": 29.722,
+            "rss": 100491264
+          },
+          {
+            "t": 30.224,
+            "rss": 100491264
+          },
+          {
+            "t": 30.724,
+            "rss": 100491264
+          },
+          {
+            "t": 31.225,
+            "rss": 100491264
+          },
+          {
+            "t": 31.726,
+            "rss": 100491264
+          },
+          {
+            "t": 32.226,
+            "rss": 100491264
+          },
+          {
+            "t": 32.727,
+            "rss": 100491264
+          },
+          {
+            "t": 33.228,
+            "rss": 100491264
+          },
+          {
+            "t": 33.73,
+            "rss": 100491264
+          },
+          {
+            "t": 34.233,
+            "rss": 100491264
+          },
+          {
+            "t": 34.736,
+            "rss": 100491264
+          },
+          {
+            "t": 35.238,
+            "rss": 100491264
+          },
+          {
+            "t": 35.738,
+            "rss": 100491264
+          },
+          {
+            "t": 36.238,
+            "rss": 100491264
+          },
+          {
+            "t": 36.74,
+            "rss": 100491264
+          },
+          {
+            "t": 37.24,
+            "rss": 100491264
+          },
+          {
+            "t": 37.74,
+            "rss": 100491264
+          },
+          {
+            "t": 38.241,
+            "rss": 100491264
+          },
+          {
+            "t": 38.741,
+            "rss": 100491264
+          },
+          {
+            "t": 39.244,
+            "rss": 100491264
+          },
+          {
+            "t": 39.745,
+            "rss": 100491264
+          },
+          {
+            "t": 40.247,
+            "rss": 100491264
+          },
+          {
+            "t": 40.747,
+            "rss": 100491264
+          },
+          {
+            "t": 41.249,
+            "rss": 100491264
+          },
+          {
+            "t": 41.751,
+            "rss": 100491264
+          },
+          {
+            "t": 42.255,
+            "rss": 100491264
+          },
+          {
+            "t": 42.756,
+            "rss": 100491264
+          },
+          {
+            "t": 43.257,
+            "rss": 100491264
+          },
+          {
+            "t": 43.757,
+            "rss": 100491264
+          },
+          {
+            "t": 44.258,
+            "rss": 100491264
+          },
+          {
+            "t": 44.76,
+            "rss": 100491264
+          },
+          {
+            "t": 45.26,
+            "rss": 100491264
+          },
+          {
+            "t": 45.761,
+            "rss": 100491264
+          },
+          {
+            "t": 46.261,
+            "rss": 100491264
+          },
+          {
+            "t": 46.764,
+            "rss": 100491264
+          },
+          {
+            "t": 47.266,
+            "rss": 100491264
+          },
+          {
+            "t": 47.768,
+            "rss": 100491264
+          },
+          {
+            "t": 48.268,
+            "rss": 100491264
+          },
+          {
+            "t": 48.77,
+            "rss": 100491264
+          },
+          {
+            "t": 49.27,
+            "rss": 100491264
+          },
+          {
+            "t": 49.77,
+            "rss": 100491264
+          },
+          {
+            "t": 50.27,
+            "rss": 100491264
+          },
+          {
+            "t": 50.773,
+            "rss": 100491264
+          },
+          {
+            "t": 51.275,
+            "rss": 100491264
+          },
+          {
+            "t": 51.775,
+            "rss": 100491264
+          },
+          {
+            "t": 52.278,
+            "rss": 100491264
+          },
+          {
+            "t": 52.782,
+            "rss": 100491264
+          },
+          {
+            "t": 53.285,
+            "rss": 100491264
+          },
+          {
+            "t": 53.785,
+            "rss": 100491264
+          },
+          {
+            "t": 54.285,
+            "rss": 100491264
+          },
+          {
+            "t": 54.789,
+            "rss": 100491264
+          },
+          {
+            "t": 55.29,
+            "rss": 100491264
+          },
+          {
+            "t": 55.793,
+            "rss": 100491264
+          },
+          {
+            "t": 56.293,
+            "rss": 100491264
+          },
+          {
+            "t": 56.795,
+            "rss": 100491264
+          },
+          {
+            "t": 57.296,
+            "rss": 100491264
+          },
+          {
+            "t": 57.796,
+            "rss": 100491264
+          },
+          {
+            "t": 58.296,
+            "rss": 100491264
+          },
+          {
+            "t": 58.798,
+            "rss": 100491264
+          },
+          {
+            "t": 59.298,
+            "rss": 100491264
+          },
+          {
+            "t": 59.799,
+            "rss": 117268480
+          },
+          {
+            "t": 60.299,
+            "rss": 117268480
+          },
+          {
+            "t": 60.799,
+            "rss": 117268480
+          },
+          {
+            "t": 61.299,
+            "rss": 117268480
+          },
+          {
+            "t": 61.799,
+            "rss": 117268480
+          },
+          {
+            "t": 62.299,
+            "rss": 117268480
+          },
+          {
+            "t": 62.799,
+            "rss": 117268480
+          },
+          {
+            "t": 63.3,
+            "rss": 117268480
+          },
+          {
+            "t": 63.802,
+            "rss": 117268480
+          },
+          {
+            "t": 64.304,
+            "rss": 117268480
+          },
+          {
+            "t": 64.806,
+            "rss": 117268480
+          },
+          {
+            "t": 65.306,
+            "rss": 117268480
+          },
+          {
+            "t": 65.806,
+            "rss": 117268480
+          },
+          {
+            "t": 66.308,
+            "rss": 117268480
+          },
+          {
+            "t": 66.81,
+            "rss": 117268480
+          },
+          {
+            "t": 67.31,
+            "rss": 117268480
+          },
+          {
+            "t": 67.81,
+            "rss": 117268480
+          },
+          {
+            "t": 68.312,
+            "rss": 117268480
+          },
+          {
+            "t": 68.813,
+            "rss": 117268480
+          },
+          {
+            "t": 69.313,
+            "rss": 117268480
+          },
+          {
+            "t": 69.813,
+            "rss": 117268480
+          },
+          {
+            "t": 70.315,
+            "rss": 117268480
+          },
+          {
+            "t": 70.817,
+            "rss": 117268480
+          },
+          {
+            "t": 71.317,
+            "rss": 117268480
+          },
+          {
+            "t": 71.817,
+            "rss": 117268480
+          },
+          {
+            "t": 72.317,
+            "rss": 117268480
+          },
+          {
+            "t": 72.818,
+            "rss": 117268480
+          },
+          {
+            "t": 73.322,
+            "rss": 117268480
+          },
+          {
+            "t": 73.825,
+            "rss": 117268480
+          },
+          {
+            "t": 74.326,
+            "rss": 117268480
+          },
+          {
+            "t": 74.829,
+            "rss": 117268480
+          },
+          {
+            "t": 75.332,
+            "rss": 117268480
+          },
+          {
+            "t": 75.834,
+            "rss": 117268480
+          },
+          {
+            "t": 76.334,
+            "rss": 117268480
+          },
+          {
+            "t": 76.836,
+            "rss": 117268480
+          },
+          {
+            "t": 77.336,
+            "rss": 117268480
+          },
+          {
+            "t": 77.839,
+            "rss": 117268480
+          },
+          {
+            "t": 78.339,
+            "rss": 117268480
+          },
+          {
+            "t": 78.839,
+            "rss": 117399552
+          },
+          {
+            "t": 79.34,
+            "rss": 117399552
+          },
+          {
+            "t": 79.843,
+            "rss": 117399552
+          },
+          {
+            "t": 80.345,
+            "rss": 117399552
+          },
+          {
+            "t": 80.846,
+            "rss": 117399552
+          },
+          {
+            "t": 81.348,
+            "rss": 117399552
+          },
+          {
+            "t": 81.849,
+            "rss": 117399552
+          },
+          {
+            "t": 82.349,
+            "rss": 117399552
+          },
+          {
+            "t": 82.85,
+            "rss": 117399552
+          },
+          {
+            "t": 83.351,
+            "rss": 117399552
+          },
+          {
+            "t": 83.853,
+            "rss": 117399552
+          },
+          {
+            "t": 84.354,
+            "rss": 117399552
+          },
+          {
+            "t": 84.855,
+            "rss": 117399552
+          },
+          {
+            "t": 85.358,
+            "rss": 117399552
+          },
+          {
+            "t": 85.86,
+            "rss": 117399552
+          },
+          {
+            "t": 86.36,
+            "rss": 117399552
+          },
+          {
+            "t": 86.863,
+            "rss": 117399552
+          },
+          {
+            "t": 87.366,
+            "rss": 117530624
+          },
+          {
+            "t": 87.867,
+            "rss": 117530624
+          },
+          {
+            "t": 88.369,
+            "rss": 117530624
+          },
+          {
+            "t": 88.87,
+            "rss": 117530624
+          },
+          {
+            "t": 89.372,
+            "rss": 117792768
+          },
+          {
+            "t": 89.874,
+            "rss": 117792768
+          },
+          {
+            "t": 90.374,
+            "rss": 117792768
+          },
+          {
+            "t": 90.874,
+            "rss": 117792768
+          },
+          {
+            "t": 91.374,
+            "rss": 117792768
+          },
+          {
+            "t": 91.876,
+            "rss": 117792768
+          },
+          {
+            "t": 92.376,
+            "rss": 117792768
+          },
+          {
+            "t": 92.877,
+            "rss": 117792768
+          },
+          {
+            "t": 93.377,
+            "rss": 117792768
+          },
+          {
+            "t": 93.879,
+            "rss": 117792768
+          },
+          {
+            "t": 94.381,
+            "rss": 117792768
+          },
+          {
+            "t": 94.881,
+            "rss": 117792768
+          },
+          {
+            "t": 95.214,
+            "rss": 117792768
+          }
+        ],
+        "frames_written": 127008000,
+        "kernel_event_count": 23479,
+        "beats": 3236,
+        "peak_concurrent_voices": 13,
+        "realtime_factor": 30.247701666713116,
+        "non_finite": 0
+      }
+    },
+    {
+      "label": "30min_4drone_layers",
+      "params": {
+        "duration_sec": 1800,
+        "drones": 4,
+        "mode": "hash"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 104595456,
+        "p95": 104595456,
+        "min": 104595456,
+        "max": 104595456
+      },
+      "extras": {
+        "rss_curve_stats": {
+          "samples": 18,
+          "first_rss": 78516224,
+          "last_rss": 97419264,
+          "min_rss": 78516224,
+          "max_rss": 97419264,
+          "median_rss": 88977408,
+          "drift_bytes_per_wall_sec": 2258518.368350931
+        },
+        "realtime_factor": 20.089499864766864,
+        "peak_concurrent_voices": 12,
+        "drone_layers_started": 4,
+        "non_finite": 0,
+        "kernel_event_count": 2391
+      }
+    }
+  ],
+  "stats": {
+    "peaks": {
+      "1min": 82763776,
+      "3min": 90849280,
+      "12min": 90222592,
+      "48min": 117792768
+    }
+  },
+  "raw_samples": {
+    "1min": [
+      82763776
+    ],
+    "3min": [
+      90849280
+    ],
+    "12min": [
+      90222592
+    ],
+    "48min": [
+      117792768
+    ],
+    "30min_4drone_layers": [
+      104595456
+    ]
+  },
+  "derived": {
+    "peak_rss_vs_duration_linear_fit": {
+      "slope": 687573.8688981868,
+      "intercept": 84405922.09762901
+    },
+    "peak_rss_slope_bytes_per_audio_minute": 687573.8688981868,
+    "pcm16_bytes_per_audio_minute": 10584000,
+    "slope_as_pcm_fraction": 0.06496351746959438
+  },
+  "observations": [
+    "Peak RSS vs duration fit: slope 0.66 MB per audio-minute (PCM16 stereo alone would be 10.09 MB/min; category C's chunked path measured ~75 MB/min over 6→60 min). The residual duration-linear term is the kernel event list (~0.2 KB/event), not audio buffers."
+  ]
+}
