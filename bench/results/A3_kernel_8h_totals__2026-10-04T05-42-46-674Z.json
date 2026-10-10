@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "A3_kernel_8h_totals",
+  "category": "A",
+  "timestamp": "2026-10-04T05:42:46.674Z",
+  "params": {
+    "ts_runner": "esbuild",
+    "horizon_hours": 8
+  },
+  "environment": {
+    "captured_at": "2026-10-04T05:42:46.200Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "5.10.134-013.15.kangaroo.al8.x86_64",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor",
+      "cores": 2,
+      "speed_mhz": 0
+    },
+    "total_ram_bytes": 4237889536,
+    "node_version": "v24.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "none",
+      "gpus": []
+    },
+    "results_dir_disk": {
+      "free_bytes": 7149096960,
+      "total_bytes": 10531131392
+    },
+    "tools": {
+      "ts_runner": "esbuild",
+      "playwright": true,
+      "node_web_audio_api": false,
+      "web_audio_engine": false
+    },
+    "ui": "/home/z/my-project/ambient-studio/ui",
+    "root": "/home/z/my-project/ambient-studio"
+  },
+  "methodology": {
+    "measured": "total wall-clock and peak RSS to generate (kernel only, no audio graph) a full 8-hour beat sequence",
+    "granularity": "whole-run wall clock; resourceUsage().maxRSS (KB per Node docs) or memoryUsage().rss",
+    "trials": "1 run",
+    "warmup": "none (the run itself is the measurement)",
+    "outliers": "n/a — single-run totals",
+    "statistic": "wall_sec, wall_per_call_us, peak_rss_bytes"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [],
+  "trials": [],
+  "stats": {
+    "mode": "A3",
+    "horizon_hours": 8,
+    "beats": 32240,
+    "events_total": 233647,
+    "events_by_type": {
+      "kick": 40300,
+      "hihat": 72540,
+      "melody": 21314,
+      "pad": 64480,
+      "bass": 12090,
+      "snare": 20205,
+      "bell": 2718
+    },
+    "wall_sec": 0.06413585999999999,
+    "wall_per_call_us": 1.9893256823821335,
+    "init_chain_ms": 0.3978119999999876,
+    "peak_rss_bytes": 62398464,
+    "rss_note": "resourceUsage().maxRSS (KB per Node docs) where available, else memoryUsage().rss"
+  },
+  "raw_samples": {
+    "bucket_medians_ms": null
+  },
+  "derived": {},
+  "observations": []
+}

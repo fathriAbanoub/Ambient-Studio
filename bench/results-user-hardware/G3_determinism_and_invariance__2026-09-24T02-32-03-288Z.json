@@ -1,0 +1,239 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "G3_determinism_and_invariance",
+  "category": "G",
+  "timestamp": "2026-09-24T02:32:03.288Z",
+  "params": {
+    "determinism_sec": 180,
+    "block_sizes": [
+      1024,
+      4096,
+      16384
+    ],
+    "audit_points": [
+      300,
+      1800
+    ]
+  },
+  "environment": {
+    "captured_at": "2026-09-24T02:30:18.858Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "7.0.0-31-generic",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
+      "cores": 4,
+      "speed_mhz": 4211
+    },
+    "total_ram_bytes": 16594915328,
+    "node_version": "v22.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=3ubuntu5+esm13 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --disable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "nvidia-smi",
+      "gpus": [
+        "NVIDIA GeForce GTX 1650 Ti, 580.173.02"
+      ]
+    },
+    "results_dir_disk": {
+      "free_bytes": 2178629632,
+      "total_bytes": 501809635328
+    },
+    "tools": {
+      "ts_runner": "esbuild",
+      "playwright": true,
+      "node_web_audio_api": true,
+      "web_audio_engine": true
+    },
+    "frontend": "/home/bobaayad/Downloads/Ambient-Studio-bench-GtoL/Ambient-Studio-bench/frontend",
+    "root": "/home/bobaayad/Downloads/Ambient-Studio-bench-GtoL/Ambient-Studio-bench"
+  },
+  "methodology": {
+    "measured": "sha256 of streamed PCM16: (a) same seed two full runs in fresh processes; (b) block sizes 1024/4096/16384; (c) order-reversal audit — re-runs of two sweep points after all other G work, from fresh processes",
+    "granularity": "whole-render streaming hash; per-run wall clock and peak RSS",
+    "trials": "2 determinism runs + 3 invariance runs + 2 audit re-runs",
+    "warmup": "fresh process per run — no cross-run warm state exists",
+    "outliers": "none",
+    "statistic": "hash equality (boolean), wall/peak RSS per run"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [
+    {
+      "name": "byte_identical_same_seed",
+      "passed": true,
+      "detail": "two fresh-process renders of seed 42 are byte-identical (669c951673d12066…)"
+    },
+    {
+      "name": "block_size_invariance",
+      "passed": true,
+      "detail": "1024/4096/16384-frame blocks → identical sha256 (669c951673d12066…): block boundaries are invisible in the output"
+    },
+    {
+      "name": "invariance_matches_determinism",
+      "passed": true,
+      "detail": "4096-frame invariance run equals the determinism runs' hash — same-seed renders agree across runs"
+    },
+    {
+      "name": "audit_hash_stable_180",
+      "passed": true,
+      "detail": "same-seed hash identical regardless of position in the sweep"
+    }
+  ],
+  "trials": [
+    {
+      "label": "determinism_run_1",
+      "params": {
+        "seed": 42,
+        "block_frames": 4096
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 5.558384547,
+        "p95": 5.558384547,
+        "min": 5.558384547,
+        "max": 5.558384547
+      },
+      "extras": {
+        "sha256": "669c951673d12066a8675bef82f7f52b8030aa2b7f5ee2cb2544ad3fdc74cbae",
+        "peak_rss_bytes": 88514560,
+        "realtime_factor": 32.38347538026071,
+        "non_finite": 0
+      }
+    },
+    {
+      "label": "determinism_run_2",
+      "params": {
+        "seed": 42,
+        "block_frames": 4096
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 5.641821022999999,
+        "p95": 5.641821022999999,
+        "min": 5.641821022999999,
+        "max": 5.641821022999999
+      },
+      "extras": {
+        "sha256": "669c951673d12066a8675bef82f7f52b8030aa2b7f5ee2cb2544ad3fdc74cbae",
+        "peak_rss_bytes": 79392768,
+        "realtime_factor": 31.9045552230862,
+        "non_finite": 0
+      }
+    },
+    {
+      "label": "block_1024",
+      "params": {
+        "block_frames": 1024
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 5.866042981,
+        "p95": 5.866042981,
+        "min": 5.866042981,
+        "max": 5.866042981
+      },
+      "extras": {
+        "sha256": "669c951673d12066a8675bef82f7f52b8030aa2b7f5ee2cb2544ad3fdc74cbae",
+        "realtime_factor": 30.685047479701883
+      }
+    },
+    {
+      "label": "block_4096",
+      "params": {
+        "block_frames": 4096
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 5.66890085,
+        "p95": 5.66890085,
+        "min": 5.66890085,
+        "max": 5.66890085
+      },
+      "extras": {
+        "sha256": "669c951673d12066a8675bef82f7f52b8030aa2b7f5ee2cb2544ad3fdc74cbae",
+        "realtime_factor": 31.75214480671056
+      }
+    },
+    {
+      "label": "block_16384",
+      "params": {
+        "block_frames": 16384
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 5.924253294,
+        "p95": 5.924253294,
+        "min": 5.924253294,
+        "max": 5.924253294
+      },
+      "extras": {
+        "sha256": "669c951673d12066a8675bef82f7f52b8030aa2b7f5ee2cb2544ad3fdc74cbae",
+        "realtime_factor": 30.383535146909562
+      }
+    },
+    {
+      "label": "audit_recheck_3min",
+      "params": {
+        "duration_sec": 180,
+        "note": "re-run after all other G work"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 5.789194627999999,
+        "p95": 5.789194627999999,
+        "min": 5.789194627999999,
+        "max": 5.789194627999999
+      },
+      "extras": {
+        "sha256": "669c951673d12066a8675bef82f7f52b8030aa2b7f5ee2cb2544ad3fdc74cbae",
+        "wall_sec_first_pass": 6.271655123,
+        "wall_ratio": 0.9230728594704327,
+        "peak_rss_first_pass": 90849280,
+        "peak_rss_ratio": 1.0401262398557258,
+        "hash_matches_first_pass": true
+      }
+    }
+  ],
+  "stats": {},
+  "raw_samples": {
+    "determinism_run_1": [
+      5.558384547
+    ],
+    "determinism_run_2": [
+      5.641821022999999
+    ],
+    "block_1024": [
+      5.866042981
+    ],
+    "block_4096": [
+      5.66890085
+    ],
+    "block_16384": [
+      5.924253294
+    ],
+    "audit_recheck_3min": [
+      5.789194627999999
+    ]
+  },
+  "derived": {},
+  "observations": []
+}

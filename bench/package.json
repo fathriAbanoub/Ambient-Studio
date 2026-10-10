@@ -1,0 +1,12 @@
+{
+  "name": "ambient-bench",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "bench": "node run.mjs",
+    "aggregate": "node aggregate.mjs",
+    "bench:aggregate": "node aggregate.mjs",
+    "selftest": "node selftest.mjs",
+    "test": "node selftest.mjs"
+  }
+}

@@ -1,0 +1,15 @@
+import { defineConfig } from "vitest/config";
+import path from "node:path";
+
+export default defineConfig({
+  test: {
+    environment: "node", // musicalLogic.ts is pure logic — no DOM/AudioContext needed
+    include: ["src/**/*.test.ts", "../kernel/**/*.test.ts"],
+  },
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      "@ambient-engine": path.resolve(__dirname, "../kernel"),
+    },
+  },
+});

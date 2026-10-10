@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "F_node_webaudio_battery",
+  "category": "F",
+  "timestamp": "2026-10-04T07:20:37.870Z",
+  "params": {
+    "implementations": [
+      {
+        "name": "node-web-audio-api",
+        "version": "unknown"
+      },
+      {
+        "name": "web-audio-engine",
+        "version": "unknown"
+      }
+    ],
+    "graph_duration_sec": 5,
+    "sample_rate": 44100
+  },
+  "environment": {
+    "captured_at": "2026-10-04T07:20:37.696Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "5.10.134-013.15.kangaroo.al8.x86_64",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor",
+      "cores": 2,
+      "speed_mhz": 0
+    },
+    "total_ram_bytes": 4237889536,
+    "node_version": "v24.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "none",
+      "gpus": []
+    },
+    "results_dir_disk": {
+      "free_bytes": 7023771648,
+      "total_bytes": 10531131392
+    },
+    "tools": {
+      "ts_runner": "esbuild",
+      "playwright": true,
+      "node_web_audio_api": true,
+      "web_audio_engine": true
+    },
+    "ui": "/home/z/my-project/ambient-studio/ui",
+    "root": "/home/z/my-project/ambient-studio"
+  },
+  "methodology": {
+    "measured": "per-implementation correctness battery over the node types the real engine uses, plus offline render speed",
+    "granularity": "per graph: pass/fail on real invariants (zero non-finite, non-silent, headroom, feedback tail), rms/peak values, realtime factor",
+    "trials": "1 per graph per implementation (deterministic graphs; timing is informational)",
+    "warmup": "none",
+    "outliers": "none",
+    "statistic": "pass/fail per invariant + measured rms/peak/speed"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [
+    {
+      "name": "all_graphs_pass_all_invariants",
+      "passed": true,
+      "detail": "every implementation must render every graph with zero non-finite samples, non-silent output, and peak within headroom"
+    }
+  ],
+  "trials": [],
+  "stats": {
+    "by_implementation": {
+      "node-web-audio-api": [
+        {
+          "graph": "osc+gain(ADSR)",
+          "pass": true,
+          "checks": {
+            "rendered": true,
+            "nonfinite_zero": true,
+            "non_silent": true
+          },
+          "rms": 0.29439156432506447,
+          "peak": 0.499999463558197,
+          "peak_exceeds_full_scale": false,
+          "non_finite": 0,
+          "render_wall_sec": 0.005301358999999991,
+          "realtime_factor": 943.1543873938756
+        },
+        {
+          "graph": "osc+filter+delay+feedback(automated)",
+          "pass": true,
+          "checks": {
+            "rendered": true,
+            "nonfinite_zero": true,
+            "non_silent": true,
+            "feedback_tail_present": true
+          },
+          "rms": 0.3365493118832454,
+          "peak": 1.0858125686645508,
+          "peak_exceeds_full_scale": true,
+          "non_finite": 0,
+          "render_wall_sec": 0.02315715800000004,
+          "realtime_factor": 215.9159599809265
+        },
+        {
+          "graph": "osc+compressor",
+          "pass": true,
+          "checks": {
+            "rendered": true,
+            "nonfinite_zero": true,
+            "non_silent": true
+          },
+          "rms": 0.4294020409742242,
+          "peak": 0.8255496621131897,
+          "peak_exceeds_full_scale": false,
+          "non_finite": 0,
+          "render_wall_sec": 0.007242126999999982,
+          "realtime_factor": 690.4049045259787
+        },
+        {
+          "graph": "osc+stereopanner(automated)",
+          "pass": true,
+          "checks": {
+            "rendered": true,
+            "nonfinite_zero": true,
+            "non_silent": true
+          },
+          "rms": 0.2499998049380236,
+          "peak": 0.4999983608722687,
+          "peak_exceeds_full_scale": false,
+          "non_finite": 0,
+          "render_wall_sec": 0.004182597999999984,
+          "realtime_factor": 1195.429252345078
+        },
+        {
+          "graph": "bufferSource(noise buffer)",
+          "pass": true,
+          "checks": {
+            "rendered": true,
+            "nonfinite_zero": true,
+            "non_silent": true
+          },
+          "rms": 0.1727502577533252,
+          "peak": 0.29999807476997375,
+          "peak_exceeds_full_scale": false,
+          "non_finite": 0,
+          "render_wall_sec": 0.003197025999999994,
+          "realtime_factor": 1563.9534992833994
+        }
+      ],
+      "web-audio-engine": [
+        {
+          "graph": "osc+gain(ADSR)",
+          "pass": true,
+          "checks": {
+            "rendered": true,
+            "nonfinite_zero": true,
+            "non_silent": true
+          },
+          "rms": 0.11365091937799057,
+          "peak": 0.49961891770362854,
+          "peak_exceeds_full_scale": false,
+          "non_finite": 0,
+          "render_wall_sec": 0.013945947000000047,
+          "realtime_factor": 358.5271046849657
+        },
+        {
+          "graph": "osc+filter+delay+feedback(automated)",
+          "pass": true,
+          "checks": {
+            "rendered": true,
+            "nonfinite_zero": true,
+            "non_silent": true,
+            "feedback_tail_present": true
+          },
+          "rms": 0.3301188779822187,
+          "peak": 1.1332193613052368,
+          "peak_exceeds_full_scale": true,
+          "non_finite": 0,
+          "render_wall_sec": 0.026330978999999956,
+          "realtime_factor": 189.8903948842923
+        },
+        {
+          "graph": "osc+compressor",
+          "pass": true,
+          "checks": {
+            "rendered": true,
+            "nonfinite_zero": true,
+            "non_silent": true
+          },
+          "rms": 0.56832121710924,
+          "peak": 1.1205604076385498,
+          "peak_exceeds_full_scale": true,
+          "non_finite": 0,
+          "render_wall_sec": 0.034017696,
+          "realtime_factor": 146.98232355301195
+        },
+        {
+          "graph": "osc+stereopanner(automated)",
+          "pass": true,
+          "checks": {
+            "rendered": true,
+            "nonfinite_zero": true,
+            "non_silent": true
+          },
+          "rms": 0.24999999977205709,
+          "peak": 0.49384304881095886,
+          "peak_exceeds_full_scale": false,
+          "non_finite": 0,
+          "render_wall_sec": 0.019522985000000062,
+          "realtime_factor": 256.10837686962236
+        },
+        {
+          "graph": "bufferSource(noise buffer)",
+          "pass": true,
+          "checks": {
+            "rendered": true,
+            "nonfinite_zero": true,
+            "non_silent": true
+          },
+          "rms": 0.17275025049701934,
+          "peak": 0.29999804496765137,
+          "peak_exceeds_full_scale": false,
+          "non_finite": 0,
+          "render_wall_sec": 0.00995296600000006,
+          "realtime_factor": 502.36281325586464
+        }
+      ]
+    }
+  },
+  "raw_samples": {},
+  "derived": {},
+  "observations": []
+}

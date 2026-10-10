@@ -1,0 +1,21 @@
+{
+ "scale": "majorPent",
+ "rootHz": 110,
+ "bpm": 72,
+ "complexity": 0.35,
+ "mix": 0.4,
+ "enableScenes": false,
+ "enableHarmonicLoop": false,
+ "enableBeats": false,
+ "drone": {
+  "layers": [
+   {
+    "hz": 330,
+    "timbre": "fm",
+    "amp": 0.4,
+    "pan": 0
+   }
+  ]
+ },
+ "seed": 4242
+}

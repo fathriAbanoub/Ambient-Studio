@@ -1,0 +1,268 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "D1_static_ladder",
+  "category": "D",
+  "timestamp": "2026-10-04T06:41:48.777Z",
+  "params": {
+    "video": "1920x1080",
+    "crf": 23,
+    "x264_preset": "veryfast",
+    "nvenc_args": [
+      "-preset",
+      "p1",
+      "-rc",
+      "vbr",
+      "-cq",
+      "23",
+      "-b:v",
+      "5M"
+    ],
+    "audio": "lavfi anoisesrc (deterministic seed) streamed — no WAV temp",
+    "assets": {
+      "bg": "user-provided",
+      "loop_gif": "user-provided",
+      "loop_mp4": "user-provided"
+    },
+    "modes": [
+      {
+        "kind": "static",
+        "label": "static_0.2min",
+        "disk_guard_min": 0.2,
+        "params": {
+          "duration_min": 0.2,
+          "fps": 1,
+          "zoom": null,
+          "loop_source": null
+        }
+      },
+      {
+        "kind": "static",
+        "label": "static_2min",
+        "disk_guard_min": 2,
+        "params": {
+          "duration_min": 2,
+          "fps": 1,
+          "zoom": null,
+          "loop_source": null
+        }
+      },
+      {
+        "kind": "static",
+        "label": "static_6min",
+        "disk_guard_min": 6,
+        "params": {
+          "duration_min": 6,
+          "fps": 1,
+          "zoom": null,
+          "loop_source": null
+        }
+      },
+      {
+        "kind": "static",
+        "label": "static_24min",
+        "disk_guard_min": 24,
+        "params": {
+          "duration_min": 24,
+          "fps": 1,
+          "zoom": null,
+          "loop_source": null
+        }
+      }
+    ]
+  },
+  "environment": {
+    "captured_at": "2026-10-04T06:41:48.162Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "5.10.134-013.15.kangaroo.al8.x86_64",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor",
+      "cores": 2,
+      "speed_mhz": 0
+    },
+    "total_ram_bytes": 4237889536,
+    "node_version": "v24.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "none",
+      "gpus": []
+    },
+    "results_dir_disk": {
+      "free_bytes": 7048445952,
+      "total_bytes": 10531131392
+    },
+    "tools": {
+      "ts_runner": "esbuild",
+      "playwright": true,
+      "node_web_audio_api": true,
+      "web_audio_engine": true
+    },
+    "ui": "/home/z/my-project/ambient-studio/ui",
+    "root": "/home/z/my-project/ambient-studio"
+  },
+  "methodology": {
+    "measured": "wall-clock encode time and output size per mode/duration/fps/codec; peak ffmpeg RSS and peak work-dir size (D5) recorded per run",
+    "granularity": "per ffmpeg invocation; ffprobe of each output for duration/fps truth",
+    "trials": "1 per combination (encodes are minutes-long; medians across combos are meaningless, ratios are the point)",
+    "warmup": "none",
+    "outliers": "none removed; failed runs recorded with stderr tail",
+    "statistic": "per-run wall_sec, output_bytes, peak_rss_bytes, ffprobe_duration_sec"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [],
+  "trials": [
+    {
+      "label": "static_0.2min__libx264",
+      "params": {
+        "duration_min": 0.2,
+        "fps": 1,
+        "zoom": null,
+        "loop_source": null,
+        "kind": "static"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 0.490729017,
+        "p95": 0.490729017,
+        "min": 0.490729017,
+        "max": 0.490729017
+      },
+      "extras": {
+        "command": "ffmpeg -loop 1 -framerate 1 -i /home/z/my-project/ambient-studio/bench/assets/bg.png -f lavfi -i anoisesrc=colour=pink:amplitude=0.1:seed=42:sample_rate=44100:duration=12 -ac 2 -map 0:v -map 1:a -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -r 1 -c:a aac -movflags +faststart -t 12 -y /home/z/my-project/ambient-studio/bench/work/D1_static_ladder__uGxdUH/static_0.2min__libx264.mp4",
+        "output_bytes": 291730,
+        "peak_rss_bytes": 260386816,
+        "ffprobe": {
+          "duration_sec": 12,
+          "avg_frame_rate": "1/1",
+          "width": 1920,
+          "height": 1080
+        },
+        "timed_out": false
+      }
+    },
+    {
+      "label": "static_2min__libx264",
+      "params": {
+        "duration_min": 2,
+        "fps": 1,
+        "zoom": null,
+        "loop_source": null,
+        "kind": "static"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 3.7934867199999998,
+        "p95": 3.7934867199999998,
+        "min": 3.7934867199999998,
+        "max": 3.7934867199999998
+      },
+      "extras": {
+        "command": "ffmpeg -loop 1 -framerate 1 -i /home/z/my-project/ambient-studio/bench/assets/bg.png -f lavfi -i anoisesrc=colour=pink:amplitude=0.1:seed=42:sample_rate=44100:duration=120 -ac 2 -map 0:v -map 1:a -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -r 1 -c:a aac -movflags +faststart -t 120 -y /home/z/my-project/ambient-studio/bench/work/D1_static_ladder__uGxdUH/static_2min__libx264.mp4",
+        "output_bytes": 2052152,
+        "peak_rss_bytes": 426397696,
+        "ffprobe": {
+          "duration_sec": 120,
+          "avg_frame_rate": "1/1",
+          "width": 1920,
+          "height": 1080
+        },
+        "timed_out": false
+      }
+    },
+    {
+      "label": "static_6min__libx264",
+      "params": {
+        "duration_min": 6,
+        "fps": 1,
+        "zoom": null,
+        "loop_source": null,
+        "kind": "static"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 10.986976322,
+        "p95": 10.986976322,
+        "min": 10.986976322,
+        "max": 10.986976322
+      },
+      "extras": {
+        "command": "ffmpeg -loop 1 -framerate 1 -i /home/z/my-project/ambient-studio/bench/assets/bg.png -f lavfi -i anoisesrc=colour=pink:amplitude=0.1:seed=42:sample_rate=44100:duration=360 -ac 2 -map 0:v -map 1:a -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -r 1 -c:a aac -movflags +faststart -t 360 -y /home/z/my-project/ambient-studio/bench/work/D1_static_ladder__uGxdUH/static_6min__libx264.mp4",
+        "output_bytes": 6070017,
+        "peak_rss_bytes": 424931328,
+        "ffprobe": {
+          "duration_sec": 360,
+          "avg_frame_rate": "1/1",
+          "width": 1920,
+          "height": 1080
+        },
+        "timed_out": false
+      }
+    },
+    {
+      "label": "static_24min__libx264",
+      "params": {
+        "duration_min": 24,
+        "fps": 1,
+        "zoom": null,
+        "loop_source": null,
+        "kind": "static"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 43.956557118,
+        "p95": 43.956557118,
+        "min": 43.956557118,
+        "max": 43.956557118
+      },
+      "extras": {
+        "command": "ffmpeg -loop 1 -framerate 1 -i /home/z/my-project/ambient-studio/bench/assets/bg.png -f lavfi -i anoisesrc=colour=pink:amplitude=0.1:seed=42:sample_rate=44100:duration=1440 -ac 2 -map 0:v -map 1:a -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -r 1 -c:a aac -movflags +faststart -t 1440 -y /home/z/my-project/ambient-studio/bench/work/D1_static_ladder__uGxdUH/static_24min__libx264.mp4",
+        "output_bytes": 24095807,
+        "peak_rss_bytes": 433016832,
+        "ffprobe": {
+          "duration_sec": 1440,
+          "avg_frame_rate": "1/1",
+          "width": 1920,
+          "height": 1080
+        },
+        "timed_out": false
+      }
+    }
+  ],
+  "stats": {
+    "peak_workdir_bytes": 22806576
+  },
+  "raw_samples": {
+    "static_0.2min__libx264": [
+      0.490729017
+    ],
+    "static_2min__libx264": [
+      3.7934867199999998
+    ],
+    "static_6min__libx264": [
+      10.986976322
+    ],
+    "static_24min__libx264": [
+      43.956557118
+    ]
+  },
+  "derived": {},
+  "observations": []
+}

@@ -1,0 +1,288 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "E1_wav_size_accounting",
+  "category": "E",
+  "timestamp": "2026-10-04T07:19:08.520Z",
+  "params": {
+    "sample_rate": 44100,
+    "channels": 2,
+    "bit_depth": 16,
+    "durations_min": [
+      1,
+      5,
+      15,
+      30,
+      60
+    ]
+  },
+  "environment": {
+    "captured_at": "2026-10-04T07:19:08.462Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "5.10.134-013.15.kangaroo.al8.x86_64",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor",
+      "cores": 2,
+      "speed_mhz": 0
+    },
+    "total_ram_bytes": 4237889536,
+    "node_version": "v24.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "none",
+      "gpus": []
+    },
+    "results_dir_disk": {
+      "free_bytes": 7023800320,
+      "total_bytes": 10531131392
+    },
+    "tools": {
+      "ts_runner": "esbuild",
+      "playwright": true,
+      "node_web_audio_api": true,
+      "web_audio_engine": true
+    },
+    "ui": "/home/z/my-project/ambient-studio/ui",
+    "root": "/home/z/my-project/ambient-studio"
+  },
+  "methodology": {
+    "measured": "on-disk WAV size (bench WAV writer, PCM16 stereo, header shape mirrored from audioBufferToWav) vs theoretical 44 + frames×channels×2",
+    "granularity": "per file",
+    "trials": "1 per duration",
+    "warmup": "n/a",
+    "outliers": "n/a",
+    "statistic": "size_bytes vs theoretical_bytes (equality is a real invariant, asserted)"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [
+    {
+      "name": "wav_size_matches_theory",
+      "passed": true,
+      "detail": "every file must equal header + frames×channels×bytesPerSample exactly"
+    }
+  ],
+  "trials": [
+    {
+      "label": "1min",
+      "params": {
+        "duration_sec": 60,
+        "frames": 2646000
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 10584044,
+        "p95": 10584044,
+        "min": 10584044,
+        "max": 10584044
+      },
+      "extras": {
+        "theoretical_bytes": 10584044,
+        "writer_returned_bytes": 10584044,
+        "header_ok": true,
+        "size_consistent": true
+      }
+    },
+    {
+      "label": "5min",
+      "params": {
+        "duration_sec": 300,
+        "frames": 13230000
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 52920044,
+        "p95": 52920044,
+        "min": 52920044,
+        "max": 52920044
+      },
+      "extras": {
+        "theoretical_bytes": 52920044,
+        "writer_returned_bytes": 52920044,
+        "header_ok": true,
+        "size_consistent": true
+      }
+    },
+    {
+      "label": "15min",
+      "params": {
+        "duration_sec": 900,
+        "frames": 39690000
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 158760044,
+        "p95": 158760044,
+        "min": 158760044,
+        "max": 158760044
+      },
+      "extras": {
+        "theoretical_bytes": 158760044,
+        "writer_returned_bytes": 158760044,
+        "header_ok": true,
+        "size_consistent": true
+      }
+    },
+    {
+      "label": "30min",
+      "params": {
+        "duration_sec": 1800,
+        "frames": 79380000
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 317520044,
+        "p95": 317520044,
+        "min": 317520044,
+        "max": 317520044
+      },
+      "extras": {
+        "theoretical_bytes": 317520044,
+        "writer_returned_bytes": 317520044,
+        "header_ok": true,
+        "size_consistent": true
+      }
+    },
+    {
+      "label": "60min",
+      "params": {
+        "duration_sec": 3600,
+        "frames": 158760000
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 635040044,
+        "p95": 635040044,
+        "min": 635040044,
+        "max": 635040044
+      },
+      "extras": {
+        "theoretical_bytes": 635040044,
+        "writer_returned_bytes": 635040044,
+        "header_ok": true,
+        "size_consistent": true
+      }
+    }
+  ],
+  "stats": {},
+  "raw_samples": {
+    "1min": [
+      10584044
+    ],
+    "5min": [
+      52920044
+    ],
+    "15min": [
+      158760044
+    ],
+    "30min": [
+      317520044
+    ],
+    "60min": [
+      635040044
+    ]
+  },
+  "derived": {
+    "cross_read_from_B_results": [
+      {
+        "source_file": "B1_offline_render_sweep__browser__2026-10-04T06-30-46-617Z.json",
+        "duration_minutes": 0.02,
+        "wav_bytes": 211724,
+        "output_frames": 52920,
+        "theoretical_from_frames": 211724,
+        "matches": true
+      },
+      {
+        "source_file": "B1_offline_render_sweep__browser__2026-10-04T06-30-46-617Z.json",
+        "duration_minutes": 0.1,
+        "wav_bytes": 1058444,
+        "output_frames": 264600,
+        "theoretical_from_frames": 1058444,
+        "matches": true
+      },
+      {
+        "source_file": "B1_offline_render_sweep__browser__2026-10-04T06-30-46-617Z.json",
+        "duration_minutes": 0.3,
+        "wav_bytes": 3175244,
+        "output_frames": 793800,
+        "theoretical_from_frames": 3175244,
+        "matches": true
+      },
+      {
+        "source_file": "B1_offline_render_sweep__browser__2026-10-04T06-30-46-617Z.json",
+        "duration_minutes": 0.6,
+        "wav_bytes": 6350444,
+        "output_frames": 1587600,
+        "theoretical_from_frames": 6350444,
+        "matches": true
+      },
+      {
+        "source_file": "B1_offline_render_sweep__browser__2026-10-04T06-30-46-617Z.json",
+        "duration_minutes": 1.2,
+        "wav_bytes": 12700844,
+        "output_frames": 3175200,
+        "theoretical_from_frames": 12700844,
+        "matches": true
+      },
+      {
+        "source_file": "B1_offline_render_sweep__node__2026-10-04T06-31-17-036Z.json",
+        "duration_minutes": 0.02,
+        "wav_bytes": 211724,
+        "output_frames": 52920,
+        "theoretical_from_frames": 211724,
+        "matches": true
+      },
+      {
+        "source_file": "B1_offline_render_sweep__node__2026-10-04T06-31-17-036Z.json",
+        "duration_minutes": 0.1,
+        "wav_bytes": 1058444,
+        "output_frames": 264600,
+        "theoretical_from_frames": 1058444,
+        "matches": true
+      },
+      {
+        "source_file": "B1_offline_render_sweep__node__2026-10-04T06-31-17-036Z.json",
+        "duration_minutes": 0.3,
+        "wav_bytes": 3175244,
+        "output_frames": 793800,
+        "theoretical_from_frames": 3175244,
+        "matches": true
+      },
+      {
+        "source_file": "B1_offline_render_sweep__node__2026-10-04T06-31-17-036Z.json",
+        "duration_minutes": 0.6,
+        "wav_bytes": 6350444,
+        "output_frames": 1587600,
+        "theoretical_from_frames": 6350444,
+        "matches": true
+      },
+      {
+        "source_file": "B1_offline_render_sweep__node__2026-10-04T06-31-17-036Z.json",
+        "duration_minutes": 1.2,
+        "wav_bytes": 12700844,
+        "output_frames": 3175200,
+        "theoretical_from_frames": 12700844,
+        "matches": true
+      }
+    ]
+  },
+  "observations": []
+}

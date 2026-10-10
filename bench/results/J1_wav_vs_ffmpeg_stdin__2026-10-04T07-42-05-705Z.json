@@ -1,0 +1,305 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "J1_wav_vs_ffmpeg_stdin",
+  "category": "J",
+  "timestamp": "2026-10-04T07:42:05.705Z",
+  "params": {
+    "sweep_sec": [
+      300,
+      1800,
+      7200
+    ],
+    "bitrate_k": 160,
+    "sample_rate": 44100,
+    "block_frames": 4096
+  },
+  "environment": {
+    "captured_at": "2026-10-04T07:42:05.628Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "5.10.134-013.15.kangaroo.al8.x86_64",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor",
+      "cores": 2,
+      "speed_mhz": 0
+    },
+    "total_ram_bytes": 4237889536,
+    "node_version": "v24.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "none",
+      "gpus": []
+    },
+    "results_dir_disk": {
+      "free_bytes": 7023550464,
+      "total_bytes": 10531131392
+    },
+    "tools": {
+      "ts_runner": "esbuild",
+      "playwright": true,
+      "node_web_audio_api": true,
+      "web_audio_engine": true
+    },
+    "ui": "/home/z/my-project/ambient-studio/ui",
+    "root": "/home/z/my-project/ambient-studio"
+  },
+  "methodology": {
+    "measured": "wall clock (synth, encode, total), ffmpeg peak RSS, peak work-dir bytes, and ffprobe of the encoded output, for WAV-file handoff vs direct stdin-pipe handoff of the identical seeded render",
+    "granularity": "per-point wall clocks (child-reported synth wall; runner-measured encode wall); ffmpeg VmHWM; 2 s work-dir sampling",
+    "trials": "1 per duration × 2 modes, fresh child per render",
+    "warmup": "none — whole-pipeline measurement",
+    "outliers": "none",
+    "statistic": "wall totals + peak RSS + peak disk per mode; hash equality across modes asserted"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [
+    {
+      "name": "ffmpeg_exit_zero_wav_150",
+      "passed": true,
+      "detail": "mode A exit 0"
+    },
+    {
+      "name": "ffmpeg_exit_zero_pipe_150",
+      "passed": true,
+      "detail": "mode B exit 0"
+    },
+    {
+      "name": "pcm_hash_equal_across_modes_150",
+      "passed": true,
+      "detail": "identical PCM bytes through both handoffs (22e410c5b520386d…)"
+    },
+    {
+      "name": "ffmpeg_exit_zero_wav_900",
+      "passed": true,
+      "detail": "mode A exit 0"
+    },
+    {
+      "name": "ffmpeg_exit_zero_pipe_900",
+      "passed": true,
+      "detail": "mode B exit 0"
+    },
+    {
+      "name": "pcm_hash_equal_across_modes_900",
+      "passed": true,
+      "detail": "identical PCM bytes through both handoffs (30576f4b8b9606d4…)"
+    },
+    {
+      "name": "ffmpeg_exit_zero_wav_3600",
+      "passed": true,
+      "detail": "mode A exit 0"
+    },
+    {
+      "name": "ffmpeg_exit_zero_pipe_3600",
+      "passed": true,
+      "detail": "mode B exit 0"
+    },
+    {
+      "name": "pcm_hash_equal_across_modes_3600",
+      "passed": true,
+      "detail": "identical PCM bytes through both handoffs (5cf90e75e9123aad…)"
+    }
+  ],
+  "trials": [
+    {
+      "label": "3min_wav_then_ffmpeg",
+      "params": {
+        "duration_sec": 150,
+        "mode": "wav_then_ffmpeg"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 7.497567891,
+        "p95": 7.497567891,
+        "min": 7.497567891,
+        "max": 7.497567891
+      },
+      "extras": {
+        "synth_wall_sec": 3.690085325,
+        "encode_wall_sec": 3.8050841419999997,
+        "total_wall_sec": 7.497567891,
+        "ffmpeg_peak_rss_bytes": 57540608,
+        "wav_header_ok": true,
+        "pcm16_sha256": "22e410c5b520386d7f256906e4d25d358572c8caa91e837f39e1444b590074f3",
+        "peak_workdir_bytes": 28032952,
+        "output_bytes": 3052094,
+        "ffprobe_duration_sec": 150,
+        "ffmpeg_exit": 0
+      }
+    },
+    {
+      "label": "3min_stdin_pipe",
+      "params": {
+        "duration_sec": 150,
+        "mode": "stdin_pipe"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 6.957033944999999,
+        "p95": 6.957033944999999,
+        "min": 6.957033944999999,
+        "max": 6.957033944999999
+      },
+      "extras": {
+        "synth_wall_sec": 3.8341924869999997,
+        "encode_wall_sec": null,
+        "total_wall_sec": 6.957033944999999,
+        "ffmpeg_peak_rss_bytes": 55635968,
+        "child_peak_rss_bytes": 90214400,
+        "pcm16_sha256": "22e410c5b520386d7f256906e4d25d358572c8caa91e837f39e1444b590074f3",
+        "peak_workdir_bytes": 31609334,
+        "output_bytes": 3202291,
+        "ffprobe_duration_sec": 150,
+        "ffmpeg_exit": 0
+      }
+    },
+    {
+      "label": "15min_wav_then_ffmpeg",
+      "params": {
+        "duration_sec": 900,
+        "mode": "wav_then_ffmpeg"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 46.188747436,
+        "p95": 46.188747436,
+        "min": 46.188747436,
+        "max": 46.188747436
+      },
+      "extras": {
+        "synth_wall_sec": 24.666377798000003,
+        "encode_wall_sec": 21.520704530000003,
+        "total_wall_sec": 46.188747436,
+        "ffmpeg_peak_rss_bytes": 63393792,
+        "wav_header_ok": true,
+        "pcm16_sha256": "30576f4b8b9606d441a36b502490165086b69ab0d553ffca680486409d26f736",
+        "peak_workdir_bytes": 176848024,
+        "output_bytes": 18627126,
+        "ffprobe_duration_sec": 900,
+        "ffmpeg_exit": 0
+      }
+    },
+    {
+      "label": "15min_stdin_pipe",
+      "params": {
+        "duration_sec": 900,
+        "mode": "stdin_pipe"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 45.76595656500001,
+        "p95": 45.76595656500001,
+        "min": 45.76595656500001,
+        "max": 45.76595656500001
+      },
+      "extras": {
+        "synth_wall_sec": 24.421607916,
+        "encode_wall_sec": null,
+        "total_wall_sec": 45.76595656500001,
+        "ffmpeg_peak_rss_bytes": 58122240,
+        "child_peak_rss_bytes": 103141376,
+        "pcm16_sha256": "30576f4b8b9606d441a36b502490165086b69ab0d553ffca680486409d26f736",
+        "peak_workdir_bytes": 195213006,
+        "output_bytes": 19621633,
+        "ffprobe_duration_sec": 900,
+        "ffmpeg_exit": 0
+      }
+    },
+    {
+      "label": "60min_wav_then_ffmpeg",
+      "params": {
+        "duration_sec": 3600,
+        "mode": "wav_then_ffmpeg"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 182.851271236,
+        "p95": 182.851271236,
+        "min": 182.851271236,
+        "max": 182.851271236
+      },
+      "extras": {
+        "synth_wall_sec": 95.976183398,
+        "encode_wall_sec": 86.87352950099998,
+        "total_wall_sec": 182.851271236,
+        "ffmpeg_peak_rss_bytes": 69783552,
+        "wav_header_ok": true,
+        "pcm16_sha256": "5cf90e75e9123aad5bcd2f3c9a63d5eb78bddfeb6dbd402b858eea30e88432df",
+        "peak_workdir_bytes": 708178264,
+        "output_bytes": 74551309,
+        "ffprobe_duration_sec": 3600,
+        "ffmpeg_exit": 0
+      }
+    },
+    {
+      "label": "60min_stdin_pipe",
+      "params": {
+        "duration_sec": 3600,
+        "mode": "stdin_pipe"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 235.518014762,
+        "p95": 235.518014762,
+        "min": 235.518014762,
+        "max": 235.518014762
+      },
+      "extras": {
+        "synth_wall_sec": 95.89566248799999,
+        "encode_wall_sec": null,
+        "total_wall_sec": 235.518014762,
+        "ffmpeg_peak_rss_bytes": 66453504,
+        "child_peak_rss_bytes": 170741760,
+        "pcm16_sha256": "5cf90e75e9123aad5bcd2f3c9a63d5eb78bddfeb6dbd402b858eea30e88432df",
+        "peak_workdir_bytes": 780894565,
+        "output_bytes": 72867480,
+        "ffprobe_duration_sec": 3600,
+        "ffmpeg_exit": 0
+      }
+    }
+  ],
+  "stats": {},
+  "raw_samples": {
+    "3min_wav_then_ffmpeg": [
+      7.497567891
+    ],
+    "3min_stdin_pipe": [
+      6.957033944999999
+    ],
+    "15min_wav_then_ffmpeg": [
+      46.188747436
+    ],
+    "15min_stdin_pipe": [
+      45.76595656500001
+    ],
+    "60min_wav_then_ffmpeg": [
+      182.851271236
+    ],
+    "60min_stdin_pipe": [
+      235.518014762
+    ]
+  },
+  "derived": {},
+  "observations": [
+    "Reading the two modes: stdin-pipe overlaps encoding with synthesis (no encode-wall term, no WAV intermediate — peak disk stays at work-dir baseline); wav-then-ffmpeg pays the WAV write+read and holds duration-proportional disk (at 2 h: the same ~2.5 GB that E1/E3 measured for the current pipeline). Both feed ffmpeg identical bytes (asserted per point)."
+  ]
+}

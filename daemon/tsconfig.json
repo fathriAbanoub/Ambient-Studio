@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "target": "es2020",
+    "types": ["node"],
+    "lib": ["es2022", "dom"]
+  },
+  "include": ["src/*.ts", "test/*.ts", "../kernel/musicalLogic.ts", "../kernel/scheduling.ts", "../kernel/index.ts", "../kernel/sampleBank.ts"],
+  "exclude": ["src/blockSynth.ts", "src/sinks.ts"]
+}

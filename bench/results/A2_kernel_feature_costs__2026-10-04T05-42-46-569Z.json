@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "A2_kernel_feature_costs",
+  "category": "A",
+  "timestamp": "2026-10-04T05:42:46.569Z",
+  "params": {
+    "ts_runner": "esbuild",
+    "horizon_hours": 8
+  },
+  "environment": {
+    "captured_at": "2026-10-04T05:42:46.200Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "5.10.134-013.15.kangaroo.al8.x86_64",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor",
+      "cores": 2,
+      "speed_mhz": 0
+    },
+    "total_ram_bytes": 4237889536,
+    "node_version": "v24.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "none",
+      "gpus": []
+    },
+    "results_dir_disk": {
+      "free_bytes": 7149096960,
+      "total_bytes": 10531131392
+    },
+    "tools": {
+      "ts_runner": "esbuild",
+      "playwright": true,
+      "node_web_audio_api": false,
+      "web_audio_engine": false
+    },
+    "ui": "/home/z/my-project/ambient-studio/ui",
+    "root": "/home/z/my-project/ambient-studio"
+  },
+  "methodology": {
+    "measured": "per-call cost by configuration: drone layers 0/4/8 × sample bank 0/16 entries",
+    "granularity": "per call, ms",
+    "trials": "1 run × 2000 nominal beats per configuration (6 configurations)",
+    "warmup": "30 s simulated warm-up per configuration; first 100 measured calls discarded",
+    "outliers": "none removed — median/p95 reported",
+    "statistic": "median, p95, min, max"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [],
+  "trials": [],
+  "stats": {
+    "mode": "A2",
+    "horizon_beats": 2000,
+    "configs": [
+      {
+        "drone_layers": 0,
+        "sample_bank_entries": 0,
+        "horizon_beats": 2000,
+        "stats": {
+          "n": 1763,
+          "median": 0.0009949999999960824,
+          "p95": 0.0040143999999990845,
+          "min": 0.0005929999999949587,
+          "max": 0.7794799999999995
+        },
+        "events_per_beat_median": 7
+      },
+      {
+        "drone_layers": 0,
+        "sample_bank_entries": 16,
+        "horizon_beats": 2000,
+        "stats": {
+          "n": 1763,
+          "median": 0.002169999999999561,
+          "p95": 0.0033917999999957243,
+          "min": 0.00172399999999584,
+          "max": 0.21247199999999822
+        },
+        "events_per_beat_median": 7
+      },
+      {
+        "drone_layers": 4,
+        "sample_bank_entries": 0,
+        "horizon_beats": 2000,
+        "stats": {
+          "n": 1763,
+          "median": 0.002299000000000717,
+          "p95": 0.005425699999999978,
+          "min": 0.0010809999999992215,
+          "max": 0.40815700000000277
+        },
+        "events_per_beat_median": 11
+      },
+      {
+        "drone_layers": 4,
+        "sample_bank_entries": 16,
+        "horizon_beats": 2000,
+        "stats": {
+          "n": 1763,
+          "median": 0.0024769999999989523,
+          "p95": 0.005161700000002147,
+          "min": 0.0019289999999898555,
+          "max": 0.23693099999999845
+        },
+        "events_per_beat_median": 11
+      },
+      {
+        "drone_layers": 8,
+        "sample_bank_entries": 0,
+        "horizon_beats": 2000,
+        "stats": {
+          "n": 1763,
+          "median": 0.0013119999999986476,
+          "p95": 0.0021136000000041115,
+          "min": 0.0009340000000008786,
+          "max": 0.19111900000000048
+        },
+        "events_per_beat_median": 15
+      },
+      {
+        "drone_layers": 8,
+        "sample_bank_entries": 16,
+        "horizon_beats": 2000,
+        "stats": {
+          "n": 1763,
+          "median": 0.002668999999997368,
+          "p95": 0.00401289999999932,
+          "min": 0.002083999999996422,
+          "max": 0.1802500000000009
+        },
+        "events_per_beat_median": 15
+      }
+    ]
+  },
+  "raw_samples": {
+    "bucket_medians_ms": null
+  },
+  "derived": {},
+  "observations": []
+}

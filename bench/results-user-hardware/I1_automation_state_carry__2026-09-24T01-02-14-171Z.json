@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "I1_automation_state_carry",
+  "category": "I",
+  "timestamp": "2026-09-24T01:02:14.171Z",
+  "params": {
+    "total_sec": 1800,
+    "block_sizes": [
+      1024,
+      4096,
+      16384,
+      "single_block"
+    ],
+    "broken_block_sizes": [
+      1024,
+      8192,
+      65536
+    ],
+    "crosscheck_sec": 120,
+    "c_graph_constants": {
+      "carrierHz": 220,
+      "subHz": 55,
+      "subGain": 0.5,
+      "filterStartHz": 600,
+      "filterEndHz": 2400,
+      "filterQ": 1,
+      "delayStartSec": 0.2,
+      "delayEndSec": 0.35,
+      "delayMaxSec": 2,
+      "feedbackGain": 0.35,
+      "masterGain": 0.5,
+      "panPeriodSec": 10,
+      "panTargetTcSec": 0.08
+    }
+  },
+  "environment": {
+    "captured_at": "2026-09-24T01:00:21.638Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "5.10.134-013.15.kangaroo.al8.x86_64",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor",
+      "cores": 2,
+      "speed_mhz": 0
+    },
+    "total_ram_bytes": 4237889536,
+    "node_version": "v24.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "none",
+      "gpus": []
+    },
+    "results_dir_disk": {
+      "free_bytes": 8495448064,
+      "total_bytes": 10531131392
+    }
+  },
+  "methodology": {
+    "measured": "streaming sha256 of the C-graph rendered in-process at 4 block partitions (incl. single-block); broken-variant hashes at 3 block sizes; per-sample max|Δ|/rms vs node-web-audio-api's single-pass render at the crosscheck duration",
+    "granularity": "whole-render streaming hash (invariance); per-sample float comparison (cross-engine)",
+    "trials": "4 healthy partitions + 3 broken partitions + 1 Web Audio reference + 1 Web Audio-vs-mine comparison",
+    "warmup": "none — hash comparisons are order-independent; wall clocks reported per render",
+    "outliers": "none",
+    "statistic": "hash equality booleans; max_abs_delta / rms_delta measured, never asserted"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [
+    {
+      "name": "nonfinite_zero_healthy_1024",
+      "passed": true,
+      "detail": "non-finite: 0"
+    },
+    {
+      "name": "nonfinite_zero_healthy_4096",
+      "passed": true,
+      "detail": "non-finite: 0"
+    },
+    {
+      "name": "nonfinite_zero_healthy_16384",
+      "passed": true,
+      "detail": "non-finite: 0"
+    },
+    {
+      "name": "nonfinite_zero_healthy_single_block",
+      "passed": true,
+      "detail": "non-finite: 0"
+    },
+    {
+      "name": "block_size_invariance_incl_single_block",
+      "passed": true,
+      "detail": "1024/4096/16384/single-block partitions → identical sha256 (7231c36ca9b47d88…): chunk divergence has no mechanism in this design"
+    },
+    {
+      "name": "broken_variant_diverges",
+      "passed": true,
+      "detail": "broken re-anchoring produces different output per block size (1024/8192/65536): the tests detect the failure mode"
+    },
+    {
+      "name": "crossengine_nonfinite_zero",
+      "passed": true,
+      "detail": "non-finite in my stream vs reference: 0"
+    }
+  ],
+  "trials": [],
+  "stats": {
+    "healthy_walls_sec": {
+      "1024": 9.719563768,
+      "4096": 9.4898761,
+      "16384": 9.571977903999999,
+      "single_block": 9.530256200999997
+    },
+    "healthy_hashes": {
+      "1024": "7231c36ca9b47d88cf80caa7e3818c36612a8dca53c9fa652fec3b1169f00d57",
+      "4096": "7231c36ca9b47d88cf80caa7e3818c36612a8dca53c9fa652fec3b1169f00d57",
+      "16384": "7231c36ca9b47d88cf80caa7e3818c36612a8dca53c9fa652fec3b1169f00d57",
+      "single_block": "7231c36ca9b47d88cf80caa7e3818c36612a8dca53c9fa652fec3b1169f00d57"
+    },
+    "broken_hashes": {
+      "1024": "ed3e8b6d7c60a0000db1a0169663df4f6a2cbf4d60e026c58251910da2ecdd1d",
+      "8192": "479a015587ba6399bacb3017f4562b022cd66766e7acbb639134ae17af80f7b5",
+      "65536": "a387c9bc4add5e53562f8efe27914850eff7b9809befb2c52b2eca6336dd5895"
+    },
+    "broken_walls_sec": {
+      "1024": 9.550585305999993,
+      "8192": 9.806602296000005,
+      "65536": 9.556078252000006
+    },
+    "broken_growth_max_delta_sampled": {
+      "1024": 1.422569066286087,
+      "8192": 1.261392131447792,
+      "65536": 0.7753899097442627
+    },
+    "webaudio": {
+      "available": true,
+      "duration_sec": 120,
+      "reference_frames": 5292000,
+      "reference_wall_sec": 0.40243793399998684,
+      "my_wall_sec": 0.48177801799999725,
+      "compared_frames": 5292000,
+      "byte_identical": false,
+      "max_abs_delta": 0.26798292994499207,
+      "rms_delta": 0.07093305236565467,
+      "non_finite": 0,
+      "reference_buffer_mb": 40.374755859375
+    }
+  },
+  "raw_samples": {},
+  "derived": {
+    "healthy_hashes": {
+      "1024": "7231c36ca9b47d88cf80caa7e3818c36612a8dca53c9fa652fec3b1169f00d57",
+      "4096": "7231c36ca9b47d88cf80caa7e3818c36612a8dca53c9fa652fec3b1169f00d57",
+      "16384": "7231c36ca9b47d88cf80caa7e3818c36612a8dca53c9fa652fec3b1169f00d57",
+      "single_block": "7231c36ca9b47d88cf80caa7e3818c36612a8dca53c9fa652fec3b1169f00d57"
+    },
+    "broken_hashes": {
+      "1024": "ed3e8b6d7c60a0000db1a0169663df4f6a2cbf4d60e026c58251910da2ecdd1d",
+      "8192": "479a015587ba6399bacb3017f4562b022cd66766e7acbb639134ae17af80f7b5",
+      "65536": "a387c9bc4add5e53562f8efe27914850eff7b9809befb2c52b2eca6336dd5895"
+    },
+    "webaudio_reference": {
+      "available": true,
+      "duration_sec": 120,
+      "reference_frames": 5292000,
+      "reference_wall_sec": 0.40243793399998684,
+      "my_wall_sec": 0.48177801799999725,
+      "compared_frames": 5292000,
+      "byte_identical": false,
+      "max_abs_delta": 0.26798292994499207,
+      "rms_delta": 0.07093305236565467,
+      "non_finite": 0,
+      "reference_buffer_mb": 40.374755859375
+    }
+  },
+  "observations": [
+    "Category C (user's hardware, chunked OfflineAudioContext, 1800 s program): overhead 70.6% at 60 s chunks, max|Δ| 2.8e-1, divergence NOT seam-localized. I1a shows the in-process design makes block boundaries invisible (hash-equal across partitions incl. single-block) — the divergence class C measured has no mechanism to exist here: node state carries, and the coefficient quantum grid is absolute-frame aligned. I1b re-introduces C's mechanisms deliberately (re-anchoring + block-relative quanta) and measures divergence return: max|Δ| (sampled, every 4th frame) by block size = {\"1024\":1.422569066286087,\"8192\":1.261392131447792,\"65536\":0.7753899097442627}. I1c cross-engine proximity at 120 s: max|Δ| 2.68e-1, rms 7.09e-2 — measured, not asserted; different biquad/oscillator implementations make byte-identity impossible across engines, what matters is the magnitude class vs C's within-engine 2.8e-1.",
+    "Web Audio reference memory disclosure: the OfflineAudioContext render materializes 120s × 44100 × 2ch × 4 B ≈ 40 MB for the comparison — the one materializing verification in this suite, reported separately from generation memory."
+  ]
+}
