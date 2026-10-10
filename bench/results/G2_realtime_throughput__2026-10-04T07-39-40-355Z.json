@@ -1,0 +1,281 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "G2_realtime_throughput",
+  "category": "G",
+  "timestamp": "2026-10-04T07:39:40.355Z",
+  "params": {
+    "sweep_sec_planned": [
+      300,
+      1800,
+      7200,
+      28800
+    ],
+    "block_frames": 4096,
+    "scale": 0.35
+  },
+  "environment": {
+    "captured_at": "2026-10-04T07:33:39.797Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "5.10.134-013.15.kangaroo.al8.x86_64",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor",
+      "cores": 2,
+      "speed_mhz": 0
+    },
+    "total_ram_bytes": 4237889536,
+    "node_version": "v24.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "none",
+      "gpus": []
+    },
+    "results_dir_disk": {
+      "free_bytes": 7023640576,
+      "total_bytes": 10531131392
+    },
+    "tools": {
+      "ts_runner": "esbuild",
+      "playwright": true,
+      "node_web_audio_api": true,
+      "web_audio_engine": true
+    },
+    "ui": "/home/z/my-project/ambient-studio/ui",
+    "root": "/home/z/my-project/ambient-studio"
+  },
+  "methodology": {
+    "measured": "wall-clock realtime factor (frames synthesized per wall second / sample rate) for the same renders as G1",
+    "granularity": "whole-render wall clock including WAV write",
+    "trials": "same runs as G1 (identical children)",
+    "warmup": "none — whole-render measurement",
+    "outliers": "none removed",
+    "statistic": "realtime_factor per duration; comparison notes vs B (OfflineAudioContext) and A3 (kernel-only)"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [],
+  "trials": [
+    {
+      "label": "3min",
+      "params": {
+        "duration_sec": 150
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 40.153404894860024,
+        "p95": 40.153404894860024,
+        "min": 40.153404894860024,
+        "max": 40.153404894860024
+      },
+      "extras": {
+        "wall_sec": 3.735667704,
+        "render_ms": 3726.8968400000003,
+        "timeline_ms": 8.157249,
+        "frames_written": 6615000
+      }
+    },
+    {
+      "label": "15min",
+      "params": {
+        "duration_sec": 900
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 37.42647326367163,
+        "p95": 37.42647326367163,
+        "min": 37.42647326367163,
+        "max": 37.42647326367163
+      },
+      "extras": {
+        "wall_sec": 24.047143615999996,
+        "render_ms": 24026.334281,
+        "timeline_ms": 20.231931000000003,
+        "frames_written": 39690000
+      }
+    },
+    {
+      "label": "60min",
+      "params": {
+        "duration_sec": 3600
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 37.70335772963272,
+        "p95": 37.70335772963272,
+        "min": 37.70335772963272,
+        "max": 37.70335772963272
+      },
+      "extras": {
+        "wall_sec": 95.482192345,
+        "render_ms": 95446.394886,
+        "timeline_ms": 35.21858400000001,
+        "frames_written": 158760000
+      }
+    },
+    {
+      "label": "240min",
+      "params": {
+        "duration_sec": 14400
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 36.785372485867214,
+        "p95": 36.785372485867214,
+        "min": 36.785372485867214,
+        "max": 36.785372485867214
+      },
+      "extras": {
+        "wall_sec": 391.45994261199996,
+        "render_ms": 391326.89087299997,
+        "timeline_ms": 132.42216200000001,
+        "frames_written": 635040000
+      }
+    },
+    {
+      "label": "2min",
+      "params": {
+        "duration_sec": 105
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 36.70083188817924,
+        "p95": 36.70083188817924,
+        "min": 36.70083188817924,
+        "max": 36.70083188817924
+      },
+      "extras": {
+        "wall_sec": 2.8609652050000003,
+        "render_ms": 2854.25752,
+        "timeline_ms": 6.130492,
+        "frames_written": 4630500
+      }
+    },
+    {
+      "label": "11min",
+      "params": {
+        "duration_sec": 630
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 35.7053219397673,
+        "p95": 35.7053219397673,
+        "min": 35.7053219397673,
+        "max": 35.7053219397673
+      },
+      "extras": {
+        "wall_sec": 17.644423137999997,
+        "render_ms": 17628.102138000002,
+        "timeline_ms": 15.810961000000002,
+        "frames_written": 27783000
+      }
+    },
+    {
+      "label": "42min",
+      "params": {
+        "duration_sec": 2520
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 37.25760214357761,
+        "p95": 37.25760214357761,
+        "min": 37.25760214357761,
+        "max": 37.25760214357761
+      },
+      "extras": {
+        "wall_sec": 67.637197394,
+        "render_ms": 67609.51603999999,
+        "timeline_ms": 27.160754,
+        "frames_written": 111132000
+      }
+    },
+    {
+      "label": "168min",
+      "params": {
+        "duration_sec": 10080
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 37.06697916697336,
+        "p95": 37.06697916697336,
+        "min": 37.06697916697336,
+        "max": 37.06697916697336
+      },
+      "extras": {
+        "wall_sec": 271.940146541,
+        "render_ms": 271831.264043,
+        "timeline_ms": 108.30337600000001,
+        "frames_written": 444528000
+      }
+    },
+    {
+      "label": "30min_4drone_layers",
+      "params": {
+        "drones": 4
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 23.86869332785532,
+        "p95": 23.86869332785532,
+        "min": 23.86869332785532,
+        "max": 23.86869332785532
+      },
+      "extras": {
+        "wall_sec": 26.394400772
+      }
+    }
+  ],
+  "stats": {},
+  "raw_samples": {
+    "3min": [
+      40.153404894860024
+    ],
+    "15min": [
+      37.42647326367163
+    ],
+    "60min": [
+      37.70335772963272
+    ],
+    "240min": [
+      36.785372485867214
+    ],
+    "2min": [
+      36.70083188817924
+    ],
+    "11min": [
+      35.7053219397673
+    ],
+    "42min": [
+      37.25760214357761
+    ],
+    "168min": [
+      37.06697916697336
+    ],
+    "30min_4drone_layers": [
+      23.86869332785532
+    ]
+  },
+  "derived": {},
+  "observations": []
+}

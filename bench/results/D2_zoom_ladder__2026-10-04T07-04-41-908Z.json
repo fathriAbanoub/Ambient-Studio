@@ -1,0 +1,356 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "D2_zoom_ladder",
+  "category": "D",
+  "timestamp": "2026-10-04T07:04:41.908Z",
+  "params": {
+    "video": "1920x1080",
+    "crf": 23,
+    "x264_preset": "veryfast",
+    "nvenc_args": [
+      "-preset",
+      "p1",
+      "-rc",
+      "vbr",
+      "-cq",
+      "23",
+      "-b:v",
+      "5M"
+    ],
+    "audio": "lavfi anoisesrc (deterministic seed) streamed — no WAV temp",
+    "assets": {
+      "bg": "user-provided",
+      "loop_gif": "user-provided",
+      "loop_mp4": "user-provided"
+    },
+    "modes": [
+      {
+        "kind": "zoom",
+        "label": "zoom_0.1min_5fps",
+        "disk_guard_min": 0.1,
+        "params": {
+          "duration_min": 0.1,
+          "fps": 5,
+          "zoompan": "z='1+6.666667e-3*on'",
+          "upscale_width": 7680
+        }
+      },
+      {
+        "kind": "zoom",
+        "label": "zoom_0.1min_10fps",
+        "disk_guard_min": 0.1,
+        "params": {
+          "duration_min": 0.1,
+          "fps": 10,
+          "zoompan": "z='1+3.333333e-3*on'",
+          "upscale_width": 7680
+        }
+      },
+      {
+        "kind": "zoom",
+        "label": "zoom_1min_5fps",
+        "disk_guard_min": 1,
+        "params": {
+          "duration_min": 1,
+          "fps": 5,
+          "zoompan": "z='1+6.666667e-4*on'",
+          "upscale_width": 7680
+        }
+      },
+      {
+        "kind": "zoom",
+        "label": "zoom_1min_10fps",
+        "disk_guard_min": 1,
+        "params": {
+          "duration_min": 1,
+          "fps": 10,
+          "zoompan": "z='1+3.333333e-4*on'",
+          "upscale_width": 7680
+        }
+      },
+      {
+        "kind": "zoom",
+        "label": "zoom_3min_5fps",
+        "disk_guard_min": 3,
+        "params": {
+          "duration_min": 3,
+          "fps": 5,
+          "zoompan": "z='1+2.222222e-4*on'",
+          "upscale_width": 7680
+        }
+      },
+      {
+        "kind": "zoom",
+        "label": "zoom_3min_10fps",
+        "disk_guard_min": 3,
+        "params": {
+          "duration_min": 3,
+          "fps": 10,
+          "zoompan": "z='1+1.111111e-4*on'",
+          "upscale_width": 7680
+        }
+      }
+    ]
+  },
+  "environment": {
+    "captured_at": "2026-10-04T07:04:41.290Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "5.10.134-013.15.kangaroo.al8.x86_64",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor",
+      "cores": 2,
+      "speed_mhz": 0
+    },
+    "total_ram_bytes": 4237889536,
+    "node_version": "v24.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "none",
+      "gpus": []
+    },
+    "results_dir_disk": {
+      "free_bytes": 7023833088,
+      "total_bytes": 10531131392
+    },
+    "tools": {
+      "ts_runner": "esbuild",
+      "playwright": true,
+      "node_web_audio_api": true,
+      "web_audio_engine": true
+    },
+    "ui": "/home/z/my-project/ambient-studio/ui",
+    "root": "/home/z/my-project/ambient-studio"
+  },
+  "methodology": {
+    "measured": "wall-clock encode time and output size per mode/duration/fps/codec; peak ffmpeg RSS and peak work-dir size (D5) recorded per run",
+    "granularity": "per ffmpeg invocation; ffprobe of each output for duration/fps truth",
+    "trials": "1 per combination (encodes are minutes-long; medians across combos are meaningless, ratios are the point)",
+    "warmup": "none",
+    "outliers": "none removed; failed runs recorded with stderr tail",
+    "statistic": "per-run wall_sec, output_bytes, peak_rss_bytes, ffprobe_duration_sec"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [],
+  "trials": [
+    {
+      "label": "zoom_0.1min_5fps__libx264",
+      "params": {
+        "duration_min": 0.1,
+        "fps": 5,
+        "zoompan": "z='1+6.666667e-3*on'",
+        "upscale_width": 7680,
+        "kind": "zoom"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 4.091049423,
+        "p95": 4.091049423,
+        "min": 4.091049423,
+        "max": 4.091049423
+      },
+      "extras": {
+        "command": "ffmpeg -loop 1 -framerate 5 -i /home/z/my-project/ambient-studio/bench/assets/bg.png -f lavfi -i anoisesrc=colour=pink:amplitude=0.1:seed=42:sample_rate=44100:duration=6 -ac 2 -map 0:v -map 1:a -vf scale=7680:-2,zoompan=z='1+6.666667e-3*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080,format=yuv420p -c:v libx264 -preset veryfast -crf 23 -r 5 -c:a aac -movflags +faststart -t 6 -y /home/z/my-project/ambient-studio/bench/work/D2_zoom_ladder__zoOyCS/zoom_0.1min_5fps__libx264.mp4",
+        "output_bytes": 838565,
+        "peak_rss_bytes": 445198336,
+        "ffprobe": {
+          "duration_sec": 6,
+          "avg_frame_rate": "5/1",
+          "width": 1920,
+          "height": 1080
+        },
+        "timed_out": false
+      }
+    },
+    {
+      "label": "zoom_0.1min_10fps__libx264",
+      "params": {
+        "duration_min": 0.1,
+        "fps": 10,
+        "zoompan": "z='1+3.333333e-3*on'",
+        "upscale_width": 7680,
+        "kind": "zoom"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 4.802200234,
+        "p95": 4.802200234,
+        "min": 4.802200234,
+        "max": 4.802200234
+      },
+      "extras": {
+        "command": "ffmpeg -loop 1 -framerate 10 -i /home/z/my-project/ambient-studio/bench/assets/bg.png -f lavfi -i anoisesrc=colour=pink:amplitude=0.1:seed=42:sample_rate=44100:duration=6 -ac 2 -map 0:v -map 1:a -vf scale=7680:-2,zoompan=z='1+3.333333e-3*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080,format=yuv420p -c:v libx264 -preset veryfast -crf 23 -r 10 -c:a aac -movflags +faststart -t 6 -y /home/z/my-project/ambient-studio/bench/work/D2_zoom_ladder__zoOyCS/zoom_0.1min_10fps__libx264.mp4",
+        "output_bytes": 822743,
+        "peak_rss_bytes": 447238144,
+        "ffprobe": {
+          "duration_sec": 6,
+          "avg_frame_rate": "10/1",
+          "width": 1920,
+          "height": 1080
+        },
+        "timed_out": false
+      }
+    },
+    {
+      "label": "zoom_1min_5fps__libx264",
+      "params": {
+        "duration_min": 1,
+        "fps": 5,
+        "zoompan": "z='1+6.666667e-4*on'",
+        "upscale_width": 7680,
+        "kind": "zoom"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 38.641728640000004,
+        "p95": 38.641728640000004,
+        "min": 38.641728640000004,
+        "max": 38.641728640000004
+      },
+      "extras": {
+        "command": "ffmpeg -loop 1 -framerate 5 -i /home/z/my-project/ambient-studio/bench/assets/bg.png -f lavfi -i anoisesrc=colour=pink:amplitude=0.1:seed=42:sample_rate=44100:duration=60 -ac 2 -map 0:v -map 1:a -vf scale=7680:-2,zoompan=z='1+6.666667e-4*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080,format=yuv420p -c:v libx264 -preset veryfast -crf 23 -r 5 -c:a aac -movflags +faststart -t 60 -y /home/z/my-project/ambient-studio/bench/work/D2_zoom_ladder__zoOyCS/zoom_1min_5fps__libx264.mp4",
+        "output_bytes": 5316939,
+        "peak_rss_bytes": 445218816,
+        "ffprobe": {
+          "duration_sec": 60,
+          "avg_frame_rate": "5/1",
+          "width": 1920,
+          "height": 1080
+        },
+        "timed_out": false
+      }
+    },
+    {
+      "label": "zoom_1min_10fps__libx264",
+      "params": {
+        "duration_min": 1,
+        "fps": 10,
+        "zoompan": "z='1+3.333333e-4*on'",
+        "upscale_width": 7680,
+        "kind": "zoom"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 44.861260393,
+        "p95": 44.861260393,
+        "min": 44.861260393,
+        "max": 44.861260393
+      },
+      "extras": {
+        "command": "ffmpeg -loop 1 -framerate 10 -i /home/z/my-project/ambient-studio/bench/assets/bg.png -f lavfi -i anoisesrc=colour=pink:amplitude=0.1:seed=42:sample_rate=44100:duration=60 -ac 2 -map 0:v -map 1:a -vf scale=7680:-2,zoompan=z='1+3.333333e-4*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080,format=yuv420p -c:v libx264 -preset veryfast -crf 23 -r 10 -c:a aac -movflags +faststart -t 60 -y /home/z/my-project/ambient-studio/bench/work/D2_zoom_ladder__zoOyCS/zoom_1min_10fps__libx264.mp4",
+        "output_bytes": 6642763,
+        "peak_rss_bytes": 447361024,
+        "ffprobe": {
+          "duration_sec": 60,
+          "avg_frame_rate": "10/1",
+          "width": 1920,
+          "height": 1080
+        },
+        "timed_out": false
+      }
+    },
+    {
+      "label": "zoom_3min_5fps__libx264",
+      "params": {
+        "duration_min": 3,
+        "fps": 5,
+        "zoompan": "z='1+2.222222e-4*on'",
+        "upscale_width": 7680,
+        "kind": "zoom"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 115.650713409,
+        "p95": 115.650713409,
+        "min": 115.650713409,
+        "max": 115.650713409
+      },
+      "extras": {
+        "command": "ffmpeg -loop 1 -framerate 5 -i /home/z/my-project/ambient-studio/bench/assets/bg.png -f lavfi -i anoisesrc=colour=pink:amplitude=0.1:seed=42:sample_rate=44100:duration=180 -ac 2 -map 0:v -map 1:a -vf scale=7680:-2,zoompan=z='1+2.222222e-4*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080,format=yuv420p -c:v libx264 -preset veryfast -crf 23 -r 5 -c:a aac -movflags +faststart -t 180 -y /home/z/my-project/ambient-studio/bench/work/D2_zoom_ladder__zoOyCS/zoom_3min_5fps__libx264.mp4",
+        "output_bytes": 14781518,
+        "peak_rss_bytes": 445415424,
+        "ffprobe": {
+          "duration_sec": 180,
+          "avg_frame_rate": "5/1",
+          "width": 1920,
+          "height": 1080
+        },
+        "timed_out": false
+      }
+    },
+    {
+      "label": "zoom_3min_10fps__libx264",
+      "params": {
+        "duration_min": 3,
+        "fps": 10,
+        "zoompan": "z='1+1.111111e-4*on'",
+        "upscale_width": 7680,
+        "kind": "zoom"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 131.09427632799998,
+        "p95": 131.09427632799998,
+        "min": 131.09427632799998,
+        "max": 131.09427632799998
+      },
+      "extras": {
+        "command": "ffmpeg -loop 1 -framerate 10 -i /home/z/my-project/ambient-studio/bench/assets/bg.png -f lavfi -i anoisesrc=colour=pink:amplitude=0.1:seed=42:sample_rate=44100:duration=180 -ac 2 -map 0:v -map 1:a -vf scale=7680:-2,zoompan=z='1+1.111111e-4*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080,format=yuv420p -c:v libx264 -preset veryfast -crf 23 -r 10 -c:a aac -movflags +faststart -t 180 -y /home/z/my-project/ambient-studio/bench/work/D2_zoom_ladder__zoOyCS/zoom_3min_10fps__libx264.mp4",
+        "output_bytes": 16837815,
+        "peak_rss_bytes": 445157376,
+        "ffprobe": {
+          "duration_sec": 180,
+          "avg_frame_rate": "10/1",
+          "width": 1920,
+          "height": 1080
+        },
+        "timed_out": false
+      }
+    }
+  ],
+  "stats": {
+    "peak_workdir_bytes": 16252976
+  },
+  "raw_samples": {
+    "zoom_0.1min_5fps__libx264": [
+      4.091049423
+    ],
+    "zoom_0.1min_10fps__libx264": [
+      4.802200234
+    ],
+    "zoom_1min_5fps__libx264": [
+      38.641728640000004
+    ],
+    "zoom_1min_10fps__libx264": [
+      44.861260393
+    ],
+    "zoom_3min_5fps__libx264": [
+      115.650713409
+    ],
+    "zoom_3min_10fps__libx264": [
+      131.09427632799998
+    ]
+  },
+  "derived": {},
+  "observations": []
+}

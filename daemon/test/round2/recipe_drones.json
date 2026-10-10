@@ -1,0 +1,18 @@
+{
+  "scale": "majorPent",
+  "rootHz": 110,
+  "bpm": 72,
+  "complexity": 0.35,
+  "mix": 0.4,
+  "enableScenes": false,
+  "enableHarmonicLoop": false,
+  "enableBeats": false,
+  "drone": {
+    "layers": [
+      { "hz": 110, "timbre": "sine", "amp": 0.5, "pan": 0 },
+      { "hz": 330, "timbre": "fm", "amp": 0.4, "pan": 0 },
+      { "hz": 880, "timbre": "triangle", "amp": 0.3, "pan": 0 }
+    ]
+  },
+  "seed": 4242
+}

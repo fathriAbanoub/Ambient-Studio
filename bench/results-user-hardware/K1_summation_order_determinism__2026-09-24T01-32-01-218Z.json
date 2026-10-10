@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "K1_summation_order_determinism",
+  "category": "K",
+  "timestamp": "2026-09-24T01:32:01.218Z",
+  "params": {
+    "layers": 8,
+    "block_frames": 1024,
+    "chunks": 200,
+    "duration_sec": 4.6439909297052155,
+    "runs_per_variant": 7,
+    "jitter_max_ms": 4,
+    "seed": 42
+  },
+  "environment": {
+    "captured_at": "2026-09-24T01:32:01.162Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "5.10.134-013.15.kangaroo.al8.x86_64",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor",
+      "cores": 2,
+      "speed_mhz": 0
+    },
+    "total_ram_bytes": 4237889536,
+    "node_version": "v24.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "none",
+      "gpus": []
+    },
+    "results_dir_disk": {
+      "free_bytes": 8495411200,
+      "total_bytes": 10531131392
+    }
+  },
+  "methodology": {
+    "measured": "sha256 of the summed output per run per variant; observable completion order under jitter; sample-difference fraction between completion-order and fixed-order renders",
+    "granularity": "whole-render hash per run; first-finisher identity per block",
+    "trials": "7 runs × 3 variants, same seed",
+    "warmup": "none — the subject is summation order, not throughput",
+    "outliers": "none",
+    "statistic": "distinct-hash count per variant; byte-identity booleans; differ-fraction vs AGA's 92.65% (context from the external survey, not re-run here)"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [
+    {
+      "name": "sync_fixed_deterministic",
+      "passed": true,
+      "detail": "7 synchronous fixed-order runs → 1 distinct hash(es)"
+    },
+    {
+      "name": "async_fixed_order_deterministic",
+      "passed": true,
+      "detail": "7 async-execution fixed-order-sum runs → 1 distinct hash(es) — async execution does not break determinism when summation order is fixed"
+    },
+    {
+      "name": "fixed_variants_identical",
+      "passed": true,
+      "detail": "sync and async-fixed-order produce the same bytes — the D2 rule, not execution style, determines output"
+    },
+    {
+      "name": "completion_order_detectably_unstable",
+      "passed": true,
+      "detail": "completion-order summation produced 7 distinct hashes across 7 runs — the AGA failure mode reproduced under controlled conditions"
+    }
+  ],
+  "trials": [],
+  "stats": {
+    "distinct_hashes_per_variant": {
+      "sync_fixed": 1,
+      "async_fixed_order": 1,
+      "async_completion": 7
+    },
+    "hashes": {
+      "sync_fixed": [
+        "fdb2879047288ffd37f160a49ee7ccc3826ed060d98bf9167399c219496edfa4",
+        "fdb2879047288ffd37f160a49ee7ccc3826ed060d98bf9167399c219496edfa4",
+        "fdb2879047288ffd37f160a49ee7ccc3826ed060d98bf9167399c219496edfa4",
+        "fdb2879047288ffd37f160a49ee7ccc3826ed060d98bf9167399c219496edfa4",
+        "fdb2879047288ffd37f160a49ee7ccc3826ed060d98bf9167399c219496edfa4",
+        "fdb2879047288ffd37f160a49ee7ccc3826ed060d98bf9167399c219496edfa4",
+        "fdb2879047288ffd37f160a49ee7ccc3826ed060d98bf9167399c219496edfa4"
+      ],
+      "async_fixed_order": [
+        "fdb2879047288ffd37f160a49ee7ccc3826ed060d98bf9167399c219496edfa4",
+        "fdb2879047288ffd37f160a49ee7ccc3826ed060d98bf9167399c219496edfa4",
+        "fdb2879047288ffd37f160a49ee7ccc3826ed060d98bf9167399c219496edfa4",
+        "fdb2879047288ffd37f160a49ee7ccc3826ed060d98bf9167399c219496edfa4",
+        "fdb2879047288ffd37f160a49ee7ccc3826ed060d98bf9167399c219496edfa4",
+        "fdb2879047288ffd37f160a49ee7ccc3826ed060d98bf9167399c219496edfa4",
+        "fdb2879047288ffd37f160a49ee7ccc3826ed060d98bf9167399c219496edfa4"
+      ],
+      "async_completion": [
+        "cfb9559c636d6bfccf25dc57f39c3b36086af100a8ea92bcacef842776f819c0",
+        "25069f64abc9e589d94056832d2a4d0640dc6be4e72ed639d3c3e646d2e4ad36",
+        "05b8255bb89870eff6927aa6c0a7f51fe87f927291062eb6eca2f87c50db56be",
+        "9e02d5e23bd2dd49ec5c5e1a1cd929f58e419ceb2eaec0b8b95b4dc6868771cd",
+        "4ae57d0068568bc7ad17a3020dcb9dde08db78a9596eca186178d34b5cc60232",
+        "643d71035a0becb9a854aaeb3d4eb5ebabedb6875a15f9d2a6b8248ec0a0b6e4",
+        "9341a34f82e584e275a6d7976693870690b6de9a7623e93f65ae19638da803e7"
+      ]
+    },
+    "completion_order_first_finishers": {
+      "samples": 40,
+      "distinct_first_finishers": 6,
+      "log": [
+        1,
+        1,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        1,
+        0,
+        1,
+        0,
+        2,
+        1,
+        0,
+        1,
+        2,
+        2,
+        5,
+        2,
+        0,
+        3,
+        2,
+        0,
+        1,
+        0,
+        5,
+        6,
+        0,
+        3,
+        0,
+        1,
+        1,
+        0,
+        1,
+        1,
+        1,
+        2,
+        0
+      ]
+    },
+    "differ_fraction_attempts": 1,
+    "completion_vs_fixed_magnitude": {
+      "float_differ_fraction": 0.53705078125,
+      "pcm16_differ_fraction": 0.000859375,
+      "max_abs_delta_float": 3.5762786865234375e-7
+    },
+    "context": {
+      "aga_differ_fraction_percent": 92.65,
+      "aga_source": "external survey X-series (user's hardware); quoted as context, not re-run"
+    }
+  },
+  "raw_samples": {},
+  "derived": {},
+  "observations": [
+    "Completion-order vs fixed-order summation of the SAME seeded layers: 53.71% of FLOAT samples differ (max|Δ| 3.58e-7), but only 0.0859% of PCM16 words differ — most reordering deltas vanish in 16-bit quantization, which is exactly why the hash (not the ear) is the contract: the PCM16 hashes were NOT reproducible across runs. (attempt 1 of up to 5; earlier draws coincidentally matched arrival order. External survey measured 92.65% of FLOAT samples differing for AGA's real RPC-completion-order bug — same failure class, layer magnitudes differ.)",
+    "Why the fix is structural: BlockSynth sums voices in spawn order (a pure function of the D1 event stream) inside a synchronous per-sample loop — there is no async boundary between layer render and summation, so no completion order exists to vary. async_fixed_order demonstrates the same conclusion for architectures that DO synthesize layers asynchronously: collect async, sum in fixed order."
+  ]
+}

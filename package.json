@@ -1,5 +1,17 @@
 {
   "name": "ambient-studio",
+  "version": "1.0.0",
   "private": true,
-  "workspaces": ["frontend"]
+  "description": "Generative ambient music studio: shared TS kernel, live-play Web Audio UI, long-form render daemon with MCP surface, and benchmark suite",
+  "workspaces": [
+    "ui",
+    "daemon",
+    "bench"
+  ],
+  "scripts": {
+    "ui": "npm run dev -w ui",
+    "daemon": "npm run build -w daemon && npm run start -w daemon",
+    "bench": "npm run bench -w bench",
+    "test": "npm run test -w ui && npm run test -w daemon && npm run test -w bench"
+  }
 }

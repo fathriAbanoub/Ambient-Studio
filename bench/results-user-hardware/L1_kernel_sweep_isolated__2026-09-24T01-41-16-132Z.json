@@ -1,0 +1,857 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "L1_kernel_sweep_isolated",
+  "category": "L",
+  "timestamp": "2026-09-24T01:41:16.132Z",
+  "params": {
+    "configs": [
+      {
+        "drones": 0,
+        "bank": 0
+      },
+      {
+        "drones": 0,
+        "bank": 16
+      },
+      {
+        "drones": 4,
+        "bank": 0
+      },
+      {
+        "drones": 4,
+        "bank": 16
+      },
+      {
+        "drones": 8,
+        "bank": 0
+      },
+      {
+        "drones": 8,
+        "bank": 16
+      }
+    ],
+    "horizon_beats": 2000,
+    "isolation": "one fresh process per config",
+    "spawn_orders": [
+      "asc",
+      "desc"
+    ]
+  },
+  "environment": {
+    "captured_at": "2026-09-24T01:41:15.945Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "5.10.134-013.15.kangaroo.al8.x86_64",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor",
+      "cores": 2,
+      "speed_mhz": 0
+    },
+    "total_ram_bytes": 4237889536,
+    "node_version": "v24.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "none",
+      "gpus": []
+    },
+    "results_dir_disk": {
+      "free_bytes": 8495394816,
+      "total_bytes": 10531131392
+    }
+  },
+  "methodology": {
+    "measured": "per-call kernel time (median/p95 ms) for each A2 config, one fresh process per config, in both spawn orders; plus the original sequential-in-one-process pattern re-created in both orders",
+    "granularity": "per getMusicalEvents call, performance.now(); first 100 measured calls discarded per run (same as A2)",
+    "trials": "6 configs × 2 isolated spawn orders + 2 contaminated-pattern runs (asc/desc)",
+    "warmup": "30 s simulated warm-up per config (isolated) / per config position (contaminated), first 100 measured calls discarded — identical to A2",
+    "outliers": "none removed",
+    "statistic": "median/p95 per config per order; asc/desc median ratios; contaminated vs isolated side-by-side"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [
+    {
+      "name": "isolated_configs_all_ran",
+      "passed": true,
+      "detail": "6/6 isolated config pairs completed in both orders"
+    }
+  ],
+  "trials": [
+    {
+      "label": "isolated_asc_d0_b0",
+      "params": {
+        "drones": 0,
+        "bank": 0,
+        "spawn_order": "asc"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 0.0018434999999996649,
+        "p95": 0.0018434999999996649,
+        "min": 0.0018434999999996649,
+        "max": 0.0018434999999996649
+      },
+      "extras": {
+        "drones": 0,
+        "bank": 0,
+        "horizon_beats": 2000,
+        "measured_calls": 1900,
+        "events_total": 14496,
+        "events_per_beat_median": 7,
+        "median_ms": 0.0018434999999996649,
+        "p95_ms": 0.005590100000000927,
+        "min_ms": 0.0006070000000022446,
+        "max_ms": 5.862794000000001,
+        "batched_mean_us_per_call": 14.93946,
+        "warmup_calls_discarded": 100
+      }
+    },
+    {
+      "label": "isolated_asc_d0_b16",
+      "params": {
+        "drones": 0,
+        "bank": 16,
+        "spawn_order": "asc"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 0.002682000000000073,
+        "p95": 0.002682000000000073,
+        "min": 0.002682000000000073,
+        "max": 0.002682000000000073
+      },
+      "extras": {
+        "drones": 0,
+        "bank": 16,
+        "horizon_beats": 2000,
+        "measured_calls": 1900,
+        "events_total": 14534,
+        "events_per_beat_median": 7,
+        "median_ms": 0.002682000000000073,
+        "p95_ms": 0.006501049999999075,
+        "min_ms": 0.0016990000000021155,
+        "max_ms": 0.42848600000000303,
+        "batched_mean_us_per_call": 5.0168865,
+        "warmup_calls_discarded": 100
+      }
+    },
+    {
+      "label": "isolated_asc_d4_b0",
+      "params": {
+        "drones": 4,
+        "bank": 0,
+        "spawn_order": "asc"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 0.0014529999999979282,
+        "p95": 0.0014529999999979282,
+        "min": 0.0014529999999979282,
+        "max": 0.0014529999999979282
+      },
+      "extras": {
+        "drones": 4,
+        "bank": 0,
+        "horizon_beats": 2000,
+        "measured_calls": 1900,
+        "events_total": 22496,
+        "events_per_beat_median": 11,
+        "median_ms": 0.0014529999999979282,
+        "p95_ms": 0.005374199999998729,
+        "min_ms": 0.0010259999999959746,
+        "max_ms": 0.7340030000000013,
+        "batched_mean_us_per_call": 4.621678499999998,
+        "warmup_calls_discarded": 100
+      }
+    },
+    {
+      "label": "isolated_asc_d4_b16",
+      "params": {
+        "drones": 4,
+        "bank": 16,
+        "spawn_order": "asc"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 0.0027845000000006337,
+        "p95": 0.0027845000000006337,
+        "min": 0.0027845000000006337,
+        "max": 0.0027845000000006337
+      },
+      "extras": {
+        "drones": 4,
+        "bank": 16,
+        "horizon_beats": 2000,
+        "measured_calls": 1900,
+        "events_total": 22534,
+        "events_per_beat_median": 11,
+        "median_ms": 0.0027845000000006337,
+        "p95_ms": 0.007079799999998923,
+        "min_ms": 0.0021380000000021937,
+        "max_ms": 0.16646699999999726,
+        "batched_mean_us_per_call": 5.517632500000001,
+        "warmup_calls_discarded": 100
+      }
+    },
+    {
+      "label": "isolated_asc_d8_b0",
+      "params": {
+        "drones": 8,
+        "bank": 0,
+        "spawn_order": "asc"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 0.0017910000000007642,
+        "p95": 0.0017910000000007642,
+        "min": 0.0017910000000007642,
+        "max": 0.0017910000000007642
+      },
+      "extras": {
+        "drones": 8,
+        "bank": 0,
+        "horizon_beats": 2000,
+        "measured_calls": 1900,
+        "events_total": 30496,
+        "events_per_beat_median": 15,
+        "median_ms": 0.0017910000000007642,
+        "p95_ms": 0.005195300000000458,
+        "min_ms": 0.0013390000000015334,
+        "max_ms": 0.4496639999999985,
+        "batched_mean_us_per_call": 4.931945499999999,
+        "warmup_calls_discarded": 100
+      }
+    },
+    {
+      "label": "isolated_asc_d8_b16",
+      "params": {
+        "drones": 8,
+        "bank": 16,
+        "spawn_order": "asc"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 0.0032799999999983953,
+        "p95": 0.0032799999999983953,
+        "min": 0.0032799999999983953,
+        "max": 0.0032799999999983953
+      },
+      "extras": {
+        "drones": 8,
+        "bank": 16,
+        "horizon_beats": 2000,
+        "measured_calls": 1900,
+        "events_total": 30534,
+        "events_per_beat_median": 15,
+        "median_ms": 0.0032799999999983953,
+        "p95_ms": 0.008016500000000799,
+        "min_ms": 0.0021620000000055484,
+        "max_ms": 0.7945229999999981,
+        "batched_mean_us_per_call": 6.666635999999999,
+        "warmup_calls_discarded": 100
+      }
+    },
+    {
+      "label": "isolated_desc_d8_b16",
+      "params": {
+        "drones": 8,
+        "bank": 16,
+        "spawn_order": "desc"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 0.002929999999999211,
+        "p95": 0.002929999999999211,
+        "min": 0.002929999999999211,
+        "max": 0.002929999999999211
+      },
+      "extras": {
+        "drones": 8,
+        "bank": 16,
+        "horizon_beats": 2000,
+        "measured_calls": 1900,
+        "events_total": 30534,
+        "events_per_beat_median": 15,
+        "median_ms": 0.002929999999999211,
+        "p95_ms": 0.006387000000005826,
+        "min_ms": 0.0021259999999969637,
+        "max_ms": 0.9602350000000008,
+        "batched_mean_us_per_call": 7.2930875,
+        "warmup_calls_discarded": 100
+      }
+    },
+    {
+      "label": "isolated_desc_d8_b0",
+      "params": {
+        "drones": 8,
+        "bank": 0,
+        "spawn_order": "desc"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 0.0017479999999991946,
+        "p95": 0.0017479999999991946,
+        "min": 0.0017479999999991946,
+        "max": 0.0017479999999991946
+      },
+      "extras": {
+        "drones": 8,
+        "bank": 0,
+        "horizon_beats": 2000,
+        "measured_calls": 1900,
+        "events_total": 30496,
+        "events_per_beat_median": 15,
+        "median_ms": 0.0017479999999991946,
+        "p95_ms": 0.005110150000001923,
+        "min_ms": 0.0009830000000050632,
+        "max_ms": 1.685054000000001,
+        "batched_mean_us_per_call": 5.956522000000001,
+        "warmup_calls_discarded": 100
+      }
+    },
+    {
+      "label": "isolated_desc_d4_b16",
+      "params": {
+        "drones": 4,
+        "bank": 16,
+        "spawn_order": "desc"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 0.002651000000000181,
+        "p95": 0.002651000000000181,
+        "min": 0.002651000000000181,
+        "max": 0.002651000000000181
+      },
+      "extras": {
+        "drones": 4,
+        "bank": 16,
+        "horizon_beats": 2000,
+        "measured_calls": 1900,
+        "events_total": 22534,
+        "events_per_beat_median": 11,
+        "median_ms": 0.002651000000000181,
+        "p95_ms": 0.006078099999998798,
+        "min_ms": 0.0021580000000014365,
+        "max_ms": 0.657465000000002,
+        "batched_mean_us_per_call": 6.0392145,
+        "warmup_calls_discarded": 100
+      }
+    },
+    {
+      "label": "isolated_desc_d4_b0",
+      "params": {
+        "drones": 4,
+        "bank": 0,
+        "spawn_order": "desc"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 0.0031449999999999534,
+        "p95": 0.0031449999999999534,
+        "min": 0.0031449999999999534,
+        "max": 0.0031449999999999534
+      },
+      "extras": {
+        "drones": 4,
+        "bank": 0,
+        "horizon_beats": 2000,
+        "measured_calls": 1900,
+        "events_total": 22496,
+        "events_per_beat_median": 11,
+        "median_ms": 0.0031449999999999534,
+        "p95_ms": 0.007667349999996985,
+        "min_ms": 0.0019249999999999545,
+        "max_ms": 0.1634779999999978,
+        "batched_mean_us_per_call": 5.640324499999998,
+        "warmup_calls_discarded": 100
+      }
+    },
+    {
+      "label": "isolated_desc_d0_b16",
+      "params": {
+        "drones": 0,
+        "bank": 16,
+        "spawn_order": "desc"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 0.002164000000000499,
+        "p95": 0.002164000000000499,
+        "min": 0.002164000000000499,
+        "max": 0.002164000000000499
+      },
+      "extras": {
+        "drones": 0,
+        "bank": 16,
+        "horizon_beats": 2000,
+        "measured_calls": 1900,
+        "events_total": 14534,
+        "events_per_beat_median": 7,
+        "median_ms": 0.002164000000000499,
+        "p95_ms": 0.0055706999999978616,
+        "min_ms": 0.0016899999999999693,
+        "max_ms": 0.6677150000000012,
+        "batched_mean_us_per_call": 4.970753500000001,
+        "warmup_calls_discarded": 100
+      }
+    },
+    {
+      "label": "isolated_desc_d0_b0",
+      "params": {
+        "drones": 0,
+        "bank": 0,
+        "spawn_order": "desc"
+      },
+      "samples_count": 1,
+      "stats": {
+        "n": 1,
+        "median": 0.0010709999999996,
+        "p95": 0.0010709999999996,
+        "min": 0.0010709999999996,
+        "max": 0.0010709999999996
+      },
+      "extras": {
+        "drones": 0,
+        "bank": 0,
+        "horizon_beats": 2000,
+        "measured_calls": 1900,
+        "events_total": 14496,
+        "events_per_beat_median": 7,
+        "median_ms": 0.0010709999999996,
+        "p95_ms": 0.004491350000001581,
+        "min_ms": 0.0005910000000000082,
+        "max_ms": 0.9918899999999979,
+        "batched_mean_us_per_call": 4.2429475,
+        "warmup_calls_discarded": 100
+      }
+    },
+    {
+      "label": "d0_b0",
+      "params": {
+        "drones": 0,
+        "bank": 0
+      },
+      "samples_count": 2,
+      "stats": {
+        "n": 2,
+        "median": 9.59120375,
+        "p95": 14.404634375,
+        "min": 4.2429475,
+        "max": 14.93946
+      },
+      "extras": {
+        "isolated_batched_asc_desc_ratio": 0.2840094287209845,
+        "contaminated_batched_asc_desc_ratio": 0.6347462255050417,
+        "isolated_median_asc": 0.0018434999999996649,
+        "isolated_median_desc": 0.0010709999999996
+      }
+    },
+    {
+      "label": "d0_b16",
+      "params": {
+        "drones": 0,
+        "bank": 16
+      },
+      "samples_count": 2,
+      "stats": {
+        "n": 2,
+        "median": 4.99382,
+        "p95": 5.0145798500000005,
+        "min": 4.970753500000001,
+        "max": 5.0168865
+      },
+      "extras": {
+        "isolated_batched_asc_desc_ratio": 0.9908044561103786,
+        "contaminated_batched_asc_desc_ratio": 1.193438282251117,
+        "isolated_median_asc": 0.002682000000000073,
+        "isolated_median_desc": 0.002164000000000499
+      }
+    },
+    {
+      "label": "d4_b0",
+      "params": {
+        "drones": 4,
+        "bank": 0
+      },
+      "samples_count": 2,
+      "stats": {
+        "n": 2,
+        "median": 5.131001499999998,
+        "p95": 5.589392199999998,
+        "min": 4.621678499999998,
+        "max": 5.640324499999998
+      },
+      "extras": {
+        "isolated_batched_asc_desc_ratio": 1.2204060710843476,
+        "contaminated_batched_asc_desc_ratio": 0.7080187050999588,
+        "isolated_median_asc": 0.0014529999999979282,
+        "isolated_median_desc": 0.0031449999999999534
+      }
+    },
+    {
+      "label": "d4_b16",
+      "params": {
+        "drones": 4,
+        "bank": 16
+      },
+      "samples_count": 2,
+      "stats": {
+        "n": 2,
+        "median": 5.778423500000001,
+        "p95": 6.0131354,
+        "min": 5.517632500000001,
+        "max": 6.0392145
+      },
+      "extras": {
+        "isolated_batched_asc_desc_ratio": 1.0945300362066517,
+        "contaminated_batched_asc_desc_ratio": 0.9149966758313639,
+        "isolated_median_asc": 0.0027845000000006337,
+        "isolated_median_desc": 0.002651000000000181
+      }
+    },
+    {
+      "label": "d8_b0",
+      "params": {
+        "drones": 8,
+        "bank": 0
+      },
+      "samples_count": 2,
+      "stats": {
+        "n": 2,
+        "median": 5.44423375,
+        "p95": 5.9052931750000015,
+        "min": 4.931945499999999,
+        "max": 5.956522000000001
+      },
+      "extras": {
+        "isolated_batched_asc_desc_ratio": 1.2077428673938109,
+        "contaminated_batched_asc_desc_ratio": 1.0961502522391113,
+        "isolated_median_asc": 0.0017910000000007642,
+        "isolated_median_desc": 0.0017479999999991946
+      }
+    },
+    {
+      "label": "d8_b16",
+      "params": {
+        "drones": 8,
+        "bank": 16
+      },
+      "samples_count": 2,
+      "stats": {
+        "n": 2,
+        "median": 6.9798617499999995,
+        "p95": 7.2617649250000005,
+        "min": 6.666635999999999,
+        "max": 7.2930875
+      },
+      "extras": {
+        "isolated_batched_asc_desc_ratio": 1.0939681572535236,
+        "contaminated_batched_asc_desc_ratio": 2.3778262034450264,
+        "isolated_median_asc": 0.0032799999999983953,
+        "isolated_median_desc": 0.002929999999999211
+      }
+    }
+  ],
+  "stats": {
+    "rows": [
+      {
+        "drones": 0,
+        "bank": 0,
+        "isolated_median_asc": 0.0018434999999996649,
+        "isolated_median_desc": 0.0010709999999996,
+        "isolated_batched_us_asc": 14.93946,
+        "isolated_batched_us_desc": 4.2429475,
+        "isolated_batched_asc_desc_ratio": 0.2840094287209845,
+        "contaminated_median_asc": 0.0010470000000015744,
+        "contaminated_median_desc": 0.0018060000000019727,
+        "contaminated_batched_us_asc": 3.5598139999999994,
+        "contaminated_batched_us_desc": 2.259578500000004,
+        "contaminated_batched_asc_desc_ratio": 0.6347462255050417,
+        "events_per_beat": 7
+      },
+      {
+        "drones": 0,
+        "bank": 16,
+        "isolated_median_asc": 0.002682000000000073,
+        "isolated_median_desc": 0.002164000000000499,
+        "isolated_batched_us_asc": 5.0168865,
+        "isolated_batched_us_desc": 4.970753500000001,
+        "isolated_batched_asc_desc_ratio": 0.9908044561103786,
+        "contaminated_median_asc": 0.0018090000000015038,
+        "contaminated_median_desc": 0.002706499999998613,
+        "contaminated_batched_us_asc": 2.8245805,
+        "contaminated_batched_us_desc": 3.370962500000001,
+        "contaminated_batched_asc_desc_ratio": 1.193438282251117,
+        "events_per_beat": 7
+      },
+      {
+        "drones": 4,
+        "bank": 0,
+        "isolated_median_asc": 0.0014529999999979282,
+        "isolated_median_desc": 0.0031449999999999534,
+        "isolated_batched_us_asc": 4.621678499999998,
+        "isolated_batched_us_desc": 5.640324499999998,
+        "isolated_batched_asc_desc_ratio": 1.2204060710843476,
+        "contaminated_median_asc": 0.0021179999999958454,
+        "contaminated_median_desc": 0.001169999999998339,
+        "contaminated_batched_us_asc": 2.833238000000001,
+        "contaminated_batched_us_desc": 2.0059854999999978,
+        "contaminated_batched_asc_desc_ratio": 0.7080187050999588,
+        "events_per_beat": 11
+      },
+      {
+        "drones": 4,
+        "bank": 16,
+        "isolated_median_asc": 0.0027845000000006337,
+        "isolated_median_desc": 0.002651000000000181,
+        "isolated_batched_us_asc": 5.517632500000001,
+        "isolated_batched_us_desc": 6.0392145,
+        "isolated_batched_asc_desc_ratio": 1.0945300362066517,
+        "contaminated_median_asc": 0.002138999999999669,
+        "contaminated_median_desc": 0.0019630000000034897,
+        "contaminated_batched_us_asc": 2.9142625,
+        "contaminated_batched_us_desc": 2.6665405,
+        "contaminated_batched_asc_desc_ratio": 0.9149966758313639,
+        "events_per_beat": 11
+      },
+      {
+        "drones": 8,
+        "bank": 0,
+        "isolated_median_asc": 0.0017910000000007642,
+        "isolated_median_desc": 0.0017479999999991946,
+        "isolated_batched_us_asc": 4.931945499999999,
+        "isolated_batched_us_desc": 5.956522000000001,
+        "isolated_batched_asc_desc_ratio": 1.2077428673938109,
+        "contaminated_median_asc": 0.001274999999999693,
+        "contaminated_median_desc": 0.0012899999999973488,
+        "contaminated_batched_us_asc": 1.862122000000003,
+        "contaminated_batched_us_desc": 2.0411655000000017,
+        "contaminated_batched_asc_desc_ratio": 1.0961502522391113,
+        "events_per_beat": 15
+      },
+      {
+        "drones": 8,
+        "bank": 16,
+        "isolated_median_asc": 0.0032799999999983953,
+        "isolated_median_desc": 0.002929999999999211,
+        "isolated_batched_us_asc": 6.666635999999999,
+        "isolated_batched_us_desc": 7.2930875,
+        "isolated_batched_asc_desc_ratio": 1.0939681572535236,
+        "contaminated_median_asc": 0.002124000000002013,
+        "contaminated_median_desc": 0.002603000000000577,
+        "contaminated_batched_us_asc": 3.0755040000000022,
+        "contaminated_batched_us_desc": 7.313013999999998,
+        "contaminated_batched_asc_desc_ratio": 2.3778262034450264,
+        "events_per_beat": 15
+      }
+    ],
+    "contaminated_pattern": {
+      "asc": {
+        "order": "asc",
+        "horizon_beats": 2000,
+        "configs": [
+          {
+            "drone_layers": 0,
+            "sample_bank_entries": 0,
+            "median_ms": 0.0010470000000015744,
+            "p95_ms": 0.00390734999999811,
+            "batched_mean_us_per_call": 3.5598139999999994,
+            "measured_calls": 1900
+          },
+          {
+            "drone_layers": 0,
+            "sample_bank_entries": 16,
+            "median_ms": 0.0018090000000015038,
+            "p95_ms": 0.002221100000005549,
+            "batched_mean_us_per_call": 2.8245805,
+            "measured_calls": 1900
+          },
+          {
+            "drone_layers": 4,
+            "sample_bank_entries": 0,
+            "median_ms": 0.0021179999999958454,
+            "p95_ms": 0.0034043499999963697,
+            "batched_mean_us_per_call": 2.833238000000001,
+            "measured_calls": 1900
+          },
+          {
+            "drone_layers": 4,
+            "sample_bank_entries": 16,
+            "median_ms": 0.002138999999999669,
+            "p95_ms": 0.003568200000001553,
+            "batched_mean_us_per_call": 2.9142625,
+            "measured_calls": 1900
+          },
+          {
+            "drone_layers": 8,
+            "sample_bank_entries": 0,
+            "median_ms": 0.001274999999999693,
+            "p95_ms": 0.0024983999999960813,
+            "batched_mean_us_per_call": 1.862122000000003,
+            "measured_calls": 1900
+          },
+          {
+            "drone_layers": 8,
+            "sample_bank_entries": 16,
+            "median_ms": 0.002124000000002013,
+            "p95_ms": 0.003067199999995293,
+            "batched_mean_us_per_call": 3.0755040000000022,
+            "measured_calls": 1900
+          }
+        ]
+      },
+      "desc": {
+        "order": "desc",
+        "horizon_beats": 2000,
+        "configs": [
+          {
+            "drone_layers": 8,
+            "sample_bank_entries": 16,
+            "median_ms": 0.002603000000000577,
+            "p95_ms": 0.0070844999999980715,
+            "batched_mean_us_per_call": 7.313013999999998,
+            "measured_calls": 1900
+          },
+          {
+            "drone_layers": 8,
+            "sample_bank_entries": 0,
+            "median_ms": 0.0012899999999973488,
+            "p95_ms": 0.002118899999996059,
+            "batched_mean_us_per_call": 2.0411655000000017,
+            "measured_calls": 1900
+          },
+          {
+            "drone_layers": 4,
+            "sample_bank_entries": 16,
+            "median_ms": 0.0019630000000034897,
+            "p95_ms": 0.0027360000000012253,
+            "batched_mean_us_per_call": 2.6665405,
+            "measured_calls": 1900
+          },
+          {
+            "drone_layers": 4,
+            "sample_bank_entries": 0,
+            "median_ms": 0.001169999999998339,
+            "p95_ms": 0.0034945499999963652,
+            "batched_mean_us_per_call": 2.0059854999999978,
+            "measured_calls": 1900
+          },
+          {
+            "drone_layers": 0,
+            "sample_bank_entries": 16,
+            "median_ms": 0.002706499999998613,
+            "p95_ms": 0.0034570499999972523,
+            "batched_mean_us_per_call": 3.370962500000001,
+            "measured_calls": 1900
+          },
+          {
+            "drone_layers": 0,
+            "sample_bank_entries": 0,
+            "median_ms": 0.0018060000000019727,
+            "p95_ms": 0.002209299999993419,
+            "batched_mean_us_per_call": 2.259578500000004,
+            "measured_calls": 1900
+          }
+        ]
+      }
+    },
+    "order_sensitivity": {
+      "statistic": "batched mean µs/call, desc/asc ratio per config",
+      "isolated_max_asc_desc_median_deviation": 0.7159905712790156,
+      "contaminated_max_asc_desc_median_deviation": 1.3778262034450264,
+      "note": "ratios are measurements, not assertions — no threshold is claimed; read them against run-to-run noise (see A1's distribution)"
+    }
+  },
+  "raw_samples": {
+    "isolated_asc_d0_b0": [
+      0.0018434999999996649
+    ],
+    "isolated_asc_d0_b16": [
+      0.002682000000000073
+    ],
+    "isolated_asc_d4_b0": [
+      0.0014529999999979282
+    ],
+    "isolated_asc_d4_b16": [
+      0.0027845000000006337
+    ],
+    "isolated_asc_d8_b0": [
+      0.0017910000000007642
+    ],
+    "isolated_asc_d8_b16": [
+      0.0032799999999983953
+    ],
+    "isolated_desc_d8_b16": [
+      0.002929999999999211
+    ],
+    "isolated_desc_d8_b0": [
+      0.0017479999999991946
+    ],
+    "isolated_desc_d4_b16": [
+      0.002651000000000181
+    ],
+    "isolated_desc_d4_b0": [
+      0.0031449999999999534
+    ],
+    "isolated_desc_d0_b16": [
+      0.002164000000000499
+    ],
+    "isolated_desc_d0_b0": [
+      0.0010709999999996
+    ],
+    "d0_b0": [
+      14.93946,
+      4.2429475
+    ],
+    "d0_b16": [
+      5.0168865,
+      4.970753500000001
+    ],
+    "d4_b0": [
+      4.621678499999998,
+      5.640324499999998
+    ],
+    "d4_b16": [
+      5.517632500000001,
+      6.0392145
+    ],
+    "d8_b0": [
+      4.931945499999999,
+      5.956522000000001
+    ],
+    "d8_b16": [
+      6.666635999999999,
+      7.2930875
+    ]
+  },
+  "derived": {},
+  "observations": [
+    "L1 correction: the original A2 swept 6 configs sequentially in ONE process. If JIT/warm-state carries across configs, the numbers depend on sweep ORDER (the category-A bug where an 8-drone config looked faster than a 0-drone config — backwards from reality). Re-created here, judged on batched means: contaminated pattern max|desc/asc−1| = 137.8% vs isolated per-process max deviation 71.6%. The isolated numbers are the corrected reference; per-config medians and batched means land in trials. The ORIGINAL A2 JSON (user's hardware) is neither re-claimed nor altered.",
+    "L2 (what C got wrong, and how G/I supersede it): category C's chunked PoC never claimed O(1) memory for the WHOLE pipeline — its single-pass reference buffer was fully materialized, so peak memory scaled with duration regardless of the streaming compare (the claim shipped half-true). Independently, C measured that chunked output diverges from continuous output (max|Δ| 2.8e-1, NOT seam-localized) because per-chunk re-rendering re-anchors exponential automation and misaligns biquad coefficient quanta. G replaces the whole approach: one in-process block synth carries every automation state per-sample (D4) and streams every buffer, so memory has no duration-proportional term (G1) and block boundaries are byte-invisible (G3/I1a). I1 proves the negative: re-introducing C's mechanisms (re-anchoring + block-relative quanta) makes divergence return measurably. C's numbers stand as the record of why the chunked path was abandoned; nothing in C is re-run or patched in place."
+  ]
+}
