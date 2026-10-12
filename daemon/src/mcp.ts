@@ -84,6 +84,7 @@ const kernelParamsShape = z.object({
   swing: z.number().min(0).max(0.6).optional(),
   drumStyle: z.enum(["euclideanTrap", "fourFloor"]).optional(),
   sidechainAmount: z.number().min(0).max(1).optional(),
+  reverbLevel: z.number().min(0).max(1).optional().describe("Space: reverb wet + noise bed 0..1 (default 0 = nodes never constructed)"),
   seed: z.number().int().optional().describe("RNG seed; omitted = generated once and persisted in the recipe"),
   drone: z.object({ layers: z.array(z.object({
     hz: z.number(), detuneCents: z.number().optional(), amp: z.number(),

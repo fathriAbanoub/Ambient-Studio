@@ -58,6 +58,9 @@
  *   noise                       22,050 floats             (kernel-derived, fixed)
  *   voices                      O(polyphony) small objects (each bounded lifetime)
  *   drones                      MAX_DRONE_LAYERS fixed slots
+ *   space (reverbLevel > 0)     predelay 2 rings, 4 comb rings, 2 allpass
+ *                               ring pairs, wet-tone + bed biquads, bed
+ *                               352,800 floats — fixed-size, ctor-allocated
  *   timeline.events             O(beats) — the kernel output itself (~0.2 KB/event,
  *                               ~3 orders of magnitude below PCM: 2 h ≈ 58k events
  *                               vs 2.5 GB PCM16). Measured, reported in every result.
@@ -81,6 +84,23 @@ import {
   DRONE_FADE_SEC,
   NOISE_BUFFER_SAMPLES,
 } from "../../kernel/musicalLogic";
+import {
+  BED_NOISE_GAIN,
+  BED_NOISE_LP_HZ,
+  BED_NOISE_LP_Q,
+  generateMediumNoiseTable,
+  MEDIUM_NOISE_BUFFER_SAMPLES,
+  REVERB_ALLPASS_DELAY_SAMPLES,
+  REVERB_ALLPASS_GAIN,
+  REVERB_COMB_DELAY_SAMPLES,
+  REVERB_COMB_FEEDBACK,
+  REVERB_DAMP_HZ,
+  REVERB_DAMP_Q_DB,
+  REVERB_PREDELAY_SAMPLES,
+  REVERB_WET_GAIN,
+  resolveReverbLevel,
+  SPACE_REFERENCE_SAMPLE_RATE,
+} from "../../kernel/space";
 import {
   resolveToneEnvelope,
   getSubBeatEventTime,
@@ -358,6 +378,82 @@ export class Biquad {
   }
 }
 
+// ── Phase 1 Space: per-sample port of the browser reverb graph ───────────
+// LiveEngine.buildSpace()/renderAmbient build: send -> predelay -> 4 parallel
+// combs (delay -> fb) tapped at the delay output -> sum -> wet-tone LPF ->
+// 2 series allpasses -> wet gain. The classes below reproduce that recurrence
+// sample-exactly at SPACE_REFERENCE_SAMPLE_RATE-scaled tap counts, including
+// the round2 feedback rule (the closing edge re-enters one render quantum
+// late — the same +COEFF_QUANTUM_FRAMES the master delay port was
+// impulse-verified against). Static integer taps: no interpolation.
+
+/** One Schroeder comb — the master-delay recurrence per comb (the
+ *  impulse-verified round2 port shape): s[n] = x[n] + g·s[n−L−q],
+ *  output tap y[n] = s[n−L]. In-loop damping is deliberately omitted
+ *  (stability — see kernel/space.ts); the wet tone is darkened by the
+ *  post-sum LPF owned by the synth. Static integer taps: no interpolation. */
+export class SpaceComb {
+  yL = 0;
+  yR = 0;
+  private w = 0;
+  private readonly ringL: Float32Array;
+  private readonly ringR: Float32Array;
+  constructor(private readonly delaySamples: number, private readonly fbGain: number) {
+    const ringLen = delaySamples + COEFF_QUANTUM_FRAMES + 2;
+    this.ringL = new Float32Array(ringLen);
+    this.ringR = new Float32Array(ringLen);
+  }
+  process(xL: number, xR: number): void {
+    const ringLen = this.ringL.length;
+    const jTap = (((this.w - this.delaySamples) % ringLen) + ringLen) % ringLen;
+    const jFb = (((this.w - this.delaySamples - COEFF_QUANTUM_FRAMES) % ringLen) + ringLen) % ringLen;
+    this.yL = this.ringL[jTap];
+    this.yR = this.ringR[jTap];
+    this.ringL[this.w] = xL + this.fbGain * this.ringL[jFb];
+    this.ringR[this.w] = xR + this.fbGain * this.ringR[jFb];
+    this.w = (this.w + 1) % ringLen;
+  }
+}
+
+/** Exact Schroeder allpass: S[n] = x[n−D] − g·x[n] + g·S[n−D−q]; output = S.
+ *  Two separate delay lines (feedforward x, feedback S) — the single-delay
+ *  shortcut is not unity-gain, so the browser graph needs both and so does
+ *  this port (see LiveEngine.buildSpace). */
+export class SpaceAllpass {
+  yL = 0;
+  yR = 0;
+  private wx = 0;
+  private ws = 0;
+  private readonly ringXL: Float32Array;
+  private readonly ringXR: Float32Array;
+  private readonly ringSL: Float32Array;
+  private readonly ringSR: Float32Array;
+  constructor(private readonly delaySamples: number) {
+    const xLen = delaySamples + 2;
+    const sLen = delaySamples + COEFF_QUANTUM_FRAMES + 2;
+    this.ringXL = new Float32Array(xLen);
+    this.ringXR = new Float32Array(xLen);
+    this.ringSL = new Float32Array(sLen);
+    this.ringSR = new Float32Array(sLen);
+  }
+  process(xL: number, xR: number): void {
+    const xLen = this.ringXL.length;
+    const sLen = this.ringSL.length;
+    const jx = (((this.wx - this.delaySamples) % xLen) + xLen) % xLen;
+    const js = (((this.ws - this.delaySamples - COEFF_QUANTUM_FRAMES) % sLen) + sLen) % sLen;
+    const yL = this.ringXL[jx] - REVERB_ALLPASS_GAIN * xL + REVERB_ALLPASS_GAIN * this.ringSL[js];
+    const yR = this.ringXR[jx] - REVERB_ALLPASS_GAIN * xR + REVERB_ALLPASS_GAIN * this.ringSR[js];
+    this.ringXL[this.wx] = xL;
+    this.ringXR[this.wx] = xR;
+    this.ringSL[this.ws] = yL;
+    this.ringSR[this.ws] = yR;
+    this.wx = (this.wx + 1) % xLen;
+    this.ws = (this.ws + 1) % sLen;
+    this.yL = yL;
+    this.yR = yR;
+  }
+}
+
 // Waveforms in turn space (phase tracked mod 1 — bounded, no drift).
 export function waveSine(p: number): number { return Math.sin(2 * Math.PI * p); }
 export function waveTriangle(p: number): number {
@@ -457,6 +553,23 @@ export class BlockSynth {
   private padPanL: ExpApproach; private padPanR: ExpApproach; private bellPan: ExpApproach;
   private duck: SidechainDuck;
 
+  // ✅ ADD (Phase 1 Space): reverb + bed state. All null/empty when
+  // reverbLevel resolves to 0 — the render loop then takes no space branch
+  // and output is sample-identical to pre-Space builds.
+  private readonly reverbLevel: number;
+  private spacePreL: Float32Array = new Float32Array(0);
+  private spacePreR: Float32Array = new Float32Array(0);
+  private spacePreW = 0;
+  private readonly spacePreSamples: number;
+  private readonly spaceCombs: SpaceComb[] = [];
+  private readonly spaceAllpasses: SpaceAllpass[] = [];
+  private spaceWetGain = 0;
+  private spaceWetToneL: Biquad | null = null;
+  private spaceWetToneR: Biquad | null = null;
+  private spaceBed: Float32Array | null = null;
+  private spaceBedFilter: Biquad | null = null;
+  private spaceBedGain = 0;
+
   private evIdx = 0;
   private ops: Array<{ i: number; run: () => void }> = [];
   private absFrame = 0; // absolute timeline frame (pre-roll included)
@@ -490,9 +603,40 @@ export class BlockSynth {
 
     // D3: noise values from the kernel stream snapshot — identical to
     // createNoiseBufferFromState's buffer (renderAmbient.ts:457-467).
+    // ✅ ADD (Phase 1 Space): the SAME base seed salts the medium noise bed's
+    // separate stream (seed ^ MEDIUM_NOISE_SEED_SALT) — zero draws from the
+    // main kernel stream, identical table to the browser shells.
+    const baseSeed = createInitialState(opts.params).rngState;
     this.noise = new Float32Array(NOISE_BUFFER_SAMPLES);
-    const snap = { rngState: createInitialState(opts.params).rngState };
+    const snap = { rngState: baseSeed };
     for (let i = 0; i < NOISE_BUFFER_SAMPLES; i++) this.noise[i] = mulberry32Next(snap) * 2 - 1;
+
+    // ✅ ADD (Phase 1 Space): build reverb + bed iff reverbLevel > 0. Tap
+    // counts scale from the 44100 reference to this.sr (identity at 44100,
+    // where the daemon always runs and offline renders stay sample-exact).
+    this.reverbLevel = resolveReverbLevel(opts.params.reverbLevel);
+    const srScale = this.sr / SPACE_REFERENCE_SAMPLE_RATE;
+    this.spacePreSamples = Math.round(REVERB_PREDELAY_SAMPLES * srScale);
+    if (this.reverbLevel > 0) {
+      this.spacePreL = new Float32Array(this.spacePreSamples + 2);
+      this.spacePreR = new Float32Array(this.spacePreSamples + 2);
+      for (let i = 0; i < REVERB_COMB_DELAY_SAMPLES.length; i++) {
+        this.spaceCombs.push(new SpaceComb(Math.round(REVERB_COMB_DELAY_SAMPLES[i] * srScale), REVERB_COMB_FEEDBACK[i]));
+      }
+      for (let i = 0; i < REVERB_ALLPASS_DELAY_SAMPLES.length; i++) {
+        this.spaceAllpasses.push(new SpaceAllpass(Math.round(REVERB_ALLPASS_DELAY_SAMPLES[i] * srScale)));
+      }
+      this.spaceWetGain = this.reverbLevel * REVERB_WET_GAIN;
+      // Wet-tone damper AFTER the comb sum (out of loop — kernel/space.ts).
+      this.spaceWetToneL = new Biquad(this.sr);
+      this.spaceWetToneR = new Biquad(this.sr);
+      this.spaceWetToneL.setLpf(REVERB_DAMP_HZ, REVERB_DAMP_Q_DB);
+      this.spaceWetToneR.setLpf(REVERB_DAMP_HZ, REVERB_DAMP_Q_DB);
+      this.spaceBed = generateMediumNoiseTable(baseSeed);
+      this.spaceBedFilter = new Biquad(this.sr); // one mono filter, like the browser's single node
+      this.spaceBedFilter.setLpf(BED_NOISE_LP_HZ, BED_NOISE_LP_Q);
+      this.spaceBedGain = this.reverbLevel * BED_NOISE_GAIN;
+    }
 
     this.masterFc = MASTER_FILTER_BASE_HZ + mix * MASTER_FILTER_MIX_HZ;
     this.masterFilter = new Biquad(this.sr);
@@ -886,6 +1030,43 @@ export class BlockSynth {
         this.delayWrite = (this.delayWrite + 1) % ringLen;
         this.outL[i] = filtL + dL + this.drumL[i];
         this.outR[i] = filtR + dR + this.drumR[i];
+        // ✅ ADD (Phase 1 Space): reverb wet + noise bed. The send is the
+        // tonal bus (post-duck, PRE-master-filter) — exactly what the browser
+        // shells tap at the tonal-bus GainNode; the wet return and the bed
+        // join the master sum here just as they join `out` there. The bed is
+        // one mono stream filtered once and fed to both channels, matching
+        // the browser's mono-source upmix, and is indexed by absolute frame
+        // so offline renders and daemon renders stay sample-aligned.
+        if (this.spaceCombs.length > 0) {
+          const jPre = (((this.spacePreW - this.spacePreSamples) % this.spacePreL.length) + this.spacePreL.length) % this.spacePreL.length;
+          const preL = this.spacePreL[jPre];
+          const preR = this.spacePreR[jPre];
+          this.spacePreL[this.spacePreW] = tonalL;
+          this.spacePreR[this.spacePreW] = tonalR;
+          this.spacePreW = (this.spacePreW + 1) % this.spacePreL.length;
+          let wetL = 0;
+          let wetR = 0;
+          for (let ci = 0; ci < this.spaceCombs.length; ci++) {
+            const c = this.spaceCombs[ci];
+            c.process(preL, preR);
+            wetL += c.yL;
+            wetR += c.yR;
+          }
+          wetL = this.spaceWetToneL!.process(wetL);
+          wetR = this.spaceWetToneR!.process(wetR);
+          for (let ai = 0; ai < this.spaceAllpasses.length; ai++) {
+            const a = this.spaceAllpasses[ai];
+            a.process(wetL, wetR);
+            wetL = a.yL;
+            wetR = a.yR;
+          }
+          let bedL = 0;
+          if (this.spaceBed !== null && this.spaceBedFilter !== null) {
+            bedL = this.spaceBedFilter.process(this.spaceBed[absFrame % MEDIUM_NOISE_BUFFER_SAMPLES]) * this.spaceBedGain;
+          }
+          this.outL[i] += wetL * this.spaceWetGain + bedL;
+          this.outR[i] += wetR * this.spaceWetGain + bedL;
+        }
       }
 
       // 7. compact voices, preserving spawn order (D2 requires the relative

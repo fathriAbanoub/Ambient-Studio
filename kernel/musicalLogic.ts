@@ -128,6 +128,13 @@ export interface EngineParams {
   // ✅ ADD: sidechain depth 0..1 — applied by synthesis shells as a tonal-
   // bus gain duck on every kick. NOT consumed inside this module.
   sidechainAmount?: number;
+  // ✅ ADD (Phase 1 Space): reverb wet level 0..1 — applied by the synthesis
+  // shells as a 4-comb + 2-allpass reverb on the tonal bus (wet return into
+  // the master out) plus a looped noise bed at the master out. NOT consumed
+  // inside this module (zero RNG draws — guarded by space.test.ts). Default
+  // 0: shells never construct any reverb/bed node, so the render path is
+  // sample-identical to pre-Space builds. See kernel/space.ts.
+  reverbLevel?: number;
   seed?: number;
   drumLevel?: number; // 0..1
 }

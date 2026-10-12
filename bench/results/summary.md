@@ -1,6 +1,6 @@
 # Benchmark results — numbers only
 
-_Generated 2026-10-04T07:51:11.185Z from 22 result files in bench/results/._
+_Generated 2026-10-05T17:52:28.073Z from 42 result files in bench/results/._
 
 
 ## A — Kernel throughput
@@ -32,6 +32,141 @@ ffmpeg: ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg develo
 
 </details>
 
+<details><summary><code>A1_kernel_throughput_8h</code> — 2026-10-05T00:28:48.876Z</summary>
+
+**Captured:** 2026-10-05T00:28:48.876Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"ts_runner":"esbuild","horizon_hours":8}`
+
+
+
+### per-call distribution (ms)
+
+| metric | value |
+| --- | --- |
+| median | 0.0010 |
+| p95 | 0.0041 |
+| min | 0.0006 |
+| max | 1.3512 |
+| calls | 32240 |
+| last/first quarter median ratio | 0.427 |
+| scene-transition median ms | 0.0011 |
+| scene-transition calls | 251 |
+| wall sec (whole 8h simulation) | 0.074 |
+| peak RSS MB | 71.3 |
+
+</details>
+
+<details><summary><code>A1_kernel_throughput_8h</code> — 2026-10-05T03:36:15.221Z</summary>
+
+**Captured:** 2026-10-05T03:36:15.221Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"ts_runner":"esbuild","horizon_hours":8}`
+
+
+
+### per-call distribution (ms)
+
+| metric | value |
+| --- | --- |
+| median | 0.0009 |
+| p95 | 0.0040 |
+| min | 0.0006 |
+| max | 1.5264 |
+| calls | 32240 |
+| last/first quarter median ratio | 0.521 |
+| scene-transition median ms | 0.0011 |
+| scene-transition calls | 251 |
+| wall sec (whole 8h simulation) | 0.069 |
+| peak RSS MB | 72.5 |
+
+</details>
+
+<details><summary><code>A1_kernel_throughput_8h</code> — 2026-10-05T04:03:10.843Z</summary>
+
+**Captured:** 2026-10-05T04:03:10.843Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"ts_runner":"esbuild","horizon_hours":8}`
+
+
+
+### per-call distribution (ms)
+
+| metric | value |
+| --- | --- |
+| median | 0.0010 |
+| p95 | 0.0041 |
+| min | 0.0006 |
+| max | 1.9043 |
+| calls | 32240 |
+| last/first quarter median ratio | 0.512 |
+| scene-transition median ms | 0.0011 |
+| scene-transition calls | 251 |
+| wall sec (whole 8h simulation) | 0.085 |
+| peak RSS MB | 72.5 |
+
+</details>
+
+<details><summary><code>A1_kernel_throughput_8h</code> — 2026-10-05T17:27:28.460Z</summary>
+
+**Captured:** 2026-10-05T17:27:28.460Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"ts_runner":"esbuild","horizon_hours":8}`
+
+
+
+### per-call distribution (ms)
+
+| metric | value |
+| --- | --- |
+| median | 0.0010 |
+| p95 | 0.0041 |
+| min | 0.0006 |
+| max | 0.5297 |
+| calls | 32240 |
+| last/first quarter median ratio | 0.537 |
+| scene-transition median ms | 0.0011 |
+| scene-transition calls | 251 |
+| wall sec (whole 8h simulation) | 0.067 |
+| peak RSS MB | 71.9 |
+
+</details>
+
+<details><summary><code>A1_kernel_throughput_8h</code> — 2026-10-05T17:45:54.045Z</summary>
+
+**Captured:** 2026-10-05T17:45:54.045Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"ts_runner":"esbuild","horizon_hours":8}`
+
+
+
+### per-call distribution (ms)
+
+| metric | value |
+| --- | --- |
+| median | 0.0010 |
+| p95 | 0.0041 |
+| min | 0.0006 |
+| max | 1.7800 |
+| calls | 32240 |
+| last/first quarter median ratio | 0.318 |
+| scene-transition median ms | 0.0011 |
+| scene-transition calls | 251 |
+| wall sec (whole 8h simulation) | 0.080 |
+| peak RSS MB | 72.0 |
+
+</details>
+
 <details><summary><code>A2_kernel_feature_costs</code> — 2026-10-04T05:42:46.569Z</summary>
 
 **Captured:** 2026-10-04T05:42:46.569Z  
@@ -55,6 +190,121 @@ ffmpeg: ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg develo
 
 </details>
 
+<details><summary><code>A2_kernel_feature_costs</code> — 2026-10-05T00:28:48.992Z</summary>
+
+**Captured:** 2026-10-05T00:28:48.992Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"ts_runner":"esbuild","horizon_hours":8}`
+
+
+
+### config sweep
+
+| drone layers | sample bank | beats | median ms | p95 ms | events/beat |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 0 | — | 0.0041 | 0.0060 | 7.0 |
+| 0 | 16 | — | 0.0047 | 0.0087 | 7.0 |
+| 4 | 0 | — | 0.0043 | 0.0084 | 11.0 |
+| 4 | 16 | — | 0.0024 | 0.0045 | 11.0 |
+| 8 | 0 | — | 0.0015 | 0.0019 | 15.0 |
+| 8 | 16 | — | 0.0025 | 0.0032 | 15.0 |
+
+</details>
+
+<details><summary><code>A2_kernel_feature_costs</code> — 2026-10-05T03:36:15.331Z</summary>
+
+**Captured:** 2026-10-05T03:36:15.331Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"ts_runner":"esbuild","horizon_hours":8}`
+
+
+
+### config sweep
+
+| drone layers | sample bank | beats | median ms | p95 ms | events/beat |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 0 | — | 0.0040 | 0.0048 | 7.0 |
+| 0 | 16 | — | 0.0047 | 0.0067 | 7.0 |
+| 4 | 0 | — | 0.0032 | 0.0072 | 11.0 |
+| 4 | 16 | — | 0.0022 | 0.0025 | 11.0 |
+| 8 | 0 | — | 0.0015 | 0.0017 | 15.0 |
+| 8 | 16 | — | 0.0024 | 0.0027 | 15.0 |
+
+</details>
+
+<details><summary><code>A2_kernel_feature_costs</code> — 2026-10-05T04:03:10.972Z</summary>
+
+**Captured:** 2026-10-05T04:03:10.972Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"ts_runner":"esbuild","horizon_hours":8}`
+
+
+
+### config sweep
+
+| drone layers | sample bank | beats | median ms | p95 ms | events/beat |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 0 | — | 0.0043 | 0.0068 | 7.0 |
+| 0 | 16 | — | 0.0047 | 0.0086 | 7.0 |
+| 4 | 0 | — | 0.0045 | 0.0083 | 11.0 |
+| 4 | 16 | — | 0.0023 | 0.0047 | 11.0 |
+| 8 | 0 | — | 0.0015 | 0.0022 | 15.0 |
+| 8 | 16 | — | 0.0024 | 0.0031 | 15.0 |
+
+</details>
+
+<details><summary><code>A2_kernel_feature_costs</code> — 2026-10-05T17:27:28.565Z</summary>
+
+**Captured:** 2026-10-05T17:27:28.565Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"ts_runner":"esbuild","horizon_hours":8}`
+
+
+
+### config sweep
+
+| drone layers | sample bank | beats | median ms | p95 ms | events/beat |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 0 | — | 0.0042 | 0.0053 | 7.0 |
+| 0 | 16 | — | 0.0048 | 0.0072 | 7.0 |
+| 4 | 0 | — | 0.0042 | 0.0075 | 11.0 |
+| 4 | 16 | — | 0.0022 | 0.0043 | 11.0 |
+| 8 | 0 | — | 0.0015 | 0.0017 | 15.0 |
+| 8 | 16 | — | 0.0024 | 0.0027 | 15.0 |
+
+</details>
+
+<details><summary><code>A2_kernel_feature_costs</code> — 2026-10-05T17:45:54.160Z</summary>
+
+**Captured:** 2026-10-05T17:45:54.160Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"ts_runner":"esbuild","horizon_hours":8}`
+
+
+
+### config sweep
+
+| drone layers | sample bank | beats | median ms | p95 ms | events/beat |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 0 | — | 0.0040 | 0.0051 | 7.0 |
+| 0 | 16 | — | 0.0048 | 0.0069 | 7.0 |
+| 4 | 0 | — | 0.0045 | 0.0073 | 11.0 |
+| 4 | 16 | — | 0.0041 | 0.0047 | 11.0 |
+| 8 | 0 | — | 0.0016 | 0.0019 | 15.0 |
+| 8 | 16 | — | 0.0027 | 0.0032 | 15.0 |
+
+</details>
+
 <details><summary><code>A3_kernel_8h_totals</code> — 2026-10-04T05:42:46.674Z</summary>
 
 **Captured:** 2026-10-04T05:42:46.674Z  
@@ -75,6 +325,121 @@ ffmpeg: ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg develo
 | wall µs/call | 1.99 |
 | init chain ms | 0.398 |
 | peak RSS MB | 59.5 |
+
+</details>
+
+<details><summary><code>A3_kernel_8h_totals</code> — 2026-10-05T00:28:49.095Z</summary>
+
+**Captured:** 2026-10-05T00:28:49.095Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"ts_runner":"esbuild","horizon_hours":8}`
+
+
+
+### totals
+
+| metric | value |
+| --- | --- |
+| beats | 32240 |
+| events total | 233647 |
+| wall sec | 0.073 |
+| wall µs/call | 2.27 |
+| init chain ms | 0.515 |
+| peak RSS MB | 52.4 |
+
+</details>
+
+<details><summary><code>A3_kernel_8h_totals</code> — 2026-10-05T03:36:15.427Z</summary>
+
+**Captured:** 2026-10-05T03:36:15.427Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"ts_runner":"esbuild","horizon_hours":8}`
+
+
+
+### totals
+
+| metric | value |
+| --- | --- |
+| beats | 32240 |
+| events total | 233647 |
+| wall sec | 0.067 |
+| wall µs/call | 2.07 |
+| init chain ms | 0.350 |
+| peak RSS MB | 52.7 |
+
+</details>
+
+<details><summary><code>A3_kernel_8h_totals</code> — 2026-10-05T04:03:11.081Z</summary>
+
+**Captured:** 2026-10-05T04:03:11.081Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"ts_runner":"esbuild","horizon_hours":8}`
+
+
+
+### totals
+
+| metric | value |
+| --- | --- |
+| beats | 32240 |
+| events total | 233647 |
+| wall sec | 0.077 |
+| wall µs/call | 2.39 |
+| init chain ms | 0.388 |
+| peak RSS MB | 53.2 |
+
+</details>
+
+<details><summary><code>A3_kernel_8h_totals</code> — 2026-10-05T17:27:28.660Z</summary>
+
+**Captured:** 2026-10-05T17:27:28.660Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"ts_runner":"esbuild","horizon_hours":8}`
+
+
+
+### totals
+
+| metric | value |
+| --- | --- |
+| beats | 32240 |
+| events total | 233647 |
+| wall sec | 0.067 |
+| wall µs/call | 2.08 |
+| init chain ms | 0.481 |
+| peak RSS MB | 53.1 |
+
+</details>
+
+<details><summary><code>A3_kernel_8h_totals</code> — 2026-10-05T17:45:54.273Z</summary>
+
+**Captured:** 2026-10-05T17:45:54.273Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"ts_runner":"esbuild","horizon_hours":8}`
+
+
+
+### totals
+
+| metric | value |
+| --- | --- |
+| beats | 32240 |
+| events total | 233647 |
+| wall sec | 0.082 |
+| wall µs/call | 2.53 |
+| init chain ms | 0.379 |
+| peak RSS MB | 54.1 |
 
 </details>
 
@@ -112,6 +477,51 @@ _Extrapolation to 8 h (labeled extrapolation, linear fit): wall 76.2 min, peak h
 
 </details>
 
+<details><summary><code>B1_offline_render_sweep__browser</code> — 2026-10-05T00:28:49.433Z</summary>
+
+**Captured:** 2026-10-05T00:28:49.433Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{}`
+
+
+> SKIPPED: Playwright chromium failed to launch (browsers may not be downloaded) — install: cd ui && npx playwright install chromium. Error: browserType.launch: Executable doesn't exist at /home/bobaayad/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell
+╔══════════════════════════════════
+
+</details>
+
+<details><summary><code>B1_offline_render_sweep__browser</code> — 2026-10-05T17:50:22.260Z</summary>
+
+**Captured:** 2026-10-05T17:50:22.260Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"environment_label":"headless Chromium (Playwright) — GROUND TRUTH","browser":"153.0.8010.12","durations_minutes":[0.05,0.25,0.75,1.5,3],"trials":1}`
+
+
+- assertion `all_sweep_points_ok`: PASS — ok=5/5
+
+### sweep (headless Chromium (Playwright) — GROUND TRUTH)
+
+| duration min | wall s | scheduling s | startRendering s | peak heap/RSS MB | non-finite | wav MB | outcome |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.05 | 0.6 | — | — | 9.5 | 0 | 0.5 | ok |
+| 0.25 | 1.3 | — | — | 9.5 | 0 | 2.5 | ok |
+| 0.75 | 4.4 | — | — | 9.5 | 0 | 7.6 | ok |
+| 1.50 | 12.0 | — | — | 9.5 | 0 | 15.1 | ok |
+| 3.00 | 47.2 | — | — | 9.5 | 0 | 30.3 | ok |
+
+
+_Extrapolation to 8 h (labeled extrapolation, linear fit): wall 126.8 min, peak heap/RSS 9.5_
+
+
+**Observations (clearly separated from numbers):**
+
+> Memory metric is Chromium's performance.memory.usedJSHeapSize, which EXCLUDES AudioBuffer sample data (external/C++ memory in Chrome). Browser heap figures therefore understate true renderer memory; the Node variant records process-level RSS (which includes sample data), so read the two environments together. ponytail: browser renderer-process RSS sampling is the upgrade path if you need exact tab-level memory.
+
+</details>
+
 <details><summary><code>B1_offline_render_sweep__node</code> — 2026-10-04T06:31:17.036Z</summary>
 
 **Captured:** 2026-10-04T06:31:17.036Z  
@@ -141,10 +551,65 @@ _Extrapolation to 8 h (labeled extrapolation, linear fit): wall 136.0 min, peak 
 
 </details>
 
+<details><summary><code>B1_offline_render_sweep__node</code> — 2026-10-05T00:28:49.434Z</summary>
+
+**Captured:** 2026-10-05T00:28:49.434Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{}`
+
+
+> SKIPPED: node-web-audio-api not installed — install: cd ui && npm install --save-dev node-web-audio-api
+
+</details>
+
+<details><summary><code>B1_offline_render_sweep__node</code> — 2026-10-05T17:52:28.049Z</summary>
+
+**Captured:** 2026-10-05T17:52:28.049Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{"environment_label":"node (node-web-audio-api) — SECONDARY/EXPERIMENTAL, not ground truth","implementation":{"package":"node-web-audio-api","version":null},"durations_minutes":[0.05,0.25,0.75,1.5,3]}`
+
+
+> RUN ERROR: B4 violation: non-finite samples in Node Web Audio output
+
+- assertion `nonfinite_zero_all_points`: FAIL — violations: [{"duration_minutes":0.05,"non_finite":42028},{"duration_minutes":0.25,"non_finite":187744},{"duration_minutes":0.75,"non_finite":337317},{"duration_minutes":1.5,"non_finite":634350},{"duration_minutes":3,"non_finite":1217262}]
+- assertion `nonfinite_check_is_loud`: PASS — the harness fails the benchmark (nonzero exit, failed assertion) on any non-finite sample — never silently skips
+
+### sweep (node (node-web-audio-api) — SECONDARY/EXPERIMENTAL, not ground truth)
+
+| duration min | wall s | scheduling s | startRendering s | peak heap/RSS MB | non-finite | wav MB | outcome |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.05 | 0.5 | 0.0 | 0.4 | 95.0 | 42028 | 0.5 | ok |
+| 0.25 | 1.2 | 0.0 | 1.2 | 116.3 | 187744 | 2.5 | ok |
+| 0.75 | 3.8 | 0.0 | 3.7 | 179.6 | 337317 | 7.6 | ok |
+| 1.50 | 12.1 | 0.1 | 12.0 | 217.5 | 634350 | 15.1 | ok |
+| 3.00 | 104.7 | 0.1 | 104.5 | 424.6 | 1217262 | 30.3 | ok |
+
+
+_Extrapolation to 8 h (labeled extrapolation, linear fit): wall 279.1 min, peak heap/RSS —_
+
+</details>
+
 
 ## C — Chunked-render PoC (superseded by I — kept for the record)
 
-_(no result files)_
+<details><summary><code>C_chunked_render_poc</code> — 2026-10-05T00:28:49.436Z</summary>
+
+**Captured:** 2026-10-05T00:28:49.436Z  
+linux/x64 · Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz ×4 · 15.5 GB RAM · node v22.21.0  
+ffmpeg: ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers · NVENC encoders: 3
+
+**Params:** `{}`
+
+
+> SKIPPED: node-web-audio-api not installed — install: cd ui && npm install --save-dev node-web-audio-api (Error: Cannot find module 'node-web-audio-api'
+Require stack:
+- /home/bobaayad/Downloads/ambient-studio/ui/package.json)
+
+</details>
 
 
 ## D — ffmpeg video ladder

@@ -88,6 +88,23 @@ import {
   resolveToneEnvelope,
   TONAL_BUS_GAIN,
 } from "./scheduling";
+import {
+  BED_NOISE_GAIN,
+  BED_NOISE_LP_HZ,
+  BED_NOISE_LP_Q,
+  generateMediumNoiseTable,
+  MEDIUM_NOISE_BUFFER_SAMPLES,
+  REVERB_ALLPASS_DELAY_SAMPLES,
+  REVERB_ALLPASS_GAIN,
+  REVERB_COMB_DELAY_SAMPLES,
+  REVERB_COMB_FEEDBACK,
+  REVERB_DAMP_HZ,
+  REVERB_DAMP_Q_DB,
+  REVERB_PREDELAY_SAMPLES,
+  REVERB_WET_GAIN,
+  resolveReverbLevel,
+  SPACE_REFERENCE_SAMPLE_RATE,
+} from "./space";
 
 const FM_MOD_RATIO = 1.5;
 const FM_INDEX = 1.8;
@@ -228,6 +245,100 @@ export async function renderAmbient(
     droneCurves.push(null);
   }
 
+  // ✅ ADD (Phase 1 Space): the bed seed is the recipe seed itself (what
+  // createInitialState stores in rngState) — NOT the mid-stream snapshot.
+  // Same convention as the drum-noise snapshot below; the bed runs on its
+  // own mulberry32 stream salted from this value — zero main-stream draws.
+  const bedSeed = createInitialState(effectiveParams).rngState;
+
+  // ✅ ADD (Phase 1 Space): reverb wet path + noise bed — mirrors
+  // LiveEngine.buildSpace() node-for-node (same constants from
+  // kernel/space.ts). Only constructed when reverbLevel > 0; the default 0
+  // leaves the graph exactly as before (sample-identical output). The send
+  // taps the tonal bus `gain` (post-sidechain), wet returns into `out`.
+  const reverbLevel = resolveReverbLevel(effectiveParams.reverbLevel);
+  if (reverbLevel > 0) {
+    const predelay = offlineCtx.createDelay(
+      REVERB_PREDELAY_SAMPLES / SPACE_REFERENCE_SAMPLE_RATE,
+    );
+    predelay.delayTime.value =
+      REVERB_PREDELAY_SAMPLES / SPACE_REFERENCE_SAMPLE_RATE;
+    gain.connect(predelay);
+
+    const combSum = offlineCtx.createGain();
+    for (let i = 0; i < REVERB_COMB_DELAY_SAMPLES.length; i++) {
+      const delaySec =
+        REVERB_COMB_DELAY_SAMPLES[i] / SPACE_REFERENCE_SAMPLE_RATE;
+      const dl = offlineCtx.createDelay(delaySec);
+      dl.delayTime.value = delaySec;
+      const fb = offlineCtx.createGain();
+      fb.gain.value = REVERB_COMB_FEEDBACK[i];
+      predelay.connect(dl);
+      dl.connect(fb);
+      fb.connect(dl); // feedback cycle — re-enters one render quantum late
+      dl.connect(combSum); // tap = the delay output, Freeverb-style
+    }
+
+    // Wet-tone damper AFTER the comb sum (out of loop — see kernel/space.ts
+    // for why it must not sit inside the comb feedback paths).
+    const damp = offlineCtx.createBiquadFilter();
+    damp.type = "lowpass";
+    damp.frequency.value = REVERB_DAMP_HZ;
+    damp.Q.value = REVERB_DAMP_Q_DB;
+    combSum.connect(damp);
+
+    // Exact Schroeder allpass (two DelayNodes — see LiveEngine.buildSpace).
+    let apIn: AudioNode = damp;
+    for (let i = 0; i < REVERB_ALLPASS_DELAY_SAMPLES.length; i++) {
+      const delaySec =
+        REVERB_ALLPASS_DELAY_SAMPLES[i] / SPACE_REFERENCE_SAMPLE_RATE;
+      const ff = offlineCtx.createDelay(delaySec);
+      ff.delayTime.value = delaySec;
+      const fbk = offlineCtx.createDelay(delaySec);
+      fbk.delayTime.value = delaySec;
+      const neg = offlineCtx.createGain();
+      neg.gain.value = -REVERB_ALLPASS_GAIN;
+      const pos = offlineCtx.createGain();
+      pos.gain.value = REVERB_ALLPASS_GAIN;
+      const sum = offlineCtx.createGain();
+      apIn.connect(ff);
+      ff.connect(sum);
+      apIn.connect(neg);
+      neg.connect(sum);
+      sum.connect(fbk);
+      fbk.connect(pos);
+      pos.connect(sum); // feedback cycle — re-enters one render quantum late
+      apIn = sum;
+    }
+
+    const wet = offlineCtx.createGain();
+    wet.gain.value = reverbLevel * REVERB_WET_GAIN;
+    apIn.connect(wet);
+    wet.connect(out);
+
+    // Noise bed: fixed sample COUNT (8.0 s @44.1k), looped from time 0 —
+    // sample-aligned with the daemon's absFrame % table indexing.
+    const bed = offlineCtx.createBuffer(
+      1,
+      MEDIUM_NOISE_BUFFER_SAMPLES,
+      offlineCtx.sampleRate,
+    );
+    bed.getChannelData(0).set(generateMediumNoiseTable(bedSeed));
+    const bedFilterNode = offlineCtx.createBiquadFilter();
+    bedFilterNode.type = "lowpass";
+    bedFilterNode.frequency.value = BED_NOISE_LP_HZ;
+    bedFilterNode.Q.value = BED_NOISE_LP_Q;
+    const bedGain = offlineCtx.createGain();
+    bedGain.gain.value = reverbLevel * BED_NOISE_GAIN;
+    bedFilterNode.connect(bedGain);
+    bedGain.connect(out);
+    const bedSource = offlineCtx.createBufferSource();
+    bedSource.buffer = bed;
+    bedSource.loop = true;
+    bedSource.connect(bedFilterNode);
+    bedSource.start(0);
+  }
+
   onProgress?.({ phase: "scheduling", percent: 10 });
 
   // ── RNG init order matches original engine.ts constructor exactly ──
@@ -241,10 +352,7 @@ export async function renderAmbient(
     // latched droneLayersStarted=true would otherwise render with zero
     // drone events in beatless mode.
     state = { ...startState, droneLayersStarted: false };
-    noiseBuffer = createNoiseBufferFromSnapshot(
-      offlineCtx,
-      createInitialState(effectiveParams).rngState,
-    );
+    noiseBuffer = createNoiseBufferFromSnapshot(offlineCtx, bedSeed);
   } else {
     state = createInitialState(effectiveParams);
     noiseBuffer = createNoiseBufferFromState(offlineCtx, state); // advances ~22k in main stream
