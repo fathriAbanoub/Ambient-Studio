@@ -116,6 +116,23 @@ import {
   resolveToneEnvelope,
   TONAL_BUS_GAIN,
 } from "./scheduling";
+import {
+  BED_NOISE_GAIN,
+  BED_NOISE_LP_HZ,
+  BED_NOISE_LP_Q,
+  generateMediumNoiseTable,
+  MEDIUM_NOISE_BUFFER_SAMPLES,
+  REVERB_ALLPASS_DELAY_SAMPLES,
+  REVERB_ALLPASS_GAIN,
+  REVERB_COMB_DELAY_SAMPLES,
+  REVERB_COMB_FEEDBACK,
+  REVERB_DAMP_HZ,
+  REVERB_DAMP_Q_DB,
+  REVERB_PREDELAY_SAMPLES,
+  REVERB_WET_GAIN,
+  resolveReverbLevel,
+  SPACE_REFERENCE_SAMPLE_RATE,
+} from "./space";
 
 import { getSharedAudioContext } from "@/lib/audioContext";
 
@@ -140,6 +157,19 @@ export class LiveEngine {
   private readonly drumCompressor: DynamicsCompressorNode;
   private readonly noiseBuffer: AudioBuffer;
   private sampleBuffers: DecodedSampleBank = new Map();
+
+  // ✅ ADD (Phase 1 Space): reverb wet path + noise bed. Constructed ONLY
+  // when params.reverbLevel > 0 — reverbLevel 0 leaves the graph exactly as
+  // before (sample-identical). spaceNodes collects every node created here
+  // so dispose() can disconnect them; the bed's AudioBufferSourceNode is
+  // per-start() (a stopped source cannot restart) and is disconnected in
+  // stop(). ponytail: the level is read once at construction — runtime
+  // retune means a setReverbLevel() that builds/tears down the wet path,
+  // deferred until the UI actually exposes the knob.
+  private readonly spaceNodes: AudioNode[] = [];
+  private bedBuffer: AudioBuffer | null = null;
+  private bedFilter: BiquadFilterNode | null = null;
+  private bedSource: AudioBufferSourceNode | null = null;
   // ✅ FIX: Marked as readonly to comply with typescript:S2933
   private readonly activeSampleSources = new Set<AudioBufferSourceNode>();
 
@@ -282,11 +312,143 @@ export class LiveEngine {
 
     // ── FIX C2: RNG init order matches original engine.ts constructor ──
     this.state = createInitialState(params);
+    // ✅ ADD (Phase 1 Space): the bed seed is the recipe seed itself (the
+    // rngState right after createInitialState, BEFORE any main-stream draw
+    // happens below). The bed runs on its own mulberry32 stream salted from
+    // this value — zero draws from the main stream (see kernel/space.ts).
+    const bedSeed = this.state.rngState;
     this.noiseBuffer = this.createNoiseBuffer();
     this.state = initializeBell(this.state);
     this.state = initializeSampleLane(this.state, this.params);
 
+    this.buildSpace(bedSeed);
+
     this.setMix(params.mix);
+  }
+
+  /**
+   * ✅ ADD (Phase 1 Space): build the reverb wet path (tonal bus -> predelay
+   * -> 4 parallel combs -> sum -> wet-tone LPF -> 2 series allpasses -> wet
+   * gain -> out) and the noise bed (looped medium noise table -> LPF -> bed
+   * gain -> out). No-op when reverbLevel resolves to 0 — the graph then
+   * stays byte-for-byte the pre-Space construction. The send taps this.gain
+   * (the tonal bus, post-sidechain), so the wet path inherits the duck and
+   * drums stay dry; the return joins this.out. Topology and constants come
+   * from kernel/space.ts (single source shared with renderAmbient and the
+   * daemon's per-sample port).
+   */
+  private buildSpace(bedSeed: number): void {
+    const reverbLevel = resolveReverbLevel(this.params.reverbLevel);
+    if (reverbLevel <= 0) return;
+    const ctx = this.ctx;
+
+    // ── Reverb wet path ──
+    const predelay = ctx.createDelay(REVERB_PREDELAY_SAMPLES / SPACE_REFERENCE_SAMPLE_RATE);
+    predelay.delayTime.value = REVERB_PREDELAY_SAMPLES / SPACE_REFERENCE_SAMPLE_RATE;
+    this.gain.connect(predelay);
+    this.spaceNodes.push(predelay);
+
+    const combSum = ctx.createGain();
+    this.spaceNodes.push(combSum);
+    for (let i = 0; i < REVERB_COMB_DELAY_SAMPLES.length; i++) {
+      const delaySec = REVERB_COMB_DELAY_SAMPLES[i] / SPACE_REFERENCE_SAMPLE_RATE;
+      const dl = ctx.createDelay(delaySec);
+      dl.delayTime.value = delaySec;
+      const fb = ctx.createGain();
+      fb.gain.value = REVERB_COMB_FEEDBACK[i];
+      predelay.connect(dl);
+      dl.connect(fb);
+      fb.connect(dl); // feedback cycle — re-enters one render quantum late
+      dl.connect(combSum); // tap = the delay output, Freeverb-style
+      this.spaceNodes.push(dl, fb);
+    }
+
+    // Wet-tone damper AFTER the comb sum (out of loop — see kernel/space.ts
+    // for why it must not sit inside the comb feedback paths).
+    const damp = ctx.createBiquadFilter();
+    damp.type = "lowpass";
+    damp.frequency.value = REVERB_DAMP_HZ;
+    damp.Q.value = REVERB_DAMP_Q_DB;
+    combSum.connect(damp);
+    this.spaceNodes.push(damp);
+
+    // Exact Schroeder allpass: y[n] = x[n-D] - g·x[n] + g·y[n-D]. The
+    // feedforward delay (x[n-D]) and the feedback delay (y[n-D]) are two
+    // separate DelayNodes — a single-delay construction is NOT unity gain.
+    let apIn: AudioNode = damp;
+    for (let i = 0; i < REVERB_ALLPASS_DELAY_SAMPLES.length; i++) {
+      const delaySec = REVERB_ALLPASS_DELAY_SAMPLES[i] / SPACE_REFERENCE_SAMPLE_RATE;
+      const ff = ctx.createDelay(delaySec);
+      ff.delayTime.value = delaySec;
+      const fbk = ctx.createDelay(delaySec);
+      fbk.delayTime.value = delaySec;
+      const neg = ctx.createGain();
+      neg.gain.value = -REVERB_ALLPASS_GAIN;
+      const pos = ctx.createGain();
+      pos.gain.value = REVERB_ALLPASS_GAIN;
+      const sum = ctx.createGain();
+      apIn.connect(ff);
+      ff.connect(sum);
+      apIn.connect(neg);
+      neg.connect(sum);
+      sum.connect(fbk);
+      fbk.connect(pos);
+      pos.connect(sum); // feedback cycle — re-enters one render quantum late
+      this.spaceNodes.push(ff, fbk, neg, pos, sum);
+      apIn = sum;
+    }
+
+    const wet = ctx.createGain();
+    wet.gain.value = reverbLevel * REVERB_WET_GAIN;
+    apIn.connect(wet);
+    wet.connect(this.out);
+    this.spaceNodes.push(wet);
+
+    // ── Noise bed ("air") ──
+    // Fixed sample COUNT at ctx.sampleRate, same convention as the drum
+    // noise buffer: the sequence is sample-rate independent; only its
+    // playback duration varies (8.0 s @44.1k, 7.35 s @48k).
+    const bed = ctx.createBuffer(1, MEDIUM_NOISE_BUFFER_SAMPLES, ctx.sampleRate);
+    bed.getChannelData(0).set(generateMediumNoiseTable(bedSeed));
+    const bedFilterNode = ctx.createBiquadFilter();
+    bedFilterNode.type = "lowpass";
+    bedFilterNode.frequency.value = BED_NOISE_LP_HZ;
+    bedFilterNode.Q.value = BED_NOISE_LP_Q;
+    const bedGain = ctx.createGain();
+    bedGain.gain.value = reverbLevel * BED_NOISE_GAIN;
+    bedFilterNode.connect(bedGain);
+    bedGain.connect(this.out);
+    this.bedBuffer = bed;
+    this.bedFilter = bedFilterNode;
+    this.spaceNodes.push(bedFilterNode, bedGain);
+  }
+
+  /** ✅ ADD (Phase 1 Space): fresh looped source per start — a stopped
+   * AudioBufferSourceNode cannot be restarted, so live stop()/start()
+   * cycles create a new one over the persistent filter/gain nodes. */
+  private startBedSource(): void {
+    if (!this.bedBuffer || !this.bedFilter || this.bedSource) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.bedBuffer;
+    src.loop = true;
+    src.connect(this.bedFilter);
+    src.start();
+    this.bedSource = src;
+  }
+
+  private stopBedSource(): void {
+    if (!this.bedSource) return;
+    try {
+      this.bedSource.stop();
+    } catch {
+      // Ignore already-stopped bed source.
+    }
+    try {
+      this.bedSource.disconnect();
+    } catch {
+      // Ignore already-disconnected bed source.
+    }
+    this.bedSource = null;
   }
 
   async start(): Promise<void> {
@@ -306,6 +468,9 @@ export class LiveEngine {
     if (this.disposed || myToken !== this.startToken) return;
 
     this.running = true;
+
+    // ✅ ADD (Phase 1 Space): run the noise bed while the engine runs.
+    this.startBedSource();
 
     // ✅ ADD (droneLayersStarted reset): musicalLogic latches drone emission
     // once droneLayersStarted is true (beatless mode). A stopped/restarted
@@ -341,6 +506,7 @@ export class LiveEngine {
       window.clearInterval(this.schedulerTimerId);
       this.schedulerTimerId = null;
     }
+    this.stopBedSource();
     this.stopDroneLayers(this.ctx.currentTime);
     for (const source of this.activeSampleSources) {
       try {
@@ -434,6 +600,7 @@ export class LiveEngine {
       this.padPanL,
       this.padPanR,
       this.bellPan,
+      ...this.spaceNodes,
       ...this.dronePans,
       ...this.droneGains,
       ...this.droneFilters,

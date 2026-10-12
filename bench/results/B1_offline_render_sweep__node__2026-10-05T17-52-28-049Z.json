@@ -1,0 +1,278 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "B1_offline_render_sweep__node",
+  "category": "B",
+  "timestamp": "2026-10-05T17:52:28.049Z",
+  "params": {
+    "environment_label": "node (node-web-audio-api) — SECONDARY/EXPERIMENTAL, not ground truth",
+    "implementation": {
+      "package": "node-web-audio-api",
+      "version": null
+    },
+    "durations_minutes": [
+      0.05,
+      0.25,
+      0.75,
+      1.5,
+      3
+    ]
+  },
+  "environment": {
+    "captured_at": "2026-10-05T17:49:15.618Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "7.0.0-34-generic",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
+      "cores": 4,
+      "speed_mhz": 4269
+    },
+    "total_ram_bytes": 16594919424,
+    "node_version": "v22.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=3ubuntu5+esm13 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --disable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "nvidia-smi",
+      "gpus": [
+        "NVIDIA GeForce GTX 1650 Ti, 580.178.04"
+      ]
+    },
+    "results_dir_disk": {
+      "free_bytes": 3842654208,
+      "total_bytes": 501809635328
+    },
+    "tools": {
+      "ts_runner": "esbuild",
+      "playwright": true,
+      "node_web_audio_api": true,
+      "web_audio_engine": true
+    },
+    "ui": "/home/bobaayad/Downloads/ambient-studio/ui",
+    "root": "/home/bobaayad/Downloads/ambient-studio"
+  },
+  "methodology": {
+    "measured": "same sweep as the browser ground truth, in Node via node-web-audio-api",
+    "granularity": "per render; phase split from onProgress stamps; process-level RSS",
+    "trials": "1 per duration point",
+    "warmup": "none",
+    "outliers": "none removed",
+    "statistic": "per-point values (n=1); medians not meaningful at n=1"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [
+    {
+      "name": "nonfinite_zero_all_points",
+      "passed": false,
+      "detail": "violations: [{\"duration_minutes\":0.05,\"non_finite\":42028},{\"duration_minutes\":0.25,\"non_finite\":187744},{\"duration_minutes\":0.75,\"non_finite\":337317},{\"duration_minutes\":1.5,\"non_finite\":634350},{\"duration_minutes\":3,\"non_finite\":1217262}]"
+    },
+    {
+      "name": "nonfinite_check_is_loud",
+      "passed": true,
+      "detail": "the harness fails the benchmark (nonzero exit, failed assertion) on any non-finite sample — never silently skips"
+    }
+  ],
+  "trials": [],
+  "stats": {
+    "per_duration": [
+      {
+        "duration_minutes": 0.05,
+        "outcome": "ok",
+        "scheduling_wall_ms": 25.99708799999999,
+        "startRendering_wall_ms": 449.6753289999999,
+        "total_wall_ms": 481.989447,
+        "peak_rss_bytes": 99573760,
+        "rss_note": "resourceUsage().maxRSS (KB per Node docs) or memoryUsage().rss; process-level, not per-render",
+        "output_frames": 132300,
+        "non_finite_samples": 42028,
+        "peak_abs_sample": 3.2470697724364465e+38,
+        "wav_encode_ms": 31.58218599999998,
+        "wav_bytes": 529244
+      },
+      {
+        "duration_minutes": 0.25,
+        "outcome": "ok",
+        "scheduling_wall_ms": 19.78309999999999,
+        "startRendering_wall_ms": 1203.5936550000001,
+        "total_wall_ms": 1235.350694,
+        "peak_rss_bytes": 121982976,
+        "rss_note": "resourceUsage().maxRSS (KB per Node docs) or memoryUsage().rss; process-level, not per-render",
+        "output_frames": 661500,
+        "non_finite_samples": 187744,
+        "peak_abs_sample": 3.398688288715296e+38,
+        "wav_encode_ms": 159.73461800000018,
+        "wav_bytes": 2646044
+      },
+      {
+        "duration_minutes": 0.75,
+        "outcome": "ok",
+        "scheduling_wall_ms": 39.22839899999963,
+        "startRendering_wall_ms": 3715.2776490000006,
+        "total_wall_ms": 3766.396022,
+        "peak_rss_bytes": 188284928,
+        "rss_note": "resourceUsage().maxRSS (KB per Node docs) or memoryUsage().rss; process-level, not per-render",
+        "output_frames": 1984500,
+        "non_finite_samples": 337317,
+        "peak_abs_sample": 3.398688288715296e+38,
+        "wav_encode_ms": 452.7770730000002,
+        "wav_bytes": 7938044
+      },
+      {
+        "duration_minutes": 1.5,
+        "outcome": "ok",
+        "scheduling_wall_ms": 55.50023299999975,
+        "startRendering_wall_ms": 11978.246347,
+        "total_wall_ms": 12070.028508,
+        "peak_rss_bytes": 228040704,
+        "rss_note": "resourceUsage().maxRSS (KB per Node docs) or memoryUsage().rss; process-level, not per-render",
+        "output_frames": 3969000,
+        "non_finite_samples": 634350,
+        "peak_abs_sample": 3.4027841185106575e+38,
+        "wav_encode_ms": 886.4276470000004,
+        "wav_bytes": 15876044
+      },
+      {
+        "duration_minutes": 3,
+        "outcome": "ok",
+        "scheduling_wall_ms": 105.90737300000183,
+        "startRendering_wall_ms": 104517.045705,
+        "total_wall_ms": 104670.969195,
+        "peak_rss_bytes": 445202432,
+        "rss_note": "resourceUsage().maxRSS (KB per Node docs) or memoryUsage().rss; process-level, not per-render",
+        "output_frames": 7938000,
+        "non_finite_samples": 1217262,
+        "peak_abs_sample": 3.4027841185106575e+38,
+        "wav_encode_ms": 1709.3875049999915,
+        "wav_bytes": 31752044
+      }
+    ]
+  },
+  "raw_samples": {
+    "points": [
+      {
+        "duration_minutes": 0.05,
+        "outcome": "ok",
+        "scheduling_wall_ms": 25.99708799999999,
+        "startRendering_wall_ms": 449.6753289999999,
+        "total_wall_ms": 481.989447,
+        "peak_rss_bytes": 99573760,
+        "rss_note": "resourceUsage().maxRSS (KB per Node docs) or memoryUsage().rss; process-level, not per-render",
+        "output_frames": 132300,
+        "non_finite_samples": 42028,
+        "peak_abs_sample": 3.2470697724364465e+38,
+        "wav_encode_ms": 31.58218599999998,
+        "wav_bytes": 529244
+      },
+      {
+        "duration_minutes": 0.25,
+        "outcome": "ok",
+        "scheduling_wall_ms": 19.78309999999999,
+        "startRendering_wall_ms": 1203.5936550000001,
+        "total_wall_ms": 1235.350694,
+        "peak_rss_bytes": 121982976,
+        "rss_note": "resourceUsage().maxRSS (KB per Node docs) or memoryUsage().rss; process-level, not per-render",
+        "output_frames": 661500,
+        "non_finite_samples": 187744,
+        "peak_abs_sample": 3.398688288715296e+38,
+        "wav_encode_ms": 159.73461800000018,
+        "wav_bytes": 2646044
+      },
+      {
+        "duration_minutes": 0.75,
+        "outcome": "ok",
+        "scheduling_wall_ms": 39.22839899999963,
+        "startRendering_wall_ms": 3715.2776490000006,
+        "total_wall_ms": 3766.396022,
+        "peak_rss_bytes": 188284928,
+        "rss_note": "resourceUsage().maxRSS (KB per Node docs) or memoryUsage().rss; process-level, not per-render",
+        "output_frames": 1984500,
+        "non_finite_samples": 337317,
+        "peak_abs_sample": 3.398688288715296e+38,
+        "wav_encode_ms": 452.7770730000002,
+        "wav_bytes": 7938044
+      },
+      {
+        "duration_minutes": 1.5,
+        "outcome": "ok",
+        "scheduling_wall_ms": 55.50023299999975,
+        "startRendering_wall_ms": 11978.246347,
+        "total_wall_ms": 12070.028508,
+        "peak_rss_bytes": 228040704,
+        "rss_note": "resourceUsage().maxRSS (KB per Node docs) or memoryUsage().rss; process-level, not per-render",
+        "output_frames": 3969000,
+        "non_finite_samples": 634350,
+        "peak_abs_sample": 3.4027841185106575e+38,
+        "wav_encode_ms": 886.4276470000004,
+        "wav_bytes": 15876044
+      },
+      {
+        "duration_minutes": 3,
+        "outcome": "ok",
+        "scheduling_wall_ms": 105.90737300000183,
+        "startRendering_wall_ms": 104517.045705,
+        "total_wall_ms": 104670.969195,
+        "peak_rss_bytes": 445202432,
+        "rss_note": "resourceUsage().maxRSS (KB per Node docs) or memoryUsage().rss; process-level, not per-render",
+        "output_frames": 7938000,
+        "non_finite_samples": 1217262,
+        "peak_abs_sample": 3.4027841185106575e+38,
+        "wav_encode_ms": 1709.3875049999915,
+        "wav_bytes": 31752044
+      }
+    ]
+  },
+  "derived": {
+    "scaling": {
+      "consecutive_ratios": [
+        {
+          "from_minutes": 0.05,
+          "to_minutes": 0.25,
+          "wall_ratio": 2.563024360157827,
+          "duration_ratio": 5,
+          "heap_ratio": null
+        },
+        {
+          "from_minutes": 0.25,
+          "to_minutes": 0.75,
+          "wall_ratio": 3.0488476189741793,
+          "duration_ratio": 3,
+          "heap_ratio": null
+        },
+        {
+          "from_minutes": 0.75,
+          "to_minutes": 1.5,
+          "wall_ratio": 3.204662610489556,
+          "duration_ratio": 2,
+          "heap_ratio": null
+        },
+        {
+          "from_minutes": 1.5,
+          "to_minutes": 3,
+          "wall_ratio": 8.671973651563807,
+          "duration_ratio": 2,
+          "heap_ratio": null
+        }
+      ],
+      "extrapolation_to_8h": {
+        "extrapolated": true,
+        "method": "ordinary least squares over measured sweep points; labeled extrapolation, not measurement",
+        "wall_sec_8h": 16744.652651071632,
+        "peak_heap_bytes_8h": null
+      }
+    }
+  },
+  "observations": [],
+  "error": "B4 violation: non-finite samples in Node Web Audio output"
+}

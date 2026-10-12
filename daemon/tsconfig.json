@@ -10,6 +10,6 @@
     "types": ["node"],
     "lib": ["es2022", "dom"]
   },
-  "include": ["src/*.ts", "test/*.ts", "../kernel/musicalLogic.ts", "../kernel/scheduling.ts", "../kernel/index.ts", "../kernel/sampleBank.ts"],
+  "include": ["src/*.ts", "test/*.ts", "../kernel/musicalLogic.ts", "../kernel/scheduling.ts", "../kernel/space.ts", "../kernel/index.ts", "../kernel/sampleBank.ts"],
   "exclude": ["src/blockSynth.ts", "src/sinks.ts"]
 }

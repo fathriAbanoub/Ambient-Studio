@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "A1_kernel_throughput_8h",
+  "category": "A",
+  "timestamp": "2026-10-05T00:28:48.876Z",
+  "params": {
+    "ts_runner": "esbuild",
+    "horizon_hours": 8
+  },
+  "environment": {
+    "captured_at": "2026-10-05T00:28:48.645Z",
+    "os": {
+      "platform": "linux",
+      "type": "Linux",
+      "release": "7.0.0-34-generic",
+      "arch": "x64"
+    },
+    "cpu": {
+      "model": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
+      "cores": 4,
+      "speed_mhz": 4200
+    },
+    "total_ram_bytes": 16594919424,
+    "node_version": "v22.21.0",
+    "ffmpeg": {
+      "available": true,
+      "version_line": "ffmpeg version 6.1.1-3ubuntu5+esm13 Copyright (c) 2000-2023 the FFmpeg developers",
+      "config_line": "configuration: --prefix=/usr --extra-version=3ubuntu5+esm13 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --disable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared",
+      "nvenc_encoders": [
+        "V....D av1_nvenc            NVIDIA NVENC av1 encoder (codec av1)",
+        "V....D h264_nvenc           NVIDIA NVENC H.264 encoder (codec h264)",
+        "V....D hevc_nvenc           NVIDIA NVENC hevc encoder (codec hevc)"
+      ]
+    },
+    "ffprobe": true,
+    "gpu": {
+      "source": "nvidia-smi",
+      "gpus": [
+        "NVIDIA GeForce GTX 1650 Ti, 580.178.04"
+      ]
+    },
+    "results_dir_disk": {
+      "free_bytes": 4839673856,
+      "total_bytes": 501809635328
+    },
+    "tools": {
+      "ts_runner": "esbuild",
+      "playwright": true,
+      "node_web_audio_api": false,
+      "web_audio_engine": false
+    },
+    "ui": "/home/bobaayad/Downloads/ambient-studio/ui",
+    "root": "/home/bobaayad/Downloads/ambient-studio"
+  },
+  "methodology": {
+    "measured": "wall-clock time per getMusicalEvents() call (ms) across a full simulated 8-hour beat sequence",
+    "granularity": "per call, performance.now() around the kernel call only (shell-side spread excluded)",
+    "trials": "1 run ≈ 30k calls; distribution reported over all calls",
+    "warmup": "30 s simulated warm-up run before measurement; first 100 measured calls discarded",
+    "outliers": "none removed — median/p95/min/max reported; bucket medians expose growth and boundary spikes",
+    "statistic": "median, p95, min, max + per-bucket medians + transition vs non-transition"
+  },
+  "skipped": false,
+  "skip_reason": null,
+  "assertions": [],
+  "trials": [],
+  "stats": {
+    "mode": "A1",
+    "horizon_hours": 8,
+    "warmup_calls_discarded": 100,
+    "calls": 32240,
+    "events_total": 233647,
+    "events_by_type": {
+      "kick": 40300,
+      "hihat": 72540,
+      "melody": 21314,
+      "pad": 64480,
+      "bass": 12090,
+      "snare": 20205,
+      "bell": 2718
+    },
+    "per_call_ms": {
+      "n": 32140,
+      "median": 0.0010040000000088867,
+      "p95": 0.004132999999999498,
+      "min": 0.0005799999999993588,
+      "max": 1.351191
+    },
+    "first_quarter": {
+      "n": 8035,
+      "median": 0.00228100000000353,
+      "p95": 0.004588999999999288,
+      "min": 0.0005799999999993588,
+      "max": 1.351191
+    },
+    "last_quarter": {
+      "n": 8035,
+      "median": 0.0009749999999968395,
+      "p95": 0.002043299999999703,
+      "min": 0.0006139999999987822,
+      "max": 0.11121199999999476
+    },
+    "last_vs_first_quarter_median_ratio": 0.42744410346134615,
+    "bucket_medians_ms": [
+      0.0043260000000024945,
+      0.004207499999999698,
+      0.0038769999999956894,
+      0.003895999999997457,
+      0.0036810000000002674,
+      0.001580000000000581,
+      0.0015069999999965944,
+      0.0016369999999952256,
+      0.0016104999999981828,
+      0.001406000000002905,
+      0.0009520000000016182,
+      0.0009900000000016007,
+      0.0009829999999979577,
+      0.0009605000000014741,
+      0.0009580000000042332,
+      0.000968000000000302,
+      0.0009590000000017085,
+      0.0009674999999980116,
+      0.0009694999999965148,
+      0.0009659999999911406,
+      0.0009924999999952888,
+      0.0009930000000082373,
+      0.0009610000000037644,
+      0.0009354999999970914,
+      0.0009599999999920783,
+      0.0009700000000094633,
+      0.0009320000000059281,
+      0.0009320000000059281,
+      0.0009649999999936654,
+      0.0009410000000045216,
+      0.0009344999999996162,
+      0.0009600000000062892,
+      0.0009329999999891925,
+      0.0009600000000062892,
+      0.0009365000000016721,
+      0.000968000000000302,
+      0.0017259999999907905,
+      0.0010515000000026475,
+      0.0017619999999993752,
+      0.0009560000000021773,
+      0.0009470000000106893,
+      0.0009459999999990032,
+      0.0009434999999982097,
+      0.0009350000000125647,
+      0.0009820000000004825,
+      0.0009710000000069385,
+      0.0009484999999997967,
+      0.000968000000000302
+    ],
+    "scene_transition_call_ms": {
+      "n": 251,
+      "median": 0.0011219999999951824,
+      "p95": 0.0046285000000008125,
+      "min": 0.0008649999999903457,
+      "max": 0.02026299999999992
+    },
+    "scene_transition_calls": 251,
+    "non_transition_calls": 31889,
+    "wall_sec": 0.07431027699999998,
+    "peak_rss_bytes": 74776576
+  },
+  "raw_samples": {
+    "bucket_medians_ms": [
+      0.0043260000000024945,
+      0.004207499999999698,
+      0.0038769999999956894,
+      0.003895999999997457,
+      0.0036810000000002674,
+      0.001580000000000581,
+      0.0015069999999965944,
+      0.0016369999999952256,
+      0.0016104999999981828,
+      0.001406000000002905,
+      0.0009520000000016182,
+      0.0009900000000016007,
+      0.0009829999999979577,
+      0.0009605000000014741,
+      0.0009580000000042332,
+      0.000968000000000302,
+      0.0009590000000017085,
+      0.0009674999999980116,
+      0.0009694999999965148,
+      0.0009659999999911406,
+      0.0009924999999952888,
+      0.0009930000000082373,
+      0.0009610000000037644,
+      0.0009354999999970914,
+      0.0009599999999920783,
+      0.0009700000000094633,
+      0.0009320000000059281,
+      0.0009320000000059281,
+      0.0009649999999936654,
+      0.0009410000000045216,
+      0.0009344999999996162,
+      0.0009600000000062892,
+      0.0009329999999891925,
+      0.0009600000000062892,
+      0.0009365000000016721,
+      0.000968000000000302,
+      0.0017259999999907905,
+      0.0010515000000026475,
+      0.0017619999999993752,
+      0.0009560000000021773,
+      0.0009470000000106893,
+      0.0009459999999990032,
+      0.0009434999999982097,
+      0.0009350000000125647,
+      0.0009820000000004825,
+      0.0009710000000069385,
+      0.0009484999999997967,
+      0.000968000000000302
+    ]
+  },
+  "derived": {},
+  "observations": []
+}
