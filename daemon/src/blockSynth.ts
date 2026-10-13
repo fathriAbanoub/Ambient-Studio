@@ -83,6 +83,9 @@ import {
   MAX_DRONE_LAYERS,
   DRONE_FADE_SEC,
   NOISE_BUFFER_SAMPLES,
+  BEATS_PER_BAR,
+  PRE_ROLL_BARS,
+  DEFAULT_BPM,
 } from "../../kernel/musicalLogic";
 import {
   BED_NOISE_GAIN,
@@ -187,8 +190,10 @@ export interface Timeline {
 
 /** Drain the kernel for `durationSec` (+4-bar pre-roll) and sort (D1+D3). */
 export function buildTimeline(params: EngineParams, durationSec: number): Timeline {
-  const bpm = params.bpm || 72;
-  const preRollSec = 4 * (60 / bpm) * 4; // port: renderAmbient.ts:145
+  const bpm = params.bpm || DEFAULT_BPM;
+  // 4-bar pre-roll (PRE_ROLL_BARS × BEATS_PER_BAR) — the same constants the
+  // browser offline shell uses (renderAmbient.ts), so the two stay in parity.
+  const preRollSec = PRE_ROLL_BARS * (60 / bpm) * BEATS_PER_BAR;
   const targetEnd = preRollSec + durationSec;
 
   // RNG init — exact renderAmbient order (renderAmbient.ts:341-349). The 22k

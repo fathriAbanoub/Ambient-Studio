@@ -70,6 +70,9 @@ import {
   MAX_DRONE_LAYERS,
   DRONE_FADE_SEC,
   NOISE_BUFFER_SAMPLES,
+  BEATS_PER_BAR,
+  PRE_ROLL_BARS,
+  DEFAULT_BPM,
 } from "./musicalLogic";
 import {
   decodeSampleBank,
@@ -158,8 +161,10 @@ export async function renderAmbient(
   // Clone params to avoid mutating caller's object.
   const effectiveParams: EngineParams = { ...params };
   const SAMPLE_RATE = 44100;
-  const effectiveBpm = effectiveParams.bpm || 72;
-  const PRE_ROLL_SECONDS = 4 * (60 / effectiveBpm) * 4; // 4 bars
+  const effectiveBpm = effectiveParams.bpm || DEFAULT_BPM;
+  // 4-bar pre-roll (PRE_ROLL_BARS × BEATS_PER_BAR), trimmed after rendering —
+  // shared with BlockSynth.buildTimeline via the kernel constants.
+  const PRE_ROLL_SECONDS = PRE_ROLL_BARS * (60 / effectiveBpm) * BEATS_PER_BAR;
 
   // Over-allocate 10% — we trim to exact duration after rendering
   const totalSecondsEstimate = (PRE_ROLL_SECONDS + durationSeconds) * 1.1;
