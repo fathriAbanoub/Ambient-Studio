@@ -720,6 +720,11 @@ describe("scene progress agreement (updateSceneEngine vs getEffectiveSceneParams
       // Set to false here — this test doesn't exercise beatless mode, so the
       // latch value is irrelevant to the scene-progress agreement check.
       droneLayersStarted: false,
+      // ✅ ADD (Phase 2 Neo-Harmony): chord fields are required on
+      // EngineState; this test doesn't exercise harmony, so the tonic values
+      // are irrelevant here.
+      chordRootPc: 0,
+      chordQuality: "major",
     };
 
     const sceneResult = updateSceneEngine(state, params);
