@@ -14,6 +14,8 @@ import {
   chordRootHz,
   HARMONY_TRANSFORM_WEIGHTS,
   HARMONIC_CYCLE_BARS,
+  BEATS_PER_BAR,
+  SCALE_TONIC_QUALITY,
   SEMITONES_PER_OCTAVE,
   MAJOR_COLOUR_INTERVALS,
   MINOR_COLOUR_INTERVALS,
@@ -294,7 +296,7 @@ describe("Phase 2: chord-voiced pad and bass pitch pool", () => {
   it("draws fire exactly at the harmonic boundary: none before beat 32, one at beat 32", () => {
     // Draw counts are unobservable directly, but mulberry32 advances once per
     // call, so equal rngState after N beats proves equal draw counts. The
-    // first boundary is beat HARMONIC_CYCLE_BARS * 4 = 32.
+    // first boundary is beat HARMONIC_CYCLE_BARS * BEATS_PER_BAR = 32.
     const on = (beats: number): number => {
       const params: EngineParams = { ...baseParams, seed: 42, enableNeoHarmony: true };
       let state = createInitialState(params);
@@ -311,7 +313,7 @@ describe("Phase 2: chord-voiced pad and bass pitch pool", () => {
       for (let i = 0; i < beats; i++) state = getMusicalEvents(i, { ...state }, params).nextState;
       return state.rngState >>> 0;
     };
-    const firstBoundary = HARMONIC_CYCLE_BARS * 4;
+    const firstBoundary = HARMONIC_CYCLE_BARS * BEATS_PER_BAR;
     // N calls step beats 0..N-1; the boundary fires on the call whose state
     // beat is 32 — the 33rd call.
     expect(on(firstBoundary)).toBe(off(firstBoundary));
@@ -415,5 +417,74 @@ describe("Phase 2: initial chord and root fold", () => {
       expect(hz).toBeGreaterThanOrEqual(foldWindowLow);
       expect(hz).toBeLessThanOrEqual(foldWindowHigh);
     }
+  });
+});
+
+describe("Phase 2: static-root pin (enableHarmonicLoop === false wins)", () => {
+  // Fix regression guard: updateHarmony used to advance the chord at the
+  // boundary even when the harmonic loop was disabled — updateHarmonicLoop
+  // re-pins targetRootHz/currentRootHz to params.rootHz every beat, so the
+  // pad ended up voicing a moving chord over a pinned root.
+  const PIN_BEATS = 256; // crosses boundaries 32, 64, …, 224
+
+  const runPinned = () => {
+    const params: EngineParams = {
+      ...baseParams,
+      seed: 42,
+      enableNeoHarmony: true,
+      enableHarmonicLoop: false,
+    };
+    let state = createInitialState(params);
+    state = advanceRngPastNoiseBuffer(state);
+    state = initializeBell(state);
+    state = initializeSampleLane(state, params);
+    const tonicPcs = new Set(oracleTriad(0, SCALE_TONIC_QUALITY[params.scale]));
+    let padCount = 0;
+    let bassCount = 0;
+    for (let beat = 0; beat < PIN_BEATS; beat++) {
+      const { events, nextState } = getMusicalEvents(beat, { ...state }, params);
+      expect(nextState.chordRootPc, `beat ${beat}: chord root moved under the pin`).toBe(0);
+      expect(
+        nextState.chordQuality,
+        `beat ${beat}: chord quality moved under the pin`,
+      ).toBe(SCALE_TONIC_QUALITY[params.scale]);
+      expect(nextState.targetRootHz, `beat ${beat}: target root moved under the pin`).toBe(
+        params.rootHz,
+      );
+      for (const ev of events) {
+        if (ev.type !== "pad" && ev.type !== "bass") continue;
+        expect(ev.hz, `beat ${beat}: ${ev.type} event without hz`).toBeDefined();
+        const relPc = mod12(
+          Math.round(SEMITONES_PER_OCTAVE * Math.log2(ev.hz! / params.rootHz)),
+        );
+        expect(
+          tonicPcs.has(relPc),
+          `beat ${beat}: ${ev.type} pc ${relPc} off the tonic triad`,
+        ).toBe(true);
+        if (ev.type === "pad") padCount++;
+        else bassCount++;
+      }
+      state = nextState;
+    }
+    return { padCount, bassCount, rngState: state.rngState >>> 0, params };
+  };
+
+  it("chord, quality and target root never move; every pad/bass pitch stays on the tonic triad", () => {
+    const { padCount, bassCount } = runPinned();
+    expect(padCount).toBeGreaterThan(0);
+    expect(bassCount).toBeGreaterThan(0);
+  });
+
+  it("the pinned harmony lane draws nothing: final rngState equals the neo-off run", () => {
+    const pinned = runPinned();
+    const paramsOff: EngineParams = { ...pinned.params, enableNeoHarmony: false };
+    let state = createInitialState(paramsOff);
+    state = advanceRngPastNoiseBuffer(state);
+    state = initializeBell(state);
+    state = initializeSampleLane(state, paramsOff);
+    for (let beat = 0; beat < PIN_BEATS; beat++) {
+      state = getMusicalEvents(beat, { ...state }, paramsOff).nextState;
+    }
+    expect(pinned.rngState).toBe(state.rngState >>> 0);
   });
 });

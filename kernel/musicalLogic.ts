@@ -30,7 +30,11 @@
  * fires per harmonic boundary (beat > 0 and
  * beat % (HARMONIC_CYCLE_BARS * BEATS_PER_BAR) === 0 — every 8 bars), taken
  * before the drum lanes; the per-call draw count depends only on the beat
- * index and fixed constants.
+ * index and fixed constants. Static-root exception: with
+ * enableHarmonicLoop === false the chord stays on its tonic triad and the
+ * harmony lane draws NOTHING (the pin guard returns before rng()), so a
+ * loop-off + neo-on run has the same draw schedule as neo-off — pinned by an
+ * rngState-equality check in harmony.test.ts.
  *
  * HARMONIC SLEW: This module only tracks targetRootHz changes.
  * The 600ms linear slew is handled by the synthesis shells (LiveEngine,
@@ -285,7 +289,12 @@ export const MAX_DRONE_LAYERS = 8;
 // DRONE_FADE_SEC / 3) and the offline release ramp.
 export const DRONE_FADE_SEC = 1.0;
 
-const BEATS_PER_BAR = 4;
+/**
+ * Beats per bar — the kernel's grid unit. Exported because the synthesis
+ * shells and their tests derive beat times from it (pre-roll length, bar
+ * arithmetic) and must not keep private copies that can drift.
+ */
+export const BEATS_PER_BAR = 4;
 const BAR_LENGTH = 8;
 const BASS_HITS = 3;
 const CADENCE_INTERVAL = 16;
@@ -356,6 +365,22 @@ export const SCALE_TONIC_QUALITY: Record<ScaleName, ChordQuality> = {
 // 8-bar root motion never exceeds ~6 semitones — a colour shift, not a
 // register jump.
 export const CHORD_ROOT_FOLD_SEMITONES = 6;
+
+/**
+ * Shell-side fallback when a caller passes a falsy bpm (JS callers can reach
+ * the shells past the type system via the MCP passthrough). 72 = the Calm
+ * scene's bpm. Convention: the value the shells have always fallen back to.
+ */
+export const DEFAULT_BPM = 72;
+
+/**
+ * Offline pre-roll length in bars: renderAmbient and BlockSynth.buildTimeline
+ * both render this many extra bars before t = 0 (so delay/reverb tails and
+ * the first scheduled beats are warm) and then trim them. Single source so
+ * the two shells and their tests cannot drift — the same role DRONE_FADE_SEC
+ * plays for drone fades.
+ */
+export const PRE_ROLL_BARS = 4;
 
 // Chord-voiced pad register: two octaves above the sounding root — the
 // legacy pad register (noteHz(padDegree, 2, …) sits at [24, 31] semitones).
@@ -472,8 +497,8 @@ function noteHz(
     intervals[
       ((degree % intervals.length) + intervals.length) % intervals.length
     ] +
-    12 * octaveShift;
-  return rootHz * Math.pow(2, semi / 12);
+    SEMITONES_PER_OCTAVE * octaveShift;
+  return rootHz * Math.pow(2, semi / SEMITONES_PER_OCTAVE);
 }
 
 function wrapDegree(degree: number, scaleLength: number): number {
@@ -754,6 +779,16 @@ export function updateSceneEngine(
  * is drawn (whether or not it changes anything) and the chord walks P/L/R or
  * stays; targetRootHz follows the new chord root so the shells' existing
  * 600 ms slew carries every lane to it.
+ *
+ * Static-root pin (fix): with enableHarmonicLoop === false,
+ * updateHarmonicLoop() re-pins targetRootHz/currentRootHz to params.rootHz
+ * EVERY beat (including boundary beats) — it runs before this function, so a
+ * chord advance here could never move the sounding root: the pad would voice
+ * a moving chord over a pinned root and the pin would fight the slew every
+ * beat. The chord therefore stays on its tonic triad (createInitialState)
+ * for the whole run, and this lane draws NOTHING — the guard returns before
+ * rng(), keeping the draw schedule a function of the beat index and fixed
+ * constants (pinned by an rngState-equality check in harmony.test.ts).
  */
 function updateHarmony(
   state: EngineState,
@@ -761,6 +796,7 @@ function updateHarmony(
   rng: () => number,
 ): Partial<EngineState> {
   if (params.enableNeoHarmony !== true) return {};
+  if (params.enableHarmonicLoop === false) return {};
   if (!isHarmonicCycleBoundary(state.beat)) return {};
   const next = applyHarmonyDraw(
     { rootPc: state.chordRootPc, quality: state.chordQuality },
