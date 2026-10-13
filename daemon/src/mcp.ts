@@ -85,6 +85,7 @@ const kernelParamsShape = z.object({
   drumStyle: z.enum(["euclideanTrap", "fourFloor"]).optional(),
   sidechainAmount: z.number().min(0).max(1).optional(),
   reverbLevel: z.number().min(0).max(1).optional().describe("Space: reverb wet + noise bed 0..1 (default 0 = nodes never constructed)"),
+  enableNeoHarmony: z.boolean().optional().describe("Phase 2 Neo-Harmony: Z12 chord walk (P/L/R/stay, one draw per 8 bars) with chord-voiced pad and root bass (default off = zero draws)"),
   seed: z.number().int().optional().describe("RNG seed; omitted = generated once and persisted in the recipe"),
   drone: z.object({ layers: z.array(z.object({
     hz: z.number(), detuneCents: z.number().optional(), amp: z.number(),
