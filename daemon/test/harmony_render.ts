@@ -19,17 +19,16 @@
 import { BlockSynth, buildTimeline, type SynthSink } from "../src/blockSynth";
 import {
   getMusicalEvents,
-  getEffectiveSceneParams,
   createInitialState,
   advanceRngPastNoiseBuffer,
   initializeBell,
   initializeSampleLane,
   isHarmonicCycleBoundary,
   triadPitchClasses,
+  SEMITONES_PER_OCTAVE,
   MINOR_COLOUR_INTERVALS,
   MAJOR_COLOUR_INTERVALS,
   type EngineParams,
-  type EngineState,
 } from "../../kernel/musicalLogic";
 import { createHash } from "node:crypto";
 
@@ -62,7 +61,8 @@ const BASE_PARAMS: EngineParams = {
 
 // Note names for pitch classes relative to rootHz = 220 (A3): pc 0 is A.
 const NOTE_NAMES = ["A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"];
-const noteName = (pc: number): string => NOTE_NAMES[((pc % 12) + 12) % 12];
+const noteName = (pc: number): string =>
+  NOTE_NAMES[((pc % SEMITONES_PER_OCTAVE) + SEMITONES_PER_OCTAVE) % SEMITONES_PER_OCTAVE];
 
 class MeterSink implements SynthSink {
   peak = 0;
@@ -114,27 +114,20 @@ async function render(enableNeoHarmony: boolean | undefined, blockFrames: number
  * and quality for every beat, plus whether the beat is a boundary beat —
  * there the shells' 600 ms slew makes the sounding root transitional.
  */
-function chordPerBeat(params: EngineParams, durationSec: number): Array<{
+function chordPerBeat(params: EngineParams, beatCount: number): Array<{
   rootPc: number; quality: string; boundary: boolean;
 }> {
-  const bpm = params.bpm || 72;
-  const preRollSec = 4 * (60 / bpm) * 4;
-  const targetEnd = preRollSec + durationSec;
-  let state: EngineState = createInitialState(params);
+  let state = createInitialState(params);
   state = advanceRngPastNoiseBuffer(state);
   state = initializeBell(state);
   state = initializeSampleLane(state, params);
 
   const rows: Array<{ rootPc: number; quality: string; boundary: boolean }> = [];
-  let currentTime = 0;
-  while (currentTime < targetEnd) {
-    const preBeatParams = getEffectiveSceneParams(state, params);
-    const beatSec = 60 / preBeatParams.bpm;
+  for (let i = 0; i < beatCount; i++) {
     const boundary = isHarmonicCycleBoundary(state.beat);
     const { nextState } = getMusicalEvents(state.beat, { ...state }, params);
     rows.push({ rootPc: nextState.chordRootPc, quality: nextState.chordQuality, boundary });
     state = nextState;
-    currentTime += beatSec;
   }
   return rows;
 }
@@ -145,7 +138,8 @@ const check = (name: string, ok: boolean, detail: string) => {
   if (!ok) failures++;
 };
 
-const mod12 = (pc: number): number => ((pc % 12) + 12) % 12;
+const mod12 = (pc: number): number =>
+  ((pc % SEMITONES_PER_OCTAVE) + SEMITONES_PER_OCTAVE) % SEMITONES_PER_OCTAVE;
 
 async function main() {
   // ── Audio checks at the legacy duration ──────────────────────────────────
@@ -172,7 +166,7 @@ async function main() {
   // ── Per-segment pitch-class audit over the longer walk ───────────────────
   const walkOn = await render(true, BLOCK_FRAMES_DEFAULT, CHORD_WALK_DURATION_SEC);
   const walkOff = await render(undefined, BLOCK_FRAMES_DEFAULT, CHORD_WALK_DURATION_SEC);
-  const beats = chordPerBeat({ ...BASE_PARAMS, enableNeoHarmony: true }, CHORD_WALK_DURATION_SEC);
+  const beats = chordPerBeat({ ...BASE_PARAMS, enableNeoHarmony: true }, walkOn.timeline.beats);
   const segmentPcs = new Map<string, Set<number>>(); // "rootPc:quality" → sounding pcs
   let outsidePool = 0;
   let auditedEvents = 0;
@@ -183,7 +177,7 @@ async function main() {
     const row = beats[ev.beatIndex];
     if (!row) continue;
     if (row.boundary) { skippedBoundaryEvents++; continue; }
-    const pc = mod12(Math.round(12 * Math.log2(ev.hz / BASE_PARAMS.rootHz)));
+    const pc = mod12(Math.round(SEMITONES_PER_OCTAVE * Math.log2(ev.hz / BASE_PARAMS.rootHz)));
     const key = `${row.rootPc}:${row.quality}`;
     let set = segmentPcs.get(key);
     if (!set) { set = new Set(); segmentPcs.set(key, set); }

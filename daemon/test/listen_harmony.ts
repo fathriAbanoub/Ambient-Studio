@@ -1,17 +1,51 @@
+/**
+ * test/listen_harmony.ts — DEV TOOL for ear/analyser checks (NOT part of
+ * test/run_all.mjs). Renders 60 s WAV stems from ONE shared timeline, so a
+ * chord/harmony analyser can audit the harmony lanes without the melody and
+ * drone masking them:
+ *
+ *   full     — every event (the real mix)
+ *   padbass  — pad + bass only (the chord-voiced lanes)
+ *   melody   — melody only
+ *
+ * All stems are filtered copies of the same buildTimeline() output, so they
+ * sum to the full mix event-for-event.
+ *
+ * Usage: npx esbuild test/listen_harmony.ts --bundle --platform=node
+ *        --format=cjs --target=node20 --outfile=build/listen_harmony.cjs
+ *        && node build/listen_harmony.cjs [on|off]
+ * The argument is the enableNeoHarmony value (default on). Writes
+ * /tmp/harmony_<flag>_<stem>.wav and prints the paths.
+ */
 import { BlockSynth, buildTimeline, type SynthSink } from "../src/blockSynth";
 import { writeFileSync } from "node:fs";
-import type { EngineParams } from "../../kernel/musicalLogic";
+import {
+  type EngineParams,
+  type MusicalEvent,
+} from "../../kernel/musicalLogic";
 
 const SR = 44100;
 const DURATION = 60; // 60 seconds is enough to hear 2 chord changes
+const BLOCK_FRAMES = 4096;
+const OUTPUT_DIR = "/tmp";
+
+const FLAG = process.argv[2] === "off" ? "off" : "on";
 
 const PARAMS: EngineParams = {
   scale: "majorPent", rootHz: 220, bpm: 72, complexity: 0.35, mix: 0.4,
   sceneDurationBars: 32, enableScenes: true, enableHarmonicLoop: true,
   enableBeats: true, seed: 42, drumLevel: 0.5, swing: 0, drumStyle: "euclideanTrap",
   sidechainAmount: 0,
-  enableNeoHarmony: false, // <--- THIS IS THE MAGIC FLAG
+  enableNeoHarmony: FLAG === "on",
   drone: { layers: [{ hz: 55, amp: 0.15, pan: 0, timbre: "sine" as const }] },
+};
+
+// Stem filters by event type; `undefined` events are the per-beat automation
+// anchors (sceneMix / panDriftPhase) and are kept in every stem.
+const STEMS: Record<string, (ev: MusicalEvent) => boolean> = {
+  full: () => true,
+  padbass: (ev) => ev.type === "pad" || ev.type === "bass",
+  melody: (ev) => ev.type === "melody",
 };
 
 class WavSink implements SynthSink {
@@ -55,10 +89,17 @@ class WavSink implements SynthSink {
 
 async function main() {
   const timeline = buildTimeline(PARAMS, DURATION);
-  const synth = new BlockSynth({ params: PARAMS, timeline, sampleRate: SR, blockFrames: 4096, durationSec: DURATION });
-  const sink = new WavSink();
-  await synth.render(sink);
-  sink.write("/tmp/harmony_on.wav");
-  console.log("✅ Wrote /tmp/harmony_on.wav");
+  for (const [stem, keep] of Object.entries(STEMS)) {
+    const stemTimeline = {
+      ...timeline,
+      events: timeline.events.filter((te) => te.ev === undefined || keep(te.ev)),
+    };
+    const synth = new BlockSynth({ params: PARAMS, timeline: stemTimeline, sampleRate: SR, blockFrames: BLOCK_FRAMES, durationSec: DURATION });
+    const sink = new WavSink();
+    await synth.render(sink);
+    const path = `${OUTPUT_DIR}/harmony_${FLAG}_${stem}.wav`;
+    sink.write(path);
+    console.log(`wrote ${path}`);
+  }
 }
-main().catch(console.error);
+main().catch((e) => { console.error(String(e?.stack ?? e)); process.exit(1); });
