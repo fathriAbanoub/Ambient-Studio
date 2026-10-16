@@ -592,12 +592,29 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+/**
+ * Drone events for one beat. `chordRootPc` is the caller's current chord root
+ * pitch class (EngineState.chordRootPc).
+ *
+ * With Neo-Harmony on, each emitted drone hz is multiplied by the folded
+ * chord-root ratio the tonal lanes sound —
+ * chordRootHz(params.rootHz, chordRootPc) / params.rootHz, reusing the
+ * existing fold — so a drone tracks every 8-bar chord change instead of
+ * holding a fixed pitch that clashes with 6 of 12 chord roots. Flag off or
+ * absent: the layer hz is emitted verbatim (explicit gate — never rely on
+ * the ratio being 1). Zero RNG draws in both modes.
+ */
 function droneEvents(
   params: EngineParams,
   beat: number,
   beatSec: number,
+  chordRootPc: number,
 ): MusicalEvent[] {
   const layers = params.drone?.layers ?? [];
+  const chordRootRatio =
+    params.enableNeoHarmony === true
+      ? chordRootHz(params.rootHz, chordRootPc) / params.rootHz
+      : 1;
   return layers.slice(0, MAX_DRONE_LAYERS).flatMap((layer, index) => {
     if (
       !Number.isFinite(layer.hz) ||
@@ -612,7 +629,7 @@ function droneEvents(
     return [
       {
         type: "drone" as const,
-        hz: layer.hz,
+        hz: layer.hz * chordRootRatio,
         amp: clamp(layer.amp, 0, 1),
         durationSec: beatSec,
         pan: Number.isFinite(layer.pan) ? clamp(layer.pan, -1, 1) : 0,
@@ -917,7 +934,10 @@ export function getMusicalEvents(
   if (effectiveParams.enableBeats === false) {
     events.push(...maybeSampleEvent(s, effectiveParams, beat, rng));
     if (!s.droneLayersStarted) {
-      events.push(...droneEvents(effectiveParams, beat, beatSec));
+      // Beatless mode has no pad/bass/melody (the early return below), so
+      // there is no harmony for the drone to clash with; the latch emits each
+      // layer once on the first beatless beat and is deliberately unchanged.
+      events.push(...droneEvents(effectiveParams, beat, beatSec, s.chordRootPc));
       s.droneLayersStarted = true;
     }
     // A1: advance the drum-grid phase even when no drum events are emitted,
@@ -946,7 +966,7 @@ export function getMusicalEvents(
   // startState-clone, but that only covers engine restarts — it does not
   // cover in-flight param toggles, which is what this reset handles.
   s.droneLayersStarted = false;
-  events.push(...droneEvents(effectiveParams, beat, beatSec));
+  events.push(...droneEvents(effectiveParams, beat, beatSec, s.chordRootPc));
 
   // 4. Drums — FIX C1: set subBeatIndex (0–3) on each drum event
   for (let i = 0; i < 4; i++) {
