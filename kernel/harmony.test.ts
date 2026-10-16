@@ -70,6 +70,18 @@ const allTwentyFourTriads = (): Set<string> => {
 const pcKey = (pcs: readonly number[]): string =>
   pcs.slice().sort((a, b) => a - b).join(",");
 
+// The declared colour intervals as ABSOLUTE pitch classes (relative to
+// params.rootHz): they are semitones above the chord root, so they must be
+// transposed by the chord root and folded mod 12 before they can be compared
+// with absolute pitch classes. Used by the pad/bass pool audit below.
+const absoluteColourPcs = (rootPc: number, quality: Quality): Set<number> =>
+  new Set(
+    (quality === "major"
+      ? MAJOR_COLOUR_INTERVALS
+      : MINOR_COLOUR_INTERVALS
+    ).map((iv) => mod12(rootPc + iv)),
+  );
+
 const baseParams: EngineParams = {
   scale: "majorPent",
   rootHz: 220,
@@ -246,11 +258,7 @@ describe("Phase 2: chord-voiced pad and bass pitch pool", () => {
           : MINOR_COLOUR_INTERVALS),
       ]);
       const chordPcs = new Set(triadPitchClasses(chord.rootPc, chord.quality));
-      const colourPcs = new Set<number>(
-        chord.quality === "major"
-          ? MAJOR_COLOUR_INTERVALS
-          : MINOR_COLOUR_INTERVALS,
-      );
+      const colourPcs = absoluteColourPcs(chord.rootPc, chord.quality);
 
       for (const ev of events) {
         if (ev.hz === undefined) continue;
@@ -291,6 +299,32 @@ describe("Phase 2: chord-voiced pad and bass pitch pool", () => {
     expect(padCount).toBeGreaterThan(0);
     expect(bassCount).toBeGreaterThan(0);
     expect(chordChanges, "the chord walk never moved over 256 beats").toBeGreaterThan(0);
+  });
+
+  it("the absolute colour pool transposes by the chord root (non-tonic chord)", () => {
+    // A non-tonic chord exercises the transposition the pad/bass event audit
+    // cannot (the pad voices triad tones only). F# minor over the A root
+    // (rootHz 220 → A = pc 0) has root pc 9; its declared colour tones are
+    // the 9th and flat 7th above F# — G# (pc 11) and E (pc 7). The raw
+    // interval values 2 and 10 are colour tones of a pc-0 root chord (B and
+    // G), not of this one, and must stay outside the absolute pool.
+    const F_SHARP_OVER_A_ROOT_PC = 9;
+    const F_SHARP_MINOR_COLOUR_PCS = [11, 7];
+    const OTHER_ROOT_COLOUR_PCS = [2, 10];
+    const chordPcs = new Set(triadPitchClasses(F_SHARP_OVER_A_ROOT_PC, "minor"));
+    const colourPcs = absoluteColourPcs(F_SHARP_OVER_A_ROOT_PC, "minor");
+    for (const pc of F_SHARP_MINOR_COLOUR_PCS) {
+      expect(
+        chordPcs.has(pc) || colourPcs.has(pc),
+        `colour tone pc ${pc} of the non-tonic chord rejected`,
+      ).toBe(true);
+    }
+    for (const pc of OTHER_ROOT_COLOUR_PCS) {
+      expect(
+        chordPcs.has(pc) || colourPcs.has(pc),
+        `un-transposed interval value pc ${pc} wrongly admitted`,
+      ).toBe(false);
+    }
   });
 
   it("draws fire exactly at the harmonic boundary: none before beat 32, one at beat 32", () => {
