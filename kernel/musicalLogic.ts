@@ -13,7 +13,28 @@
  * - initializeBell() consumes 1 call (nextBellBeat)
  * - initializeSampleLane() consumes 1 call only when sampleBank contains an
  *   entry that passes playableSampleEntries() validation
- * - getMusicalEvents() per-beat calls follow
+ * - getMusicalEvents() per-beat calls follow, lane by lane in code order.
+ *   Per-lane draw schedules (draw-then-decide: a value is consumed, then
+ *   branched on):
+ *     drums     — conditional probes on their euclidean hits only: ghost-snare
+ *                 gate, then closed-hat gate
+ *     cadence   — 1 draw on cadence beats, else 1 Markov draw (1 per beat)
+ *     melody    — 1 gate draw per beat, +1 only on phrase-end octave lifts
+ *     bell      — 3 draws when due (octave, degree, next due beat)
+ *     samples   — 2–3 draws when its gate is open (trigger, pick, next gap)
+ *
+ * NEO-HARMONY (Phase 2, enableNeoHarmony): with the flag OFF or absent,
+ * updateHarmony() returns before any rng() call and the stream is bit-exact
+ * with pre-Phase-2 builds (guarded by the backward-compat literals in
+ * space.test.ts / harmony.test.ts). With the flag ON, exactly ONE extra draw
+ * fires per harmonic boundary (beat > 0 and
+ * beat % (HARMONIC_CYCLE_BARS * BEATS_PER_BAR) === 0 — every 8 bars), taken
+ * before the drum lanes; the per-call draw count depends only on the beat
+ * index and fixed constants. Static-root exception: with
+ * enableHarmonicLoop === false the chord stays on its tonic triad and the
+ * harmony lane draws NOTHING (the pin guard returns before rng()), so a
+ * loop-off + neo-on run has the same draw schedule as neo-off — pinned by an
+ * rngState-equality check in harmony.test.ts.
  *
  * HARMONIC SLEW: This module only tracks targetRootHz changes.
  * The 600ms linear slew is handled by the synthesis shells (LiveEngine,
@@ -135,6 +156,15 @@ export interface EngineParams {
   // 0: shells never construct any reverb/bed node, so the render path is
   // sample-identical to pre-Space builds. See kernel/space.ts.
   reverbLevel?: number;
+  // ✅ ADD (Phase 2 Neo-Harmony): when true, a Z12 chord state walks the
+  // Neo-Riemannian P/L/R transforms (plus "stay") with exactly ONE uniform
+  // draw per HARMONIC_CYCLE_BARS boundary, and the pad/bass become
+  // chord-voiced; the chord + declared colour pool replaces the selected
+  // scale as the pitch pool for those lanes. Melody/bell stay scale-based
+  // (Phase 3 rewrites them). Default off: absent or false returns before any
+  // new code or rng() call, so legacy seeds replay bit-identically. See
+  // kernel/harmony.test.ts for the transform oracle and stream guards.
+  enableNeoHarmony?: boolean;
   seed?: number;
   drumLevel?: number; // 0..1
 }
@@ -173,6 +203,19 @@ export interface MusicalEvent {
   subBeatIndex: number;
 }
 
+export type ChordQuality = "major" | "minor";
+
+/**
+ * A Z12 triad: root pitch class (0..11, relative to params.rootHz) plus
+ * quality. The full pitch-class set derives via triadPitchClasses(); only the
+ * (rootPc, quality) pair is stored so chord identity comparison (the
+ * refractory rule) stays exact.
+ */
+export interface ChordState {
+  rootPc: number;
+  quality: ChordQuality;
+}
+
 export interface EngineState {
   beat: number;
   degree: number;
@@ -209,6 +252,16 @@ export interface EngineState {
    * amp/pan/filter automation.
    */
   droneLayersStarted: boolean;
+  /**
+   * ✅ ADD (Phase 2 Neo-Harmony): the current triad in Z12 relative to
+   * params.rootHz — root pitch class (0..11) plus quality; the triad's pitch
+   * classes derive via triadPitchClasses(). Advanced only at the harmonic
+   * boundary when enableNeoHarmony is on (updateHarmony); initialized to the
+   * tonic triad of the selected scale unconditionally so every EngineState is
+   * total — a pure table lookup, zero RNG draws, flag-off streams unchanged.
+   */
+  chordRootPc: number;
+  chordQuality: ChordQuality;
 }
 
 // ── Constants (verbatim from original engine.ts) ──────────────────────────────
@@ -236,7 +289,12 @@ export const MAX_DRONE_LAYERS = 8;
 // DRONE_FADE_SEC / 3) and the offline release ramp.
 export const DRONE_FADE_SEC = 1.0;
 
-const BEATS_PER_BAR = 4;
+/**
+ * Beats per bar — the kernel's grid unit. Exported because the synthesis
+ * shells and their tests derive beat times from it (pre-roll length, bar
+ * arithmetic) and must not keep private copies that can drift.
+ */
+export const BEATS_PER_BAR = 4;
 const BAR_LENGTH = 8;
 const BASS_HITS = 3;
 const CADENCE_INTERVAL = 16;
@@ -252,6 +310,89 @@ const SAMPLE_JITTER_BEATS = 9;
 const SAMPLE_DEFAULT_GAIN = 0.25;
 export const NOISE_BUFFER_SAMPLES = 22050; // sampleRate(44100) * 0.5s — must match synthesis shells
 const ROOT_LOOP_HZ = [220, 185, 147, 165]; // A3 → F#3 → D3 → E3
+
+// ── Neo-Harmony constants (Phase 2) ───────────────────────────────────────────
+
+export const SEMITONES_PER_OCTAVE = 12;
+
+// Chord decisions fire on the existing 8-bar harmonic boundary (beats 32, 64,
+// …). Named here and shared by updateHarmonicLoop, whose bare `% 8` it
+// replaces, so the two root engines cannot drift apart.
+export const HARMONIC_CYCLE_BARS = 8;
+
+// One uniform draw per boundary picks P / L / R / stay via cumulative
+// thresholds: P < 0.40, L < 0.75, R < 0.90, else stay. Weights as specified
+// for this phase (L and R keep two common tones — the smoothest motion).
+export const HARMONY_TRANSFORM_WEIGHTS = {
+  parallel: 0.4,
+  leading: 0.35,
+  relative: 0.15,
+  stay: 0.1,
+} as const;
+
+// Triad definitions in semitones from the root (mod 12). The transform sets
+// in the verified table are exactly these canonical forms on the transformed
+// root, e.g. L of major{r} = minor triad on r+4 = {r-1, r+4, r+7} mod 12.
+export const MAJOR_TRIAD_INTERVALS = [0, 4, 7] as const;
+export const MINOR_TRIAD_INTERVALS = [0, 3, 7] as const;
+
+// Declared colour tones per quality, semitones from the chord root (mod 12):
+// minor adds the 9th (+14 ≡ +2) and flat 7th (+10); major adds the 9th (+2)
+// and the 6th (+9). Declared this phase; the Phase 3 melody rewrite consumes
+// them, and harmony.test.ts already treats chord ∪ colour as the pad/bass
+// pitch pool.
+export const MINOR_COLOUR_INTERVALS = [2, 10] as const;
+export const MAJOR_COLOUR_INTERVALS = [2, 9] as const;
+
+// Initial chord = tonic triad of the selected scale: scales whose tonic
+// triad is major map to major, minor-tonic scales to minor; locrian's tonic
+// triad is diminished and maps to minor (its conventional minor-family
+// treatment). Pure table lookup — no new param, no RNG.
+export const SCALE_TONIC_QUALITY: Record<ScaleName, ChordQuality> = {
+  majorPent: "major",
+  ionian: "major",
+  lydian: "major",
+  mixolydian: "major",
+  minorPent: "minor",
+  dorian: "minor",
+  phrygian: "minor",
+  aeolian: "minor",
+  locrian: "minor",
+};
+
+// The chord root slews the sounding root to the chord root pitched within
+// ±CHORD_ROOT_FOLD_SEMITONES of params.rootHz (nearest-octave fold), so an
+// 8-bar root motion never exceeds ~6 semitones — a colour shift, not a
+// register jump.
+export const CHORD_ROOT_FOLD_SEMITONES = 6;
+
+/**
+ * Shell-side fallback when a caller passes a falsy bpm (JS callers can reach
+ * the shells past the type system via the MCP passthrough). 72 = the Calm
+ * scene's bpm. Convention: the value the shells have always fallen back to.
+ */
+export const DEFAULT_BPM = 72;
+
+/**
+ * Offline pre-roll length in bars: renderAmbient and BlockSynth.buildTimeline
+ * both render this many extra bars before t = 0 (so delay/reverb tails and
+ * the first scheduled beats are warm) and then trim them. Single source so
+ * the two shells and their tests cannot drift — the same role DRONE_FADE_SEC
+ * plays for drone fades.
+ */
+export const PRE_ROLL_BARS = 4;
+
+// Chord-voiced pad register: two octaves above the sounding root — the
+// legacy pad register (noteHz(padDegree, 2, …) sits at [24, 31] semitones).
+// Chord tones land in [24, 31]: root +24, third +27/+28, fifth +31.
+const PAD_VOICE_OCTAVES_ABOVE_ROOT = 2;
+// Three voices × PAD_CHORD_AMP = 0.24 = the legacy pad's 2 × 0.12 total, and
+// the ADSR sustain (0.7) is per voice, so sustained pad energy is unchanged —
+// the mix does not jump when the flag turns on.
+const PAD_CHORD_AMP = 0.08;
+// Bass plays the chord root two octaves down — the legacy bass register for
+// degree 0 (noteHz(0, -1, root) / 2 = root / 4 = −24 semitones).
+const BASS_ROOT_SEMITONES = -24;
 
 export interface Scene {
   readonly name: string;
@@ -356,24 +497,124 @@ function noteHz(
     intervals[
       ((degree % intervals.length) + intervals.length) % intervals.length
     ] +
-    12 * octaveShift;
-  return rootHz * Math.pow(2, semi / 12);
+    SEMITONES_PER_OCTAVE * octaveShift;
+  return rootHz * Math.pow(2, semi / SEMITONES_PER_OCTAVE);
 }
 
 function wrapDegree(degree: number, scaleLength: number): number {
   return ((degree % scaleLength) + scaleLength) % scaleLength;
 }
 
+// ── Neo-Harmony (Phase 2) ───────────────────────────────────────────────────
+
+/** Canonical pitch classes of a triad, ascending-interval order from the root. */
+export function triadPitchClasses(
+  rootPc: number,
+  quality: ChordQuality,
+): [number, number, number] {
+  const r = ((rootPc % SEMITONES_PER_OCTAVE) + SEMITONES_PER_OCTAVE) % SEMITONES_PER_OCTAVE;
+  const iv = quality === "major" ? MAJOR_TRIAD_INTERVALS : MINOR_TRIAD_INTERVALS;
+  return [
+    r,
+    (r + iv[1]) % SEMITONES_PER_OCTAVE,
+    (r + iv[2]) % SEMITONES_PER_OCTAVE,
+  ];
+}
+
+// The verified Neo-Riemannian table as data: root motion in pitch classes per
+// (transform, input quality); every transform flips the quality.
+//   P: major{r} ↔ minor{r}
+//   L: major{r} → minor{r+4}  ({r-1, r+4, r+7});  minor{r} → major{r+8} ({r, r+3, r+8})
+//   R: major{r} → minor{r+9};                    minor{r} → major{r+3}
+const TRANSFORM_ROOT_DELTA: Record<"P" | "L" | "R", Record<ChordQuality, number>> = {
+  P: { major: 0, minor: 0 },
+  L: { major: 4, minor: 8 },
+  R: { major: 9, minor: 3 },
+};
+
+export type HarmonyTransform = "P" | "L" | "R";
+
+export function transformChord(chord: ChordState, transform: HarmonyTransform): ChordState {
+  const rootPc =
+    (chord.rootPc + TRANSFORM_ROOT_DELTA[transform][chord.quality]) % SEMITONES_PER_OCTAVE;
+  return { rootPc, quality: chord.quality === "major" ? "minor" : "major" };
+}
+
+function pickHarmonyTransform(uniform: number): HarmonyTransform | "stay" {
+  const w = HARMONY_TRANSFORM_WEIGHTS;
+  if (uniform < w.parallel) return "P";
+  if (uniform < w.parallel + w.leading) return "L";
+  if (uniform < w.parallel + w.leading + w.relative) return "R";
+  return "stay";
+}
+
+/**
+ * Draw-then-decide: the caller consumes exactly ONE uniform from the shared
+ * stream and hands it here; this maps it through the weighted table. "stay"
+ * returns the input chord unchanged — the only way a chord repeats on
+ * consecutive boundaries (P/L/R mathematically never return the input triad;
+ * asserted exhaustively and over a long walk in harmony.test.ts).
+ */
+export function applyHarmonyDraw(chord: ChordState, uniform: number): ChordState {
+  const t = pickHarmonyTransform(uniform);
+  return t === "stay" ? chord : transformChord(chord, t);
+}
+
+/**
+ * The sounding root for a chord: params.rootHz transposed by the chord root
+ * pitch class, folded into the nearest octave so it stays within
+ * ±CHORD_ROOT_FOLD_SEMITONES of params.rootHz.
+ */
+export function chordRootHz(rootHz: number, rootPc: number): number {
+  let hz = rootHz * Math.pow(2, rootPc / SEMITONES_PER_OCTAVE);
+  const up =
+    rootHz * Math.pow(2, CHORD_ROOT_FOLD_SEMITONES / SEMITONES_PER_OCTAVE);
+  const down =
+    rootHz * Math.pow(2, -CHORD_ROOT_FOLD_SEMITONES / SEMITONES_PER_OCTAVE);
+  while (hz > up) hz /= 2;
+  while (hz < down) hz *= 2;
+  return hz;
+}
+
+/**
+ * The shared 8-bar boundary: beats 32, 64, 96, …. Equivalent to the original
+ * updateHarmonicLoop condition (beat > 0 && floor(beat/4) % 8 === 0 &&
+ * beat % 4 === 0) — beat % (HARMONIC_CYCLE_BARS * BEATS_PER_BAR) === 0
+ * already implies both the bar and beat alignment.
+ */
+export function isHarmonicCycleBoundary(beat: number): boolean {
+  return (
+    beat > 0 && beat % (HARMONIC_CYCLE_BARS * BEATS_PER_BAR) === 0
+  );
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+/**
+ * Drone events for one beat. `chordRootPc` is the caller's current chord root
+ * pitch class (EngineState.chordRootPc).
+ *
+ * With Neo-Harmony on, each emitted drone hz is multiplied by the folded
+ * chord-root ratio the tonal lanes sound —
+ * chordRootHz(params.rootHz, chordRootPc) / params.rootHz, reusing the
+ * existing fold — so a drone tracks every 8-bar chord change instead of
+ * holding a fixed pitch that clashes with 6 of 12 chord roots. Flag off or
+ * absent: the layer hz is emitted verbatim (explicit gate — never rely on
+ * the ratio being 1). Zero RNG draws in both modes.
+ */
 function droneEvents(
   params: EngineParams,
   beat: number,
   beatSec: number,
+  chordRootPc: number,
 ): MusicalEvent[] {
   const layers = params.drone?.layers ?? [];
+  const chordRootRatio =
+    params.enableNeoHarmony === true
+      ? chordRootHz(params.rootHz, chordRootPc) / params.rootHz
+      : 1;
   return layers.slice(0, MAX_DRONE_LAYERS).flatMap((layer, index) => {
     if (
       !Number.isFinite(layer.hz) ||
@@ -388,7 +629,7 @@ function droneEvents(
     return [
       {
         type: "drone" as const,
-        hz: layer.hz,
+        hz: layer.hz * chordRootRatio,
         amp: clamp(layer.amp, 0, 1),
         durationSec: beatSec,
         pan: Number.isFinite(layer.pan) ? clamp(layer.pan, -1, 1) : 0,
@@ -548,6 +789,44 @@ export function updateSceneEngine(
 }
 
 /**
+ * Phase 2 Neo-Harmony: advance the Z12 chord state across the 8-bar boundary.
+ *
+ * Flag off/absent: returns immediately — zero draws, zero state change, the
+ * stream is bit-exact with pre-Phase-2 builds. Flag on: exactly ONE uniform
+ * is drawn (whether or not it changes anything) and the chord walks P/L/R or
+ * stays; targetRootHz follows the new chord root so the shells' existing
+ * 600 ms slew carries every lane to it.
+ *
+ * Static-root pin (fix): with enableHarmonicLoop === false,
+ * updateHarmonicLoop() re-pins targetRootHz/currentRootHz to params.rootHz
+ * EVERY beat (including boundary beats) — it runs before this function, so a
+ * chord advance here could never move the sounding root: the pad would voice
+ * a moving chord over a pinned root and the pin would fight the slew every
+ * beat. The chord therefore stays on its tonic triad (createInitialState)
+ * for the whole run, and this lane draws NOTHING — the guard returns before
+ * rng(), keeping the draw schedule a function of the beat index and fixed
+ * constants (pinned by an rngState-equality check in harmony.test.ts).
+ */
+function updateHarmony(
+  state: EngineState,
+  params: EngineParams,
+  rng: () => number,
+): Partial<EngineState> {
+  if (params.enableNeoHarmony !== true) return {};
+  if (params.enableHarmonicLoop === false) return {};
+  if (!isHarmonicCycleBoundary(state.beat)) return {};
+  const next = applyHarmonyDraw(
+    { rootPc: state.chordRootPc, quality: state.chordQuality },
+    rng(),
+  );
+  return {
+    chordRootPc: next.rootPc,
+    chordQuality: next.quality,
+    targetRootHz: chordRootHz(params.rootHz, next.rootPc),
+  };
+}
+
+/**
  * FIX C4: Harmonic loop only sets targetRootHz.
  * The synthesis shell detects when targetRootHz changes and applies the 600ms slew.
  * currentRootHz is NOT updated here — the shell owns that.
@@ -577,16 +856,17 @@ function updateHarmonicLoop(
       currentRootHz: params.rootHz,
     };
   }
-  const barCount = Math.floor(state.beat / BEATS_PER_BAR);
+  // ✅ ADD (Phase 2 Neo-Harmony): with the flag on, the chord walk owns this
+  // boundary — the ROOT_LOOP_HZ walk stays parked and updateHarmony() sets
+  // targetRootHz. The static-root pin above still wins: with
+  // enableHarmonicLoop === false there is no root motion and the chord stays
+  // on its (tonic) triad.
+  if (params.enableNeoHarmony === true) return {};
   // ✅ FIX (beat-0 harmonic advance): `state.beat > 0` prevents the first
   // beat from advancing the loop. The boundary check still fires every 8
   // bars (beat 32, 64, 96, ...), preserving the original cadence after
-  // the initial cycle.
-  if (
-    state.beat > 0 &&
-    barCount % 8 === 0 &&
-    state.beat % BEATS_PER_BAR === 0
-  ) {
+  // the initial cycle. (isHarmonicCycleBoundary is the shared, named form.)
+  if (isHarmonicCycleBoundary(state.beat)) {
     const newLoopIndex = (state.harmonicLoopIndex + 1) % ROOT_LOOP_HZ.length;
     const newTarget = ROOT_LOOP_HZ[newLoopIndex];
     if (newTarget !== state.targetRootHz) {
@@ -620,6 +900,13 @@ export function getMusicalEvents(
   const harmonicUpdates = updateHarmonicLoop(s, effectiveParams);
   Object.assign(s, harmonicUpdates);
 
+  // 2b. Neo-Harmony chord decision (Phase 2) — see RNG ORDER at the top of
+  // this file: zero draws when the flag is off or absent; exactly one draw
+  // at the 8-bar boundary when on, taken whether or not the drawn transform
+  // changes the chord.
+  const harmonyUpdates = updateHarmony(s, effectiveParams, rng);
+  Object.assign(s, harmonyUpdates);
+
   // 3. Pan drift (phase only — actual panner scheduling is in synthesis shell)
   s.panDriftPhase += 0.01;
 
@@ -647,7 +934,10 @@ export function getMusicalEvents(
   if (effectiveParams.enableBeats === false) {
     events.push(...maybeSampleEvent(s, effectiveParams, beat, rng));
     if (!s.droneLayersStarted) {
-      events.push(...droneEvents(effectiveParams, beat, beatSec));
+      // Beatless mode has no pad/bass/melody (the early return below), so
+      // there is no harmony for the drone to clash with; the latch emits each
+      // layer once on the first beatless beat and is deliberately unchanged.
+      events.push(...droneEvents(effectiveParams, beat, beatSec, s.chordRootPc));
       s.droneLayersStarted = true;
     }
     // A1: advance the drum-grid phase even when no drum events are emitted,
@@ -676,7 +966,7 @@ export function getMusicalEvents(
   // startState-clone, but that only covers engine restarts — it does not
   // cover in-flight param toggles, which is what this reset handles.
   s.droneLayersStarted = false;
-  events.push(...droneEvents(effectiveParams, beat, beatSec));
+  events.push(...droneEvents(effectiveParams, beat, beatSec, s.chordRootPc));
 
   // 4. Drums — FIX C1: set subBeatIndex (0–3) on each drum event
   for (let i = 0; i < 4; i++) {
@@ -783,34 +1073,76 @@ export function getMusicalEvents(
   }
 
   // 8. Pad (dual detuned — pan is cosmetic hint for ADSR selection, actual pan via persistent nodes)
-  const padDegree = wrapDegree(s.degree + 2 + sectionOffset, scaleLength);
-  const fPad = noteHz(padDegree, 2, currentRootHz, currentScaleName);
-  events.push({
-    type: "pad",
-    hz: fPad * 0.995,
-    amp: 0.12,
-    durationSec: beatSec * 1.0,
-    pan: -1, // signals "left pad" → use padPanL node and ADSR_PAD_L
-    timbre: currentTimbre,
-    beatIndex: beat,
-    subBeatIndex: 0,
-  });
-  events.push({
-    type: "pad",
-    hz: fPad * 1.005,
-    amp: 0.12,
-    durationSec: beatSec * 1.0,
-    pan: 1, // signals "right pad" → use padPanR node and ADSR_PAD_R
-    timbre: currentTimbre,
-    beatIndex: beat,
-    subBeatIndex: 0,
-  });
+  if (effectiveParams.enableNeoHarmony === true) {
+    // Chord-voiced pad: root (left), third (right), fifth (center) — the
+    // triad replaces the single re-attacked scale note. Voices sit in
+    // [24, 31] semitones above the sounding root (the legacy pad register,
+    // see PAD_VOICE_OCTAVES_ABOVE_ROOT); 3 × PAD_CHORD_AMP equals the legacy
+    // 2 × 0.12 total, so the sustained pad energy is unchanged.
+    // triadPitchClasses(0, quality) gives the chord-RELATIVE intervals
+    // [0, third, fifth] used to voice above the sounding root.
+    const [relRoot, relThird, relFifth] = triadPitchClasses(0, s.chordQuality);
+    const padVoicing: ReadonlyArray<{ rel: number; pan: number }> = [
+      { rel: relRoot, pan: -1 }, // signals "left pad" → padPanL / ADSR_PAD_L
+      { rel: relThird, pan: 1 }, // signals "right pad" → padPanR / ADSR_PAD_R
+      { rel: relFifth, pan: 0 }, // center voice → tonal bus
+    ];
+    for (const voice of padVoicing) {
+      events.push({
+        type: "pad",
+        hz:
+          currentRootHz *
+          Math.pow(
+            2,
+            (PAD_VOICE_OCTAVES_ABOVE_ROOT * SEMITONES_PER_OCTAVE + voice.rel) /
+              SEMITONES_PER_OCTAVE,
+          ),
+        amp: PAD_CHORD_AMP,
+        durationSec: beatSec * 1.0,
+        pan: voice.pan,
+        timbre: currentTimbre,
+        beatIndex: beat,
+        subBeatIndex: 0,
+      });
+    }
+  } else {
+    const padDegree = wrapDegree(s.degree + 2 + sectionOffset, scaleLength);
+    const fPad = noteHz(padDegree, 2, currentRootHz, currentScaleName);
+    events.push({
+      type: "pad",
+      hz: fPad * 0.995,
+      amp: 0.12,
+      durationSec: beatSec * 1.0,
+      pan: -1, // signals "left pad" → use padPanL node and ADSR_PAD_L
+      timbre: currentTimbre,
+      beatIndex: beat,
+      subBeatIndex: 0,
+    });
+    events.push({
+      type: "pad",
+      hz: fPad * 1.005,
+      amp: 0.12,
+      durationSec: beatSec * 1.0,
+      pan: 1, // signals "right pad" → use padPanR node and ADSR_PAD_R
+      timbre: currentTimbre,
+      beatIndex: beat,
+      subBeatIndex: 0,
+    });
+  }
 
   // 9. Bass
   const beatInBar = s.beat % BAR_LENGTH;
   if (euclideanRhythm(beatInBar, BASS_HITS, BAR_LENGTH)) {
-    const bassDegree = wrapDegree(s.degree + sectionOffset, scaleLength);
-    const fBass = noteHz(bassDegree, -1, currentRootHz, currentScaleName) / 2;
+    const fBass =
+      effectiveParams.enableNeoHarmony === true
+        ? currentRootHz *
+          Math.pow(2, BASS_ROOT_SEMITONES / SEMITONES_PER_OCTAVE)
+        : noteHz(
+              wrapDegree(s.degree + sectionOffset, scaleLength),
+              -1,
+              currentRootHz,
+              currentScaleName,
+            ) / 2;
     events.push({
       type: "bass",
       hz: fBass,
@@ -878,6 +1210,12 @@ export function createInitialState(params: EngineParams): EngineState {
     // first beatless beat emits drone events. LiveEngine.start() and the
     // renderAmbient startState clone both reset this to false as well.
     droneLayersStarted: false,
+    // ✅ ADD (Phase 2 Neo-Harmony): initial chord = tonic triad of the
+    // selected scale, root pitch class 0 (relative to params.rootHz). Pure
+    // table lookup — zero RNG draws, so flag-off streams are unchanged
+    // (guarded by the backward-compat literals).
+    chordRootPc: 0,
+    chordQuality: SCALE_TONIC_QUALITY[params.scale],
   };
 }
 

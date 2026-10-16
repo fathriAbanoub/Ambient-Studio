@@ -83,6 +83,9 @@ import {
   MAX_DRONE_LAYERS,
   DRONE_FADE_SEC,
   NOISE_BUFFER_SAMPLES,
+  BEATS_PER_BAR,
+  PRE_ROLL_BARS,
+  DEFAULT_BPM,
 } from "../../kernel/musicalLogic";
 import {
   BED_NOISE_GAIN,
@@ -119,7 +122,7 @@ const DRONE_FADE_TARGET_DIVISOR = 3; // port: renderAmbient.ts:99
 const DRONE_FILTER_LFO_DEPTH_HZ = 800; // port: renderAmbient.ts:100
 const DRONE_RELEASE_SILENCE_GAIN = 0.0001; // port: renderAmbient.ts:102
 const DRONE_FILTER_Q = 0.7; // port: renderAmbient.ts:220 droneFilter.Q.value
-const SLEW_DURATION_SEC = 0.6; // port: renderAmbient.ts:260
+export const SLEW_DURATION_SEC = 0.6; // port: renderAmbient.ts:260
 const MASTER_FILTER_BASE_HZ = 5000; // port: renderAmbient.ts:172 (5000 + mix*4000)
 const MASTER_FILTER_MIX_HZ = 4000;
 const MASTER_FILTER_Q = 1.0; // port: renderAmbient.ts:174
@@ -187,8 +190,10 @@ export interface Timeline {
 
 /** Drain the kernel for `durationSec` (+4-bar pre-roll) and sort (D1+D3). */
 export function buildTimeline(params: EngineParams, durationSec: number): Timeline {
-  const bpm = params.bpm || 72;
-  const preRollSec = 4 * (60 / bpm) * 4; // port: renderAmbient.ts:145
+  const bpm = params.bpm || DEFAULT_BPM;
+  // 4-bar pre-roll (PRE_ROLL_BARS × BEATS_PER_BAR) — the same constants the
+  // browser offline shell uses (renderAmbient.ts), so the two stay in parity.
+  const preRollSec = PRE_ROLL_BARS * (60 / bpm) * BEATS_PER_BAR;
   const targetEnd = preRollSec + durationSec;
 
   // RNG init — exact renderAmbient order (renderAmbient.ts:341-349). The 22k
@@ -729,43 +734,10 @@ export class BlockSynth {
         });
         break;
       }
-      case "drone": {
-        const idx = ev.droneLayerIndex ?? 0;
-        const layer = this.drones[idx];
-        if (!layer) throw new Error(`[D5] droneLayerIndex ${idx} out of range: ${JSON.stringify(ev)}`);
-        // Per-beat re-anchor — the carried gain.v IS the true value, so this
-        // replaces renderAmbient's cancelAndHold + DroneCurveState machinery.
-        layer.gain.target = ev.amp;
-        const stopTime = this.timeline.preRollSec + this.durationSec; // port: droneStopTime
-        const sustainTime = Math.max(t + DRONE_FADE_SEC, stopTime - DRONE_FADE_SEC);
-        // When the drone's lifespan is shorter than DRONE_FADE_SEC the sustain
-        // would land at/after stopTime; per renderAmbient the LinearRamp then
-        // REPLACES the SetTarget — a straight line from the carried value.
-        layer.pendingRelease = { sustainT: Math.min(sustainTime, stopTime), releaseEndT: stopTime };
-        layer.inRelease = false;
-        layer.pan.target = ev.pan;
-        layer.filterHz.target = DRONE_FILTER_CUTOFF_HZ;
-        if (!layer.started) {
-          layer.started = true;
-          layer.timbre = ev.timbre ?? "sine";
-          layer.hz = new ExpApproach(ev.hz!, ev.hz!, DRONE_PARAMETER_TIME_CONSTANT_SEC, this.sr);
-          layer.detune = new ExpApproach(ev.detuneCents ?? 0, ev.detuneCents ?? 0, DRONE_PARAMETER_TIME_CONSTANT_SEC, this.sr);
-          layer.sweepSec = ev.sweepSec ?? 0;
-          // round2: the browser sets the FM mod-index (modGain.gain =
-          // hz·FM_INDEX, renderAmbient.ts:900-902) and the sweep LFO rate
-          // (renderAmbient.ts:722-726) ONCE at layer creation and never
-          // updates them — the modGain node isn't even retained (its
-          // ponytail note at renderAmbient.ts:761-765). Freeze both here.
-          layer.modDepthHz = ev.hz! * FM_INDEX;
-          layer.oscPhase = 0; layer.modPhase = 0; layer.lfoPhase = 0;
-        } else {
-          layer.hz.target = ev.hz!;
-          layer.detune.target = ev.detuneCents ?? 0;
-          // round2: sweepSec intentionally NOT updated on later events
-          // (the browser's LFO oscillator frequency is set once).
-        }
+      case "drone":
+        // Handled by applyDroneEvent, scheduled as a sample-exact op by the
+        // ingest loop — drones mutate fixed layer slots, they spawn nothing.
         break;
-      }
       case "sample": {
         // renderAmbient skips missing/undecodable sample buffers explicitly
         // (scheduleSample early-return). No bank can be decoded in Node —
@@ -796,6 +768,53 @@ export class BlockSynth {
         });
         break;
       }
+    }
+  }
+
+  /** Drone events retarget the fixed layer slots (gain/pan/hz/detune/filter
+   * and the layer-start initialisation). Scheduled by the ingest loop as a
+   * sample-exact op at the event's own frame: once hz changes per harmonic
+   * boundary, a retarget applied at block-prep time would start the glide a
+   * block-dependent number of frames early and break block-size invariance. */
+  private applyDroneEvent(ev: MusicalEvent, t: number): void {
+    const idx = ev.droneLayerIndex ?? 0;
+    const layer = this.drones[idx];
+    if (!layer) throw new Error(`[D5] droneLayerIndex ${idx} out of range: ${JSON.stringify(ev)}`);
+    // Per-beat re-anchor — the carried gain.v IS the true value, so this
+    // replaces renderAmbient's cancelAndHold + DroneCurveState machinery.
+    layer.gain.target = ev.amp;
+    const stopTime = this.timeline.preRollSec + this.durationSec; // port: droneStopTime
+    const sustainTime = Math.max(t + DRONE_FADE_SEC, stopTime - DRONE_FADE_SEC);
+    // When the drone's lifespan is shorter than DRONE_FADE_SEC the sustain
+    // would land at/after stopTime; per renderAmbient the LinearRamp then
+    // REPLACES the SetTarget — a straight line from the carried value.
+    layer.pendingRelease = { sustainT: Math.min(sustainTime, stopTime), releaseEndT: stopTime };
+    layer.inRelease = false;
+    layer.pan.target = ev.pan;
+    layer.filterHz.target = DRONE_FILTER_CUTOFF_HZ;
+    if (!layer.started) {
+      layer.started = true;
+      layer.timbre = ev.timbre ?? "sine";
+      layer.hz = new ExpApproach(ev.hz!, ev.hz!, DRONE_PARAMETER_TIME_CONSTANT_SEC, this.sr);
+      layer.detune = new ExpApproach(ev.detuneCents ?? 0, ev.detuneCents ?? 0, DRONE_PARAMETER_TIME_CONSTANT_SEC, this.sr);
+      layer.sweepSec = ev.sweepSec ?? 0;
+      // round2: the browser sets the FM mod-index (modGain.gain =
+      // hz·FM_INDEX, renderAmbient.ts:900-902) and the sweep LFO rate
+      // (renderAmbient.ts:722-726) ONCE at layer creation and never
+      // updates them — the modGain node isn't even retained (its
+      // ponytail note at renderAmbient.ts:761-765). Freeze both here.
+      layer.modDepthHz = ev.hz! * FM_INDEX;
+      layer.oscPhase = 0; layer.modPhase = 0; layer.lfoPhase = 0;
+    } else {
+      layer.hz.target = ev.hz!;
+      layer.detune.target = ev.detuneCents ?? 0;
+      // round2: sweepSec intentionally NOT updated on later events
+      // (the browser's LFO oscillator frequency is set once).
+      // ponytail: the FM modulation index is frozen at layer start
+      // (modDepthHz), so an fm-timbre drone keeps its original depth while
+      // the carrier glides to the retargeted hz. Upgrade path: retain the
+      // modulator gain per layer and retarget it on every drone event in
+      // all three shells together.
     }
   }
 
@@ -843,7 +862,15 @@ export class BlockSynth {
         const i = Math.max(0, spawnFrame - blockStartFrame);
         if (e.ev) {
           this.ingest(e.ev, e.t);
-          this.spawnVoice(e.ev, e.t, spawnFrame);
+          if (e.ev.type === "drone") {
+            // Drone retargets run at the event's own sample (same mechanism
+            // as the beat-record ops below), not at block-prep time.
+            const droneEv = e.ev;
+            const droneT = e.t;
+            this.ops.push({ i, run: () => this.applyDroneEvent(droneEv, droneT) });
+          } else {
+            this.spawnVoice(e.ev, e.t, spawnFrame);
+          }
         } else if (e.beat) {
           const { sceneMix, panDriftPhase } = e.beat;
           const pan = Math.sin(panDriftPhase) * 0.1; // port: renderAmbient.ts:353
@@ -912,6 +939,20 @@ export class BlockSynth {
         for (let di = 0; di < this.drones.length; di++) {
           const d = this.drones[di];
           if (!d.started) continue;
+          // Carried per-sample approaches for the retargetable params —
+          // without these the hz/detune/filter targets would be set per event
+          // but never reached (frozen at layer-start values). With the targets
+          // equal to the carried value (flag-off renders) the step is a
+          // numeric identity, so legacy audio is unchanged.
+          d.hz.step(); d.detune.step(); d.filterHz.step();
+          // ponytail: d.pan is deliberately NOT stepped — the pan smoother is
+          // constructed at v = 0 while the first event sets its target, so
+          // stepping it would activate a pan glide the daemon has never
+          // rendered and move the legacy flag-off audio (the pinned
+          // LEGACY_PEAK/LEGACY_RMS literals in daemon/test/space_reverb.ts
+          // and daemon/test/harmony_render.ts). Upgrade path: step pan too,
+          // then re-anchor those flag-off peak/RMS literals after a
+          // same-machine comparison.
           // gain: carried geometric approach; linear release once pending
           if (d.pendingRelease && t >= d.pendingRelease.sustainT) {
             if (!d.inRelease) { d.inRelease = true; d.releaseStartV = d.gain.v; }
