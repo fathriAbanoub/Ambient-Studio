@@ -250,13 +250,13 @@ export async function renderAmbient(
     droneCurves.push(null);
   }
 
-  // ✅ ADD (Phase 1 Space): the bed seed is the recipe seed itself (what
+  // the bed seed is the recipe seed itself (what
   // createInitialState stores in rngState) — NOT the mid-stream snapshot.
   // Same convention as the drum-noise snapshot below; the bed runs on its
   // own mulberry32 stream salted from this value — zero main-stream draws.
   const bedSeed = createInitialState(effectiveParams).rngState;
 
-  // ✅ ADD (Phase 1 Space): reverb wet path + noise bed — mirrors
+  // reverb wet path + noise bed — mirrors
   // LiveEngine.buildSpace() node-for-node (same constants from
   // kernel/space.ts). Only constructed when reverbLevel > 0; the default 0
   // leaves the graph exactly as before (sample-identical output). The send
