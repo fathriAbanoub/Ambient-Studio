@@ -24,10 +24,10 @@
  *        --format=cjs --target=node20 --outfile=build/listen_harmony.cjs
  *        && node build/listen_harmony.cjs <full|padbass|melody|drone> <on|off> [v2on|v2off]
  * The second argument is the enableNeoHarmony value (default on). The third
- * argument is reserved for the melody V2 flag; nothing consumes it yet and
- * unknown values are ignored safely. Writes
- * /tmp/harmony_<flag>_<stem>.wav and prints the path plus peak, RMS and clip
- * count for the render.
+ * argument is the enableMelodyV2 value; unknown values are ignored safely
+ * (legacy melody lane, no name suffix). Writes
+ * /tmp/harmony_<flag>[_v2on|_v2off]_<stem>.wav and prints the path plus
+ * peak, RMS and clip count for the render.
  */
 import {
   BlockSynth,
@@ -79,6 +79,10 @@ const PARAMS: EngineParams = {
   enableBeats: true, seed: 42, drumLevel: 0.5, swing: 0, drumStyle: "euclideanTrap",
   sidechainAmount: 0,
   enableNeoHarmony: process.argv[3] !== "off",
+  // Third CLI argument: enableMelodyV2. Unknown values fall back to the
+  // legacy melody lane (undefined) and get no name suffix.
+  enableMelodyV2:
+    process.argv[4] === "v2on" ? true : process.argv[4] === "v2off" ? false : undefined,
   drone: { layers: [{ hz: 55, amp: 0.15, pan: 0, timbre: "sine" as const }] },
 };
 
@@ -243,6 +247,8 @@ async function main() {
     process.exit(1);
   }
   const flag = process.argv[3] === "off" ? "off" : "on";
+  const v2Suffix =
+    process.argv[4] === "v2on" || process.argv[4] === "v2off" ? `_${process.argv[4]}` : "";
 
   const timeline: Timeline = buildTimeline(PARAMS, DURATION);
   const stemTimeline = {
@@ -252,7 +258,7 @@ async function main() {
   const synth = new BlockSynth({ params: PARAMS, timeline: stemTimeline, sampleRate: SR, blockFrames: BLOCK_FRAMES, durationSec: DURATION });
   const sink = new WavSink();
   await synth.render(sink);
-  const path = `${OUTPUT_DIR}/harmony_${flag}_${stemArg}.wav`;
+  const path = `${OUTPUT_DIR}/harmony_${flag}${v2Suffix}_${stemArg}.wav`;
   sink.write(path);
   console.log(`wrote ${path}`);
   console.log(`  peak ${sink.peak.toFixed(6)}, rms ${sink.rms().toFixed(6)}, clips (|x|>=${CLIP_THRESHOLD}) ${sink.clips}`);
