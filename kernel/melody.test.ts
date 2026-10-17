@@ -588,6 +588,14 @@ describe("Melody V2: scale mode (neo off)", () => {
       expect(poolFifthPitchClass(scalePcs), scaleName).toBe(expected);
     }
   });
+
+  it("poolFifthPitchClass breaks equal-distance ties by the lower pitch class, regardless of offsets order", () => {
+    // Both are distance 1 from the perfect-fifth target: lower below, higher above.
+    const lower = mod12(MELODY_FIFTH_PITCH_CLASS - 1);
+    const higher = mod12(MELODY_FIFTH_PITCH_CLASS + 1);
+    expect(poolFifthPitchClass([higher, lower])).toBe(lower);
+    expect(poolFifthPitchClass([lower, higher])).toBe(lower);
+  });
 });
 
 describe("Melody V2: locrian cadence landing", () => {

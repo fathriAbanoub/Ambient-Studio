@@ -718,7 +718,9 @@ export function buildMelodyLadder(
  * pitch class 7, so its pool fifth is 6.
  */
 export function poolFifthPitchClass(offsets: readonly number[]): number {
-  const poolPcs = [...new Set(offsets.map(modPitchClass))];
+  // Ascending order: the first hit on an equal-distance tie is the lower
+  // pitch class, so the ties-to-lower rule needs no explicit branch here.
+  const poolPcs = [...new Set(offsets.map(modPitchClass))].sort((a, b) => a - b);
   let best = poolPcs[0] ?? MELODY_FIFTH_PITCH_CLASS;
   let bestDist = Infinity;
   for (const pc of poolPcs) {
