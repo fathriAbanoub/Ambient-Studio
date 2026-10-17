@@ -45,11 +45,6 @@ const BASE_PARAMS = {
   drone: { layers: [0, 1, 2, 3].map((i) => ({ hz: 55 + i * 8, amp: 0.15, pan: -1 + (2 * i) / 3, timbre: "sine" as const })) },
 };
 
-// Goertzel band power at the bin nearest each centre frequency (whole render).
-// The band-probe is shared with the harmony listening tool — test/goertzel.ts.
-const goertzelBandsAt = (l: Float32Array, r: Float32Array, frames: number, freqs: number[]): number[] =>
-  goertzelBands(l, r, frames, freqs, SR);
-
 class MeterSink implements SynthSink {
   peak = 0;
   sumSq = 0;
@@ -106,7 +101,7 @@ class MeterSink implements SynthSink {
       r.set(this.bufR[i], off);
       off += this.bufL[i].length;
     }
-    return goertzelBandsAt(l, r, total, freqs);
+    return goertzelBands(l, r, total, freqs, SR);
   }
 }
 

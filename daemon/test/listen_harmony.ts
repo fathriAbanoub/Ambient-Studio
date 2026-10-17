@@ -37,12 +37,9 @@ import {
   type Timeline,
 } from "../src/blockSynth";
 import { goertzelBands } from "./goertzel";
+import { chordPerBeat } from "./chordWalk";
 import { writeFileSync } from "node:fs";
 import {
-  getMusicalEvents,
-  createInitialState,
-  advanceRngPastNoiseBuffer,
-  initializeBell,
   triadPitchClasses,
   SEMITONES_PER_OCTAVE,
   type EngineParams,
@@ -72,6 +69,10 @@ const CHORD_TONE_ENERGY_MIN = 0.8;
 // A segment whose total chroma energy is below this is silence — neither a
 // strongest pitch class nor a chord-tone fraction is meaningful there.
 const CHROMA_ENERGY_FLOOR = 1e-12;
+// 5% of total chroma energy is clearly audible above envelope/decay spread.
+const AUDIBLE_PC_ENERGY_FRACTION = 0.05;
+// Print the three strongest pitch classes for the drone audit.
+const TOP_CHROMA_DISPLAY_COUNT = 3;
 
 const PARAMS: EngineParams = {
   scale: "majorPent", rootHz: ROOT_HZ, bpm: 72, complexity: 0.35, mix: 0.4,
@@ -134,27 +135,6 @@ function chromaOfWindow(l: Float32Array, r: Float32Array, startFrame: number, fr
     chroma[Math.floor(k / CHROMA_OCTAVE_COUNT)] += powers[k];
   }
   return chroma;
-}
-
-/**
- * Chord per beat, from the same deterministic kernel loop buildTimeline runs
- * (same init order, same per-beat stepping). Local copy — the sibling tools
- * (space_reverb.ts, harmony_render.ts) each run their own main() on import,
- * so none of them can export this.
- */
-function chordPerBeat(params: EngineParams, beatCount: number): Array<{
-  rootPc: number; quality: string;
-}> {
-  let state = createInitialState(params);
-  state = advanceRngPastNoiseBuffer(state);
-  state = initializeBell(state);
-  const rows: Array<{ rootPc: number; quality: string }> = [];
-  for (let i = 0; i < beatCount; i++) {
-    const { nextState } = getMusicalEvents(state.beat, { ...state }, params);
-    rows.push({ rootPc: nextState.chordRootPc, quality: nextState.chordQuality });
-    state = nextState;
-  }
-  return rows;
 }
 
 interface Segment { startBeat: number; endBeat: number; rootPc: number; quality: string; }
@@ -317,14 +297,14 @@ async function main() {
       const top = chroma
         .map((e, pc) => ({ e, pc }))
         .sort((a, b) => b.e - a.e)
-        .slice(0, 3)
+        .slice(0, TOP_CHROMA_DISPLAY_COUNT)
         .map((x) => `${noteName(x.pc)} ${(x.e / total).toFixed(3)}`)
         .join(", ");
       console.log(`  ${label}: strongest pc ${strongest} (${noteName(strongest)}) ${ok ? "PASS" : "FAIL"} — top: ${top}`);
     } else {
       const names = chroma
         .map((e, pc) => ({ e, pc }))
-        .filter((x) => x.e > total * 0.05)
+        .filter((x) => x.e > total * AUDIBLE_PC_ENERGY_FRACTION)
         .map((x) => noteName(x.pc))
         .join(" ");
       console.log(`  ${label}: audible pcs (>5% of energy): ${names}`);
