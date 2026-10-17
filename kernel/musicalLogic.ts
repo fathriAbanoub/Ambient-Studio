@@ -26,6 +26,20 @@
  *     bell      — 3 draws when due (octave, degree, next due beat)
  *     samples   — 2–3 draws when its gate is open (trigger, pick, next gap)
  *
+ * STOCHASTIC LANES (enableStochasticEvents): with the flag OFF or absent the
+ * schedule above is untouched. With the flag ON, the bell and sample lanes
+ * keep the exact same draw slots — the gap draw is replaced, not added (bell
+ * still 3, sample still 2–3 per due event) — but the gap value maps through
+ * shiftedExponentialGapBeats: a refractory gap in wall-clock seconds whose
+ * rate follows the seeded control signal laneRateControl. That control
+ * draws ONLY from its own stream, split off the recipe seed by
+ * LANE_CONTROL_SEED_SALT (stored once as EngineState.eventLaneSeed in
+ * createInitialState and never advanced) — it adds zero draws to the main
+ * stream. Only the beats on which the lanes come due differ under the flag,
+ * so a flag-on run can consume a different TOTAL draw count than legacy;
+ * per due event the count is identical (pinned by the draw-schedule proof
+ * in event_lanes.test.ts).
+ *
  * NEO-HARMONY (Phase 2, enableNeoHarmony): with the flag OFF or absent,
  * updateHarmony() returns before any rng() call and the stream is bit-exact
  * with pre-Phase-2 builds (guarded by the backward-compat literals in
@@ -179,6 +193,20 @@ export interface EngineParams {
   // runs the legacy lane bit-identically (guarded by the backward-compat
   // literals). See kernel/melody.test.ts.
   enableMelodyV2?: boolean;
+  // When true, the sparse accent lanes (bell, sample) re-arm with a
+  // refractory (shifted-exponential) gap in wall-clock seconds instead of
+  // the legacy uniform 8..16 beats: LANE_GAP_FLOOR_SEC + Exp(lambda_t),
+  // lambda_t slowly modulated by the seeded control signal
+  // (laneRateControl), so accents cluster and starve naturally while never
+  // firing closer than the floor. The gap draw is REPLACED, not added: each
+  // due event consumes exactly the same number of draws as legacy (bell 3,
+  // sample 2–3), and the control signal draws only from its own salted
+  // stream (EngineState.eventLaneSeed), so the main stream gains nothing.
+  // Default off: absent or false keeps the legacy uniform gap and the
+  // pre-flag draw schedule bit-for-bit (guarded by the backward-compat
+  // literals in space.test.ts / harmony.test.ts / melody.test.ts and the
+  // draw-schedule proof in event_lanes.test.ts). See kernel/event_lanes.test.ts.
+  enableStochasticEvents?: boolean;
   seed?: number;
   drumLevel?: number; // 0..1
 }
@@ -284,6 +312,16 @@ export interface EngineState {
    * the legacy lane ignores it (zero draws either way).
    */
   melodyLadderPos: number;
+  /**
+   * Resolved recipe-seed snapshot for the sparse-lane rate control stream
+   * (laneRateControl). Set once in createInitialState from params.seed
+   * (or the implicit fallback seed) and never advanced — zero RNG draws,
+   * flag-off streams unchanged. Stored on the state rather than re-read
+   * from params so the control signal is a pure function of the resolved
+   * seed and the beat even when params.seed was omitted, and so it cannot
+   * drift with the main stream's draw history.
+   */
+  eventLaneSeed: number;
 }
 
 // ── Constants (verbatim from original engine.ts) ──────────────────────────────
@@ -330,10 +368,23 @@ const DRUM_SNARE_AMP = 0.45;
 const DRUM_KICK_AMP = 0.6;
 const DRUM_HAT_AMP = 0.25;
 const DRUM_HAT_CLOSED_PROB = 0.85;
-const SAMPLE_TRIGGER_PROBABILITY = 0.35;
-const SAMPLE_MIN_GAP_BEATS = 8;
-const SAMPLE_JITTER_BEATS = 9;
+// Exported for event_lanes.test.ts — the trigger gate is part of the
+// stochastic-lane contract (the sample lane still only emits when this draw
+// passes, with the flag on or off).
+export const SAMPLE_TRIGGER_PROBABILITY = 0.35;
+// Exported for event_lanes.test.ts — the legacy uniform re-arm gap is part
+// of the backward-compat contract (both sparse lanes re-arm 8 + floor(u*9)
+// beats with the flag off).
+export const SAMPLE_MIN_GAP_BEATS = 8;
+export const SAMPLE_JITTER_BEATS = 9;
 const SAMPLE_DEFAULT_GAIN = 0.25;
+// Bell voice, moved with the lane into maybeBellEvent: amp and reported
+// duration (fraction of a beat — the shells shape the actual envelope), and
+// the register: two octave choices starting two octaves above the root.
+const BELL_AMP = 0.15;
+const BELL_DURATION_FACTOR = 0.3;
+const BELL_OCTAVE_LOW = 2;
+const BELL_OCTAVE_CHOICES = 2;
 export const NOISE_BUFFER_SAMPLES = 22050; // sampleRate(44100) * 0.5s — must match synthesis shells
 const ROOT_LOOP_HZ = [220, 185, 147, 165]; // A3 → F#3 → D3 → E3
 
@@ -952,6 +1003,128 @@ function beatsToPhraseEnd(beat: number): number {
   return (raw + PHRASE_LENGTH) % PHRASE_LENGTH;
 }
 
+// ── Stochastic sparse-event lanes (enableStochasticEvents) ───────────────────
+//
+// Pure math for the sparse accent lanes (bell, sample): a refractory
+// (shifted-exponential) re-arm gap in wall-clock seconds whose rate follows a
+// bounded, seeded control signal. Nothing here draws from the main kernel
+// stream — the control parameters come from a dedicated salted stream, and
+// the gap itself maps the ONE uniform the lane already consumes for its
+// legacy gap. These helpers are unwired until enableStochasticEvents is
+// passed; the flag-off path never calls them.
+
+// Refractory floor of the stochastic gap rule, in wall-clock seconds: the
+// exponential support starts here, so two events of a lane can never be
+// closer than this, independent of tempo. (Convention: 4 s reads as a sparse
+// accent at ambient tempos.)
+export const LANE_GAP_FLOOR_SEC = 4.0;
+
+// Exponential rate at control value c = 0, in events per second (derived).
+// Calibrated so the mean DISCRETISED gap — max(1, ceil(gapSec / beatSec)) —
+// is 12 beats at 72 bpm, matching the legacy uniform 8..16-beat mean. With
+// Y = T_MIN + Exp(lambda) and b = 60/72, the closed-form mean of ceil(Y/b)
+// is n0 + exp(-lambda*(n0*b - T_MIN)) / (1 - exp(-lambda*b)) with
+// n0 = ceil(T_MIN/b) = 5; solving for 12 beats gives 0.179113… → 0.179
+// (closed form evaluates to 12.004 at this value, confirmed by simulation).
+// The un-discretised estimate 1/(10 s − 4 s) ≈ 0.167 is too low: rounding up
+// to whole beats inflates the realised mean, so the continuous rate must sit
+// above it.
+export const LANE_RATE_PER_SEC = 0.179;
+
+// Rate swing across the full control range: lambda_t =
+// LANE_RATE_PER_SEC * 2^(RATE_SWING_OCTAVES * c) with c in [-1, 1], i.e. the
+// rate spans half to double the calibrated value. (Convention: an octave of
+// swing is wide enough to audible cluster and starve without extremes.)
+export const RATE_SWING_OCTAVES = 1;
+
+// Hard lower bound on a re-arm gap, in beats: a due lane always re-arms at
+// least one beat ahead so it can never fire twice on the same beat (and a
+// degenerate beatSec — bpm 0 — cannot push the ceil below 1).
+export const LANE_MIN_GAP_BEATS = 1;
+
+// Caps the uniform before the logarithm. mulberry32 returns multiples of
+// 2^-32 ≈ 2.3e-10, so a real draw stays below this cap; the clamp only keeps
+// -log(1 - u) finite for an imported value of exactly 1, which would
+// otherwise produce an infinite gap and silence the lane permanently.
+export const GAP_UNIFORM_CAP = 1 - 1e-12;
+
+// Control-signal shape: c(beat) = Σ a_k·sin(2π·f_k·beat + φ_k) / Σ a_k over
+// CONTROL_COMPONENTS components with a_k = 1/(k+1) and
+// f_k = (k+1)/CONTROL_BASE_PERIOD_BEATS · jitter_k, jitter_k drawn from
+// [CONTROL_JITTER_LOW, CONTROL_JITTER_LOW + CONTROL_JITTER_SPAN] and φ_k
+// from [0, 2π). Dividing by the amplitude sum (the harmonic number H6 ≈ 2.45)
+// bounds |c| ≤ 1 exactly — no normalisation pass, no table. The fractional
+// jitters keep the component periods incommensurate, so the sum never
+// repeats within a render.
+export const CONTROL_COMPONENTS = 6;
+// (Convention: base period 96 beats is tens of seconds to ~2 minutes at
+// ambient tempos — a slow ebb for accent density, faster than scenes.)
+export const CONTROL_BASE_PERIOD_BEATS = 96;
+export const CONTROL_JITTER_LOW = 0.75;
+export const CONTROL_JITTER_SPAN = 0.5;
+
+// Dedicated-stream salt for the control parameters, XORed into the recipe
+// seed exactly the way MEDIUM_NOISE_SEED_SALT splits the noise-bed stream in
+// kernel/space.ts. 0x85ebca6b is murmur3's published 32-bit finalizer
+// constant, distinct from the bed's golden-ratio salt, so the control stream
+// never overlaps the main stream or the bed stream — including seed 0.
+export const LANE_CONTROL_SEED_SALT = 0x85ebca6b;
+
+/** The dedicated control stream's seed: recipe seed XOR the salt. */
+export function laneControlSeed(seed: number): number {
+  return (seed ^ LANE_CONTROL_SEED_SALT) >>> 0;
+}
+
+/**
+ * The sparse lanes' control signal, in [-1, 1]. Pure function of
+ * (controlSeed, beat): the jitters and phases come from the dedicated salted
+ * stream (laneControlSeed) — never from the main kernel stream — and no
+ * state advances. The control seed is stored on EngineState (eventLaneSeed,
+ * set once in createInitialState) so the signal is a function of the
+ * resolved recipe seed even when the caller omitted params.seed.
+ * ponytail: the 2*CONTROL_COMPONENTS parameter draws re-run on every call;
+ * cache the derived parameters if this ever shows up in a profile.
+ */
+export function laneRateControl(controlSeed: number, beat: number): number {
+  const rngState = { rngState: laneControlSeed(controlSeed) };
+  let amplitudeSum = 0;
+  let acc = 0;
+  for (let k = 0; k < CONTROL_COMPONENTS; k++) {
+    const jitter =
+      CONTROL_JITTER_LOW + mulberry32Next(rngState) * CONTROL_JITTER_SPAN;
+    const phase = mulberry32Next(rngState) * 2 * Math.PI;
+    const amplitude = 1 / (k + 1);
+    const freq = ((k + 1) / CONTROL_BASE_PERIOD_BEATS) * jitter;
+    acc += amplitude * Math.sin(2 * Math.PI * freq * beat + phase);
+    amplitudeSum += amplitude;
+  }
+  return acc / amplitudeSum;
+}
+
+/** The lane rate in events per second at control value `control`. */
+export function laneRatePerSec(control: number): number {
+  return LANE_RATE_PER_SEC * Math.pow(2, RATE_SWING_OCTAVES * control);
+}
+
+/**
+ * Re-arm gap in beats for the sparse lanes: T_MIN + Exp(ratePerSec) seconds,
+ * discretised up to whole beats of the CURRENT beat. ceil guarantees the
+ * realised wall-clock gap never drops below the refractory floor; max(1, ·)
+ * keeps a due lane from re-firing on the same beat. Preconditions (both
+ * guaranteed at the kernel call sites): ratePerSec > 0 and beatSec > 0
+ * finite. `uniform` is clamped into [0, GAP_UNIFORM_CAP] — u = 0 maps to
+ * exactly the floor.
+ */
+export function shiftedExponentialGapBeats(
+  uniform: number,
+  ratePerSec: number,
+  beatSec: number,
+): number {
+  const u = Math.min(Math.max(uniform, 0), GAP_UNIFORM_CAP);
+  const gapSec = LANE_GAP_FLOOR_SEC + -Math.log(1 - u) / ratePerSec;
+  return Math.max(LANE_MIN_GAP_BEATS, Math.ceil(gapSec / beatSec));
+}
+
 /**
  * Drone events for one beat. `chordRootPc` is the caller's current chord root
  * pitch class (EngineState.chordRootPc).
@@ -1031,7 +1204,75 @@ export function playableSampleEntries(
   });
 }
 
-function maybeSampleEvent(
+/**
+ * The sparse lanes' re-arm gap in beats, consuming exactly ONE uniform in
+ * the same slot as the legacy gap draw. Flag off (or absent): the legacy
+ * uniform 8..16-beat gap — the bell lane historically wrote this expression
+ * with bare literals; the sample lane's named constants are the same values,
+ * so both lanes share them here. Flag on: the refractory shifted-exponential
+ * gap in wall-clock seconds, its rate taken from the control signal
+ * evaluated at the re-arm beat.
+ * ponytail: the rate is evaluated once at re-arm time — a piecewise-constant
+ * approximation of an inhomogeneous process; the upgrade path is thinning
+ * (draw a candidate per beat, accept with probability lambda_t / max rate).
+ */
+function sparseLaneGapBeats(
+  state: EngineState,
+  params: EngineParams,
+  rng: () => number,
+  beatSec: number,
+): number {
+  if (params.enableStochasticEvents !== true) {
+    return SAMPLE_MIN_GAP_BEATS + Math.floor(rng() * SAMPLE_JITTER_BEATS);
+  }
+  return shiftedExponentialGapBeats(
+    rng(),
+    laneRatePerSec(laneRateControl(state.eventLaneSeed, state.beat)),
+    beatSec,
+  );
+}
+
+/**
+ * Bell events for one beat — same shape as maybeSampleEvent. Due branch
+ * consumes exactly 3 draws in a fixed order: octave, degree, re-arm gap
+ * (sparseLaneGapBeats). Exported for the draw-schedule proof in
+ * event_lanes.test.ts.
+ */
+export function maybeBellEvent(
+  state: EngineState,
+  params: EngineParams,
+  beat: number,
+  rng: () => number,
+): MusicalEvent[] {
+  if (state.beat < state.nextBellBeat) return [];
+  const beatSec = 60 / params.bpm;
+  const scaleName = params.scale;
+  const bellOctave = BELL_OCTAVE_LOW + Math.floor(rng() * BELL_OCTAVE_CHOICES);
+  const bellDegree = Math.floor(rng() * currentScale(scaleName).length);
+  const fBell = noteHz(bellDegree, bellOctave, state.currentRootHz, scaleName);
+  const events: MusicalEvent[] = [
+    {
+      type: "bell",
+      hz: fBell,
+      amp: BELL_AMP,
+      durationSec: beatSec * BELL_DURATION_FACTOR,
+      pan: 0, // A3: bell routing is by type === "bell" in both shells; pan is unused for bells (bellPan node receives its own drift automation)
+      timbre: state.currentTimbre,
+      beatIndex: beat,
+      subBeatIndex: 0,
+    },
+  ];
+  state.nextBellBeat = state.beat + sparseLaneGapBeats(state, params, rng, beatSec);
+  return events;
+}
+
+/**
+ * Sample events for one beat. Due branch consumes exactly 2–3 draws in a
+ * fixed order: trigger, pick (only on a passing trigger), re-arm gap
+ * (sparseLaneGapBeats) — the trigger gate holds with the stochastic flag on
+ * or off. Exported for the draw-schedule proof in event_lanes.test.ts.
+ */
+export function maybeSampleEvent(
   state: EngineState,
   params: EngineParams,
   beat: number,
@@ -1058,7 +1299,7 @@ function maybeSampleEvent(
     });
   }
   state.nextSampleBeat =
-    state.beat + SAMPLE_MIN_GAP_BEATS + Math.floor(rng() * SAMPLE_JITTER_BEATS);
+    state.beat + sparseLaneGapBeats(state, params, rng, 60 / params.bpm);
   return events;
 }
 
@@ -1624,28 +1865,9 @@ export function getMusicalEvents(
     });
   }
 
-  // 10. Bell
-  if (s.beat >= s.nextBellBeat) {
-    const bellOctave = 2 + Math.floor(rng() * 2);
-    const bellDegree = Math.floor(rng() * scaleLength);
-    const fBell = noteHz(
-      bellDegree,
-      bellOctave,
-      currentRootHz,
-      currentScaleName,
-    );
-    events.push({
-      type: "bell",
-      hz: fBell,
-      amp: 0.15,
-      durationSec: beatSec * 0.3,
-      pan: 0, // A3: bell routing is by type === "bell" in both shells; pan is unused for bells (bellPan node receives its own drift automation)
-      timbre: currentTimbre,
-      beatIndex: beat,
-      subBeatIndex: 0,
-    });
-    s.nextBellBeat = s.beat + Math.floor(rng() * 9) + 8;
-  }
+  // 10. Bell — extracted into maybeBellEvent (same shape as
+  // maybeSampleEvent); the due branch and its 3-draw schedule are unchanged.
+  events.push(...maybeBellEvent(s, effectiveParams, beat, rng));
 
   // 11. Sample lane
   events.push(...maybeSampleEvent(s, effectiveParams, beat, rng));
@@ -1690,6 +1912,11 @@ export function createInitialState(params: EngineParams): EngineState {
     // initial degree 0. Unconditional — zero RNG draws, flag-off streams
     // unchanged (guarded by the backward-compat literals).
     melodyLadderPos: 0,
+    // the sparse-lane control seed: the same
+    // resolved seed the main stream starts from, stored once and never
+    // advanced (zero RNG draws, flag-off streams unchanged — guarded by the
+    // backward-compat literals).
+    eventLaneSeed: seed,
   };
 }
 
@@ -1710,14 +1937,24 @@ export function advanceRngPastNoiseBuffer(state: EngineState): EngineState {
   return s;
 }
 
-/** Initialize nextBellBeat — call after advanceRngPastNoiseBuffer */
+/**
+ * Initialize nextBellBeat — call after advanceRngPastNoiseBuffer.
+ * ponytail: the initialized gap is always this legacy uniform draw — with
+ * enableStochasticEvents on, the bell lane's FIRST event still fires on it
+ * (upgrade: derive the initial gap from the stochastic rule too, which
+ * needs the beat-0 beatSec).
+ */
 export function initializeBell(state: EngineState): EngineState {
   const s = { ...state };
   s.nextBellBeat = Math.floor(mulberry32Next(s) * 8) + 8;
   return s;
 }
 
-/** Initialize nextSampleBeat — call after initializeBell */
+/**
+ * Initialize nextSampleBeat — call after initializeBell. Same ponytail as
+ * initializeBell: the first sample fires on this legacy gap even with the
+ * stochastic flag on.
+ */
 export function initializeSampleLane(
   state: EngineState,
   params: EngineParams,

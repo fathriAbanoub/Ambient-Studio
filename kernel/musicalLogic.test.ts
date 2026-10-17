@@ -729,6 +729,10 @@ describe("scene progress agreement (updateSceneEngine vs getEffectiveSceneParams
       // EngineState; this test doesn't exercise the melody lane, so the
       // value is irrelevant here.
       melodyLadderPos: 0,
+      // eventLaneSeed is required on
+      // EngineState; this test doesn't exercise the sparse lanes, so the
+      // value is irrelevant here.
+      eventLaneSeed: 999,
     };
 
     const sceneResult = updateSceneEngine(state, params);
