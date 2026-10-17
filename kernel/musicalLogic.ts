@@ -20,6 +20,10 @@
  *                 gate, then closed-hat gate
  *     cadence   — 1 draw on cadence beats, else 1 Markov draw (1 per beat)
  *     melody    — 1 gate draw per beat, +1 only on phrase-end octave lifts
+ *     (Melody V2 / enableMelodyV2 reuses this exact schedule: the cadence
+ *     draw becomes the root/fifth landing and the Markov draw picks a
+ *     weighted ladder move — V2 adds no draws, and the final rngState is
+ *     identical with V2 on or off, pinned in melody.test.ts.)
  *     bell      — 3 draws when due (octave, degree, next due beat)
  *     samples   — 2–3 draws when its gate is open (trigger, pick, next gap)
  *
@@ -165,6 +169,17 @@ export interface EngineParams {
   // new code or rng() call, so legacy seeds replay bit-identically. See
   // kernel/harmony.test.ts for the transform oracle and stream guards.
   enableNeoHarmony?: boolean;
+  // ✅ ADD (Melody V2): when true, the melody lane walks a ladder of pool
+  // pitches stepwise — the chord triad plus its declared colour tones under
+  // Neo-Harmony (weights MELODY_W_CHORD / MELODY_W_COLOUR), the selected
+  // scale otherwise (weight 1) — with cadence landings on the root/fifth and
+  // phrase pull toward them on the approach to a phrase end. The draw
+  // schedule is unchanged: the cadence draw becomes the landing choice and
+  // the Markov draw becomes the weighted ladder move; V2 adds no random
+  // draws and the final rngState equals V2 off. Default off: absent or false
+  // runs the legacy lane bit-identically (guarded by the backward-compat
+  // literals). See kernel/melody.test.ts.
+  enableMelodyV2?: boolean;
   seed?: number;
   drumLevel?: number; // 0..1
 }
@@ -262,6 +277,14 @@ export interface EngineState {
    */
   chordRootPc: number;
   chordQuality: ChordQuality;
+  /**
+   * ✅ ADD (Melody V2): index of the melody lane's position on the pool
+   * ladder (buildMelodyLadder) — advanced every beat by the weighted move or
+   * the cadence landing, re-anchored by the boundary snap when the chord
+   * changes under it. Present unconditionally so every EngineState is total;
+   * the legacy lane ignores it (zero draws either way).
+   */
+  melodyLadderPos: number;
 }
 
 // ── Constants (verbatim from original engine.ts) ──────────────────────────────
@@ -297,8 +320,12 @@ export const DRONE_FADE_SEC = 1.0;
 export const BEATS_PER_BAR = 4;
 const BAR_LENGTH = 8;
 const BASS_HITS = 3;
-const CADENCE_INTERVAL = 16;
-const PHRASE_LENGTH = 32;
+// Exported for the melody tests: the cadence and phrase cadences are part of
+// the Melody V2 contract (cadence landings, phrase pull, phrase-end
+// behaviour), and the tests derive their expectations from these names
+// instead of copying the numbers.
+export const CADENCE_INTERVAL = 16;
+export const PHRASE_LENGTH = 32;
 const DRUM_GHOST_PROBABILITY = 0.25;
 const DRUM_SNARE_AMP = 0.45;
 const DRUM_KICK_AMP = 0.6;
@@ -592,6 +619,303 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+const modPitchClass = (pc: number): number =>
+  ((pc % SEMITONES_PER_OCTAVE) + SEMITONES_PER_OCTAVE) % SEMITONES_PER_OCTAVE;
+
+// ── Melody V2 (enableMelodyV2) ────────────────────────────────────────────
+
+// Pool weights for the chord pool: chord tones are the favoured material and
+// the declared colour tones appear sparsely. Nothing else is in the pool.
+export const MELODY_W_CHORD = 2.0;
+export const MELODY_W_COLOUR = 0.4;
+
+// Repeating the current pitch (move 0) is demoted so the line keeps moving.
+export const MELODY_REPEAT_REFRACTORY_FACTOR = 0.35;
+
+// On the approach to a phrase end, root and fifth destinations are boosted so
+// the line lands harmonically at the cadence.
+export const MELODY_PHRASE_PULL_WINDOW_BEATS = 2;
+export const MELODY_PHRASE_PULL_FACTOR = 4;
+
+// The cadence draw becomes the V2 landing: root with this probability,
+// otherwise the fifth — the same split the legacy lane's 0-or-2 degree
+// landing used.
+export const CADENCE_ROOT_PROBABILITY = 0.6;
+
+// The legacy phrase-end octave-lift probability. The draw keeps its place in
+// the schedule under V2 (consumed, result ignored) and still drives the
+// register lift in the legacy lane.
+export const PHRASE_END_OCTAVE_PROBABILITY = 0.3;
+
+// Ladder register: ascending pool tones above the sounding root, starting
+// MELODY_LADDER_LOW_SEMITONES above it — the legacy melody sits roughly 12–23
+// semitones above the root — and spanning MELODY_LADDER_OCTAVES octaves.
+// One octave measured better than two (seeds 42/7, 2048 beats, neo on — see
+// melody.test.ts): mean |leap| 2.71/2.65 vs 3.06/2.96 semitones, ≥7-semitone
+// leaps 7.8%/9.2% vs 8.9%/9.4%; legacy melody 22.0%/19.3%.
+export const MELODY_LADDER_LOW_SEMITONES = 12;
+export const MELODY_LADDER_OCTAVES = 1;
+
+// Phrase-pull destinations: the root and fifth pitch classes of the pool
+// frame (ladder offsets are semitones above the sounding root).
+export const MELODY_ROOT_PITCH_CLASS = 0;
+export const MELODY_FIFTH_PITCH_CLASS = 7;
+
+export interface MelodyLadder {
+  /** Ascending semitone offsets above the sounding root. */
+  offsets: readonly number[];
+  /** Pool weight per step (MELODY_W_CHORD / MELODY_W_COLOUR / 1). */
+  weights: readonly number[];
+}
+
+/**
+ * The melody pool laid out as a ladder. Neo-Harmony on: the current chord's
+ * triad plus its declared colour tones (weighted). Neo-Harmony off: the
+ * selected scale (every in-scale tone weight 1), so V2 still gets contour,
+ * refractory and phrase pull. Zero draws — a pure table build.
+ */
+export function buildMelodyLadder(
+  chord: ChordState | null,
+  scale: ScaleName,
+): MelodyLadder {
+  const poolPcs = new Map<number, number>();
+  if (chord) {
+    for (const pc of triadPitchClasses(0, chord.quality)) {
+      poolPcs.set(pc, MELODY_W_CHORD);
+    }
+    for (const iv of chord.quality === "major"
+      ? MAJOR_COLOUR_INTERVALS
+      : MINOR_COLOUR_INTERVALS) {
+      poolPcs.set(iv, MELODY_W_COLOUR);
+    }
+  } else {
+    for (const iv of currentScale(scale)) poolPcs.set(iv, 1);
+  }
+  const offsets: number[] = [];
+  const weights: number[] = [];
+  const sortedPcs = [...poolPcs.keys()].sort((a, b) => a - b);
+  for (let o = 0; o < MELODY_LADDER_OCTAVES; o++) {
+    for (const pc of sortedPcs) {
+      offsets.push(MELODY_LADDER_LOW_SEMITONES + pc + o * SEMITONES_PER_OCTAVE);
+      weights.push(poolPcs.get(pc)!);
+    }
+  }
+  return { offsets, weights };
+}
+
+/**
+ * Semitone form of the chordRootHz fold: chordRootHz(rootHz, pc) equals
+ * rootHz · 2^(foldedChordSemitones(pc) / SEMITONES_PER_OCTAVE) — the chord
+ * root pitch class folded into (−6..+6] semitones of pc 0.
+ */
+export function foldedChordSemitones(pc: number): number {
+  const p = modPitchClass(pc);
+  return p <= CHORD_ROOT_FOLD_SEMITONES ? p : p - SEMITONES_PER_OCTAVE;
+}
+
+/**
+ * Nearest ladder step whose pitch class equals `targetPc`, measured from
+ * `fromOffset` in semitones; ties break to the lower step (offsets ascend,
+ * so the strict < keeps the first hit). Returns -1 when the ladder has no
+ * such step — defensive only: the root and the fifth exist in every pool.
+ */
+export function nearestLadderStepWithPitchClass(
+  offsets: readonly number[],
+  fromOffset: number,
+  targetPc: number,
+): number {
+  let bestIdx = -1;
+  let bestDist = Infinity;
+  for (let i = 0; i < offsets.length; i++) {
+    if (modPitchClass(offsets[i]) !== targetPc) continue;
+    const dist = Math.abs(offsets[i] - fromOffset);
+    if (dist < bestDist || (dist === bestDist && offsets[i] < offsets[bestIdx])) {
+      bestIdx = i;
+      bestDist = dist;
+    }
+  }
+  return bestIdx;
+}
+
+export interface MelodySnapArgs {
+  oldLadder: MelodyLadder;
+  newLadder: MelodyLadder;
+  /** Chord root pitch class the old ladder is framed on. */
+  oldRootPc: number;
+  /** Chord root pitch class the new ladder is framed on. */
+  newRootPc: number;
+  /** Position on the old ladder. */
+  pos: number;
+}
+
+/**
+ * Re-anchor a melody ladder position across a chord change. Zero draws. The
+ * stored position names a pitch oldLadder.offsets[pos] semitones above the
+ * old chord root; the same absolute pitch sits foldedChordSemitones(old) −
+ * foldedChordSemitones(new) semitones higher above the new root — the fold
+ * the sounding root itself moves by — so the nearest step of the new ladder
+ * is measured from that value. Ties break to the lower step. Identity when
+ * the chord did not change: same pool builds the same ladder, the root delta
+ * is 0, and the current step is its own nearest step.
+ */
+export function snapMelodyLadder(args: MelodySnapArgs): number {
+  const oldOffset = args.oldLadder.offsets[args.pos];
+  const pitchInNewFrame =
+    oldOffset +
+    foldedChordSemitones(args.oldRootPc) -
+    foldedChordSemitones(args.newRootPc);
+  let bestIdx = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < args.newLadder.offsets.length; i++) {
+    const dist = Math.abs(args.newLadder.offsets[i] - pitchInNewFrame);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
+
+export interface LadderMoveArgs {
+  /** Blended Markov base row over MARKOV_MOVES (see blendedMarkovRow). */
+  baseRow: readonly number[];
+  currentPos: number;
+  ladder: MelodyLadder;
+  refractoryFactor: number;
+  pullFactor: number;
+  pullWindowBeats: number;
+  /** Beats from the current beat to the next phrase end (0 = the phrase-end
+   * beat itself, which the cadence lane owns). */
+  beatsToPhraseEnd: number;
+  /** The single uniform this decision consumes. */
+  uniform: number;
+}
+
+export interface LadderMoveResult {
+  move: number;
+  nextPos: number;
+  usedFallback: boolean;
+  /** The normalized distribution the uniform was applied to. */
+  weights: readonly number[];
+}
+
+function pickWeightedIndex(weights: readonly number[], uniform: number): number {
+  const sum = weights.reduce((a, b) => a + b, 0);
+  let r = uniform * sum;
+  let idx = 0;
+  // Walk the cumulative weights; zero-weight slots are skipped so an exact
+  // r = 0 (mulberry32 can draw exactly 0) never lands on an off-ladder
+  // destination. markovStep keeps its own all-positive row loop.
+  for (
+    ;
+    idx < weights.length - 1 && ((r -= weights[idx]) > 0 || weights[idx] === 0);
+    idx++
+  );
+  return idx;
+}
+
+const normalizeWeights = (weights: readonly number[]): number[] => {
+  const sum = weights.reduce((a, b) => a + b, 0);
+  return weights.map((w) => w / sum);
+};
+
+/**
+ * One weighted melody move on the ladder, consuming exactly ONE uniform —
+ * the same draw the legacy Markov step uses. The destination ladder position
+ * is pos + move; its weight is the blended base row entry × the
+ * destination's pool weight × (refractory factor when the move repeats the
+ * current pitch) × (phrase pull factor for root/fifth destinations while the
+ * phrase end is within the pull window). Off-ladder destinations get weight
+ * 0. If every weighted weight is zero, the unweighted blended base row over
+ * the in-ladder destinations is used with the SAME uniform (no second draw,
+ * no NaN); if that is zero too, the in-ladder destinations split uniformly.
+ * `currentPos` must be a valid ladder index (move 0 is then always
+ * in-ladder, so a destination always exists).
+ */
+export function pickLadderMove(args: LadderMoveArgs): LadderMoveResult {
+  const { offsets, weights: poolWeights } = args.ladder;
+  const dests = MARKOV_MOVES.map((m) => args.currentPos + m);
+  const inBounds = dests.map((d) => d >= 0 && d < offsets.length);
+  const baseWeights = MARKOV_MOVES.map((_move, i) =>
+    inBounds[i] ? args.baseRow[i] : 0,
+  );
+  const weighted = MARKOV_MOVES.map((move, i) => {
+    if (baseWeights[i] === 0) return 0;
+    let w = baseWeights[i] * poolWeights[dests[i]];
+    if (move === 0) w *= args.refractoryFactor;
+    const destPc = modPitchClass(offsets[dests[i]]);
+    if (
+      args.beatsToPhraseEnd >= 1 &&
+      args.beatsToPhraseEnd <= args.pullWindowBeats &&
+      (destPc === MELODY_ROOT_PITCH_CLASS || destPc === MELODY_FIFTH_PITCH_CLASS)
+    ) {
+      w *= args.pullFactor;
+    }
+    return w;
+  });
+  if (weighted.some((w) => w > 0)) {
+    const idx = pickWeightedIndex(weighted, args.uniform);
+    return {
+      move: MARKOV_MOVES[idx],
+      nextPos: dests[idx],
+      usedFallback: false,
+      weights: normalizeWeights(weighted),
+    };
+  }
+  if (baseWeights.some((w) => w > 0)) {
+    // Fallback: unweighted blended base row over the in-ladder destinations,
+    // reusing the same uniform.
+    const idx = pickWeightedIndex(baseWeights, args.uniform);
+    return {
+      move: MARKOV_MOVES[idx],
+      nextPos: dests[idx],
+      usedFallback: true,
+      weights: normalizeWeights(baseWeights),
+    };
+  }
+  // Degenerate input (base row all zero): uniform split over the in-ladder
+  // destinations, same uniform. Unreachable with the kernel's Markov rows.
+  const equal = inBounds.map((ok) => (ok ? 1 : 0));
+  const idx = pickWeightedIndex(equal, args.uniform);
+  return {
+    move: MARKOV_MOVES[idx],
+    nextPos: dests[idx],
+    usedFallback: true,
+    weights: normalizeWeights(equal),
+  };
+}
+
+/**
+ * V2 shadow degree: the scale degree whose pitch class is nearest the ladder
+ * pitch's pitch class (circular pitch-class distance), ties to the lowest
+ * degree. The legacy pad and bass lanes read state.degree, so this keeps
+ * them coherent with the melody under V2. Exported for melody.test.ts.
+ */
+export function nearestDegreeToPitchClass(targetPc: number, scale: ScaleName): number {
+  const intervals = currentScale(scale);
+  let best = 0;
+  let bestDist = Infinity;
+  for (let d = 0; d < intervals.length; d++) {
+    const dist = Math.min(
+      modPitchClass(intervals[d] - targetPc),
+      modPitchClass(targetPc - intervals[d]),
+    );
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = d;
+    }
+  }
+  return best;
+}
+
+// Distance in beats from `beat` to the next phrase end (0 on the phrase-end
+// beat itself — the cadence lane owns that beat, so the pull window only
+// ever sees values >= 1).
+function beatsToPhraseEnd(beat: number): number {
+  const raw = (PHRASE_LENGTH - 1 - beat) % PHRASE_LENGTH;
+  return (raw + PHRASE_LENGTH) % PHRASE_LENGTH;
+}
+
 /**
  * Drone events for one beat. `chordRootPc` is the caller's current chord root
  * pitch class (EngineState.chordRootPc).
@@ -706,28 +1030,41 @@ function euclideanRhythm(step: number, pulses: number, steps: number): boolean {
   return (step * pulses) % steps < pulses;
 }
 
+export const MARKOV_MOVES: readonly number[] = [-2, -1, 0, 1, 2];
+
+const MARKOV_BASE_ROWS: readonly (readonly number[])[] = [
+  [0.1, 0.25, 0.4, 0.2, 0.05],
+  [0.05, 0.25, 0.45, 0.2, 0.05],
+  [0.1, 0.2, 0.4, 0.2, 0.1],
+  [0.05, 0.2, 0.45, 0.25, 0.05],
+  [0.05, 0.2, 0.4, 0.25, 0.1],
+];
+
+// complexity blends the base row toward a uniform row: 0 keeps the Markov
+// row, 1 makes every move equally likely. Under Melody V2 it keeps exactly
+// this meaning through the same blend (higher complexity flattens the move
+// distribution, so larger ladder moves become more likely); scene
+// interpolation overwrites params.complexity when enableScenes is true
+// (existing behaviour).
+export const MARKOV_UNIFORM_BLEND = 0.2;
+
+function blendedMarkovRow(lastInterval: number, complexity: number): number[] {
+  const lastIdx = MARKOV_MOVES.indexOf(lastInterval);
+  const row = MARKOV_BASE_ROWS[lastIdx >= 0 ? lastIdx : 2];
+  return row.map((w) => w * (1 - complexity) + MARKOV_UNIFORM_BLEND * complexity);
+}
+
 function markovStep(
   lastInterval: number,
   complexity: number,
   rng: () => number,
 ): number {
-  const intervals = [-2, -1, 0, 1, 2];
-  const baseWeights = [
-    [0.1, 0.25, 0.4, 0.2, 0.05],
-    [0.05, 0.25, 0.45, 0.2, 0.05],
-    [0.1, 0.2, 0.4, 0.2, 0.1],
-    [0.05, 0.2, 0.45, 0.25, 0.05],
-    [0.05, 0.2, 0.4, 0.25, 0.1],
-  ];
-  const lastIdx = intervals.indexOf(lastInterval);
-  const row = lastIdx >= 0 ? baseWeights[lastIdx] : baseWeights[2];
-  const uniform = 0.2;
-  const weights = row.map((w) => w * (1 - complexity) + uniform * complexity);
+  const weights = blendedMarkovRow(lastInterval, complexity);
   const sum = weights.reduce((a, b) => a + b, 0);
   let r = rng() * sum;
   let idx = 0;
   for (; idx < weights.length - 1 && (r -= weights[idx]) > 0; idx++);
-  return intervals[idx];
+  return MARKOV_MOVES[idx];
 }
 
 // Exported for musicalLogic.test.ts — the A2/B2 test confirms this stays in
@@ -903,7 +1240,11 @@ export function getMusicalEvents(
   // 2b. Neo-Harmony chord decision (Phase 2) — see RNG ORDER at the top of
   // this file: zero draws when the flag is off or absent; exactly one draw
   // at the 8-bar boundary when on, taken whether or not the drawn transform
-  // changes the chord.
+  // changes the chord. The pre-boundary chord is captured for the melody V2
+  // boundary snap, which maps the stored ladder position from the old chord's
+  // ladder frame to the new one (two property reads, zero draws).
+  const chordRootPcBefore = s.chordRootPc;
+  const chordQualityBefore = s.chordQuality;
   const harmonyUpdates = updateHarmony(s, effectiveParams, rng);
   Object.assign(s, harmonyUpdates);
 
@@ -1038,12 +1379,91 @@ export function getMusicalEvents(
   const barIndex = Math.floor(s.beat / BEATS_PER_BAR);
   const sectionOffset = sectionOffsets[barIndex % sectionOffsets.length];
 
-  // 6. Cadence / Markov
+  // 6. Cadence / Markov — the melody lane's harmonic decision. Melody V2
+  // (enableMelodyV2) keeps the draw schedule exactly: one draw on cadence
+  // beats (the landing), one Markov draw otherwise (a weighted ladder move).
+  // complexity keeps its meaning through the Markov blend — higher
+  // complexity flattens the move distribution, so larger moves become more
+  // likely; scene interpolation overwrites it when enableScenes is true
+  // (existing behaviour).
   const isCadence = s.beat % CADENCE_INTERVAL === CADENCE_INTERVAL - 1;
-  if (isCadence) {
+  const melodyV2 = effectiveParams.enableMelodyV2 === true;
+  // The V2 ladder for the CURRENT chord/scale, shared by this lane and the
+  // melody lane below — a pure table build, zero draws.
+  const v2Ladder = melodyV2
+    ? buildMelodyLadder(
+        effectiveParams.enableNeoHarmony === true
+          ? { rootPc: s.chordRootPc, quality: s.chordQuality }
+          : null,
+        currentScaleName,
+      )
+    : null;
+  if (melodyV2 && v2Ladder) {
+    // Hard bounds: a mid-run scale swap (scenes, neo off) can shrink the
+    // ladder under the stored position — clamp before use. Chord changes
+    // re-anchor through the snap below.
+    s.melodyLadderPos = clamp(s.melodyLadderPos, 0, v2Ladder.offsets.length - 1);
+    if (
+      effectiveParams.enableNeoHarmony === true &&
+      isHarmonicCycleBoundary(s.beat)
+    ) {
+      // Boundary snap: the chord may have changed under the melody. Zero
+      // draws; identity when the chord did not change.
+      s.melodyLadderPos = snapMelodyLadder({
+        oldLadder: buildMelodyLadder(
+          { rootPc: chordRootPcBefore, quality: chordQualityBefore },
+          currentScaleName,
+        ),
+        newLadder: v2Ladder,
+        oldRootPc: chordRootPcBefore,
+        newRootPc: s.chordRootPc,
+        pos: s.melodyLadderPos,
+      });
+    }
+    if (isCadence) {
+      // The existing cadence draw becomes the landing: root or fifth by the
+      // same split, snapped to the nearest ladder step with that pitch class
+      // (ties to the lower step).
+      const targetPc =
+        rng() < CADENCE_ROOT_PROBABILITY
+          ? MELODY_ROOT_PITCH_CLASS
+          : MELODY_FIFTH_PITCH_CLASS;
+      const landing = nearestLadderStepWithPitchClass(
+        v2Ladder.offsets,
+        v2Ladder.offsets[s.melodyLadderPos],
+        targetPc,
+      );
+      // Root and fifth exist in every pool; the guard is defensive.
+      if (landing >= 0) s.melodyLadderPos = landing;
+      s.lastInterval = 0;
+    } else {
+      const move = pickLadderMove({
+        baseRow: blendedMarkovRow(s.lastInterval, effectiveParams.complexity),
+        currentPos: s.melodyLadderPos,
+        ladder: v2Ladder,
+        refractoryFactor: MELODY_REPEAT_REFRACTORY_FACTOR,
+        pullFactor: MELODY_PHRASE_PULL_FACTOR,
+        pullWindowBeats: MELODY_PHRASE_PULL_WINDOW_BEATS,
+        beatsToPhraseEnd: beatsToPhraseEnd(s.beat),
+        uniform: rng(),
+      });
+      s.melodyLadderPos = move.nextPos;
+      s.lastInterval = move.move;
+    }
+    // Shadow degree (flag-gated side effect): the legacy pad and bass lanes
+    // still read state.degree, so it is written back as the scale degree
+    // nearest the melody's ladder pitch to keep them coherent — with neo
+    // off, their walk inherits the V2 weighting.
+    // ponytail: pad and bass share the melody's degree, so their walks
+    // inherit the V2 weighting; upgrade path: give them their own state.
+    s.degree = nearestDegreeToPitchClass(
+      modPitchClass(v2Ladder.offsets[s.melodyLadderPos]),
+      currentScaleName,
+    );
+  } else if (isCadence) {
     // ponytail: cadence keeps the old 0-or-2 degree landing; upgrading this
     // needs per-mode cadence targets rather than a raw degree number.
-    s.degree = rng() < 0.6 ? 0 : 2;
+    s.degree = rng() < CADENCE_ROOT_PROBABILITY ? 0 : 2;
     s.lastInterval = 0;
   } else {
     const interval = markovStep(
@@ -1058,8 +1478,20 @@ export function getMusicalEvents(
   // 7. Melody
   if (rng() < currentDensity) {
     const isPhraseEnd = s.beat % PHRASE_LENGTH === PHRASE_LENGTH - 1;
-    const octaveShift = isPhraseEnd && rng() < 0.3 ? 2 : 1;
-    const fMel = noteHz(s.degree, octaveShift, currentRootHz, currentScaleName);
+    let fMel: number;
+    if (melodyV2 && v2Ladder) {
+      // Phrase-end octave-lift draw: consumed exactly as in the legacy lane
+      // so the draw schedule is mode-invariant; the result is ignored — the
+      // ladder owns the register under V2.
+      if (isPhraseEnd) rng();
+      fMel =
+        currentRootHz *
+        Math.pow(2, v2Ladder.offsets[s.melodyLadderPos] / SEMITONES_PER_OCTAVE);
+    } else {
+      const octaveShift =
+        isPhraseEnd && rng() < PHRASE_END_OCTAVE_PROBABILITY ? 2 : 1;
+      fMel = noteHz(s.degree, octaveShift, currentRootHz, currentScaleName);
+    }
     events.push({
       type: "melody",
       hz: fMel,
@@ -1216,6 +1648,11 @@ export function createInitialState(params: EngineParams): EngineState {
     // (guarded by the backward-compat literals).
     chordRootPc: 0,
     chordQuality: SCALE_TONIC_QUALITY[params.scale],
+    // ✅ ADD (Melody V2): the ladder position starts on the lowest step (the
+    // root at the bottom of the register window), matching the legacy lane's
+    // initial degree 0. Unconditional — zero RNG draws, flag-off streams
+    // unchanged (guarded by the backward-compat literals).
+    melodyLadderPos: 0,
   };
 }
 

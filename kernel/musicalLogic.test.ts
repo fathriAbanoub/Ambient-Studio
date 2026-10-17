@@ -725,6 +725,10 @@ describe("scene progress agreement (updateSceneEngine vs getEffectiveSceneParams
       // are irrelevant here.
       chordRootPc: 0,
       chordQuality: "major",
+      // ✅ ADD (Melody V2): melodyLadderPos is a required field on
+      // EngineState; this test doesn't exercise the melody lane, so the
+      // value is irrelevant here.
+      melodyLadderPos: 0,
     };
 
     const sceneResult = updateSceneEngine(state, params);
