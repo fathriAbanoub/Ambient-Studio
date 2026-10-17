@@ -87,6 +87,7 @@ const kernelParamsShape = z.object({
   reverbLevel: z.number().min(0).max(1).optional().describe("Space: reverb wet + noise bed 0..1 (default 0 = nodes never constructed)"),
   enableNeoHarmony: z.boolean().optional().describe("Phase 2 Neo-Harmony: Z12 chord walk (P/L/R/stay, one draw per 8 bars) with chord-voiced pad and root bass (default off = zero draws)"),
   enableMelodyV2: z.boolean().optional().describe("Melody V2: stepwise melody ladder over the chord triad + colour tones (or the scale with neo off), cadence landings on root/fifth (default off = legacy melody lane, zero new draws)"),
+  enableStochasticEvents: z.boolean().optional().describe("Stochastic sparse-event lanes: bell/sample re-arm gaps become refractory (shifted-exponential) wall-clock gaps with a slowly varying seeded rate — accents cluster and starve, never closer than the 4 s floor (default off = legacy uniform 8..16-beat gaps, no new draws)"),
   seed: z.number().int().optional().describe("RNG seed; omitted = generated once and persisted in the recipe"),
   drone: z.object({ layers: z.array(z.object({
     hz: z.number(), detuneCents: z.number().optional(), amp: z.number(),
