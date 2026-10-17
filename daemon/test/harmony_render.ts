@@ -18,18 +18,12 @@
  */
 import { BlockSynth, buildTimeline, type SynthSink } from "../src/blockSynth";
 import {
-  getMusicalEvents,
-  createInitialState,
-  advanceRngPastNoiseBuffer,
-  initializeBell,
-  initializeSampleLane,
-  isHarmonicCycleBoundary,
   triadPitchClasses,
+  absoluteColourPcs,
   SEMITONES_PER_OCTAVE,
-  MINOR_COLOUR_INTERVALS,
-  MAJOR_COLOUR_INTERVALS,
   type EngineParams,
 } from "../../kernel/musicalLogic";
+import { chordPerBeat } from "./chordWalk";
 import { createHash } from "node:crypto";
 
 const SR = 44100;
@@ -108,30 +102,6 @@ async function render(enableNeoHarmony: boolean | undefined, blockFrames: number
   return { sink, stats, digest: sink.digest(), timeline };
 }
 
-/**
- * Chord per beat, from the same deterministic kernel loop buildTimeline runs
- * (same init order, same per-beat bpm stepping). Returns the chord root pc
- * and quality for every beat, plus whether the beat is a boundary beat —
- * there the shells' 600 ms slew makes the sounding root transitional.
- */
-function chordPerBeat(params: EngineParams, beatCount: number): Array<{
-  rootPc: number; quality: string; boundary: boolean;
-}> {
-  let state = createInitialState(params);
-  state = advanceRngPastNoiseBuffer(state);
-  state = initializeBell(state);
-  state = initializeSampleLane(state, params);
-
-  const rows: Array<{ rootPc: number; quality: string; boundary: boolean }> = [];
-  for (let i = 0; i < beatCount; i++) {
-    const boundary = isHarmonicCycleBoundary(state.beat);
-    const { nextState } = getMusicalEvents(state.beat, { ...state }, params);
-    rows.push({ rootPc: nextState.chordRootPc, quality: nextState.chordQuality, boundary });
-    state = nextState;
-  }
-  return rows;
-}
-
 let failures = 0;
 const check = (name: string, ok: boolean, detail: string) => {
   console.log(`  ${ok ? "PASS" : "FAIL"} ${name} — ${detail}`);
@@ -140,18 +110,6 @@ const check = (name: string, ok: boolean, detail: string) => {
 
 const mod12 = (pc: number): number =>
   ((pc % SEMITONES_PER_OCTAVE) + SEMITONES_PER_OCTAVE) % SEMITONES_PER_OCTAVE;
-
-// The declared colour intervals as ABSOLUTE pitch classes (relative to
-// params.rootHz): they are semitones above the chord root, so they must be
-// transposed by the chord root and folded mod 12 before they can be compared
-// with absolute pitch classes. Used by the segment pool audit below.
-const absoluteColourPcs = (rootPc: number, quality: string): Set<number> =>
-  new Set(
-    (quality === "major"
-      ? MAJOR_COLOUR_INTERVALS
-      : MINOR_COLOUR_INTERVALS
-    ).map((iv) => mod12(rootPc + iv)),
-  );
 
 async function main() {
   // ── Audio checks at the legacy duration ──────────────────────────────────
@@ -195,7 +153,7 @@ async function main() {
     if (!set) { set = new Set(); segmentPcs.set(key, set); }
     set.add(pc);
     const pool = new Set<number>([
-      ...triadPitchClasses(row.rootPc, row.quality as "major" | "minor"),
+      ...triadPitchClasses(row.rootPc, row.quality),
       ...absoluteColourPcs(row.rootPc, row.quality),
     ]);
     auditedEvents++;

@@ -18,13 +18,14 @@ import {
   MELODY_REPEAT_REFRACTORY_FACTOR,
   MELODY_PHRASE_PULL_WINDOW_BEATS,
   MELODY_PHRASE_PULL_FACTOR,
-  CADENCE_ROOT_PROBABILITY,
   MELODY_ROOT_PITCH_CLASS,
   MELODY_FIFTH_PITCH_CLASS,
-  MELODY_LADDER_OCTAVES,
   CADENCE_INTERVAL,
   PHRASE_LENGTH,
-  isHarmonicCycleBoundary,
+  CHORD_ROOT_FOLD_SEMITONES,
+  HARMONIC_CYCLE_BARS,
+  BEATS_PER_BAR,
+  poolFifthPitchClass,
   SEMITONES_PER_OCTAVE,
   type EngineParams,
   type MusicalEvent,
@@ -46,14 +47,12 @@ const MOVE_FREQ_TOLERANCE = 0.02; // empirical vs expected move frequency
 const CONTOUR_DRAWS = 20000; // enough that binomial noise stays ≪ tolerance
 const EDGE_DRAWS = 2000;
 const STREAM_BEATS = 256; // crosses harmonic boundaries 32, 64, …, 224
-const MEASUREMENT_BEATS = 2048; // leap statistics, same length as the prior measurement
+const MEASUREMENT_BEATS = 2048; // leap statistics over a long run
 const MEASUREMENT_SEEDS = [42, 7] as const;
 const BIG_LEAP_SEMITONES = 7;
-// Acceptance margin for the mean |leap|: V2 measures 0.5–0.7 semitones UNDER
-// the legacy melody on these seeds (seed-to-seed spread of the legacy mean is
-// ~0.24), so the margin is a seed-inversion guard of about the advantage's
-// own size — the assertion still fails if V2 ever measures materially worse.
-const MEAN_LEAP_MARGIN_SEMITONES = 0.5;
+// Locrian is the only scale in the table without the perfect fifth (7); its
+// pool fifth is the diminished fifth.
+const LOCRIAN_POOL_FIFTH_PC = 6;
 // Colour tones must stay a clear minority: the weights predict ≈ 12% of
 // ladder visits land on colour steps under uniform position visitation
 // (2 colour steps weighted 0.4 vs 3 chord steps weighted 2.0); 0.25 is a
@@ -104,6 +103,7 @@ function expectedDistribution(
   currentPos: number,
   ladder: MelodyLadder,
   beatsToPhraseEnd: number,
+  fifthPitchClass: number,
 ): number[] {
   const weighted = MARKOV_MOVES.map((move, i) => {
     const dest = currentPos + move;
@@ -114,7 +114,7 @@ function expectedDistribution(
     if (
       beatsToPhraseEnd >= 1 &&
       beatsToPhraseEnd <= MELODY_PHRASE_PULL_WINDOW_BEATS &&
-      (destPc === MELODY_ROOT_PITCH_CLASS || destPc === MELODY_FIFTH_PITCH_CLASS)
+      (destPc === MELODY_ROOT_PITCH_CLASS || destPc === fifthPitchClass)
     ) {
       w *= MELODY_PHRASE_PULL_FACTOR;
     }
@@ -137,6 +137,7 @@ const moveArgs = (
   pullFactor: MELODY_PHRASE_PULL_FACTOR,
   pullWindowBeats: MELODY_PHRASE_PULL_WINDOW_BEATS,
   beatsToPhraseEnd: PULL_INACTIVE_BEATS,
+  fifthPitchClass: poolFifthPitchClass(ladder.offsets),
   uniform,
 });
 
@@ -220,7 +221,14 @@ describe("Melody V2: the weighted move (worked example)", () => {
     // Independent walk over the derived distribution — zero-weight slots are
     // skipped (a destination with weight 0 is never chosen, including at an
     // exact r = 0 draw).
-    const expected = expectedDistribution(baseRow, 0, 1, ladder, PULL_INACTIVE_BEATS);
+    const expected = expectedDistribution(
+      baseRow,
+      0,
+      1,
+      ladder,
+      PULL_INACTIVE_BEATS,
+      poolFifthPitchClass(ladder.offsets),
+    );
     const sum = expected.reduce((a, b) => a + b, 0);
     const walk = (uniform: number): number => {
       let r = uniform * sum;
@@ -260,7 +268,14 @@ describe("Melody V2: contour", () => {
   };
 
   it("empirical move frequencies match the derived expectation", () => {
-    const expected = expectedDistribution(baseRow, 0.35, CONTOUR_POS, ladder, PULL_INACTIVE_BEATS);
+    const expected = expectedDistribution(
+      baseRow,
+      0.35,
+      CONTOUR_POS,
+      ladder,
+      PULL_INACTIVE_BEATS,
+      poolFifthPitchClass(ladder.offsets),
+    );
     const freqs = empiricalFrequencies(0.35);
     for (let i = 0; i < MARKOV_MOVES.length; i++) {
       expect(
@@ -273,8 +288,22 @@ describe("Melody V2: contour", () => {
   it("complexity 0.9 shifts the distribution toward uniform the way the blend predicts", () => {
     const low = empiricalFrequencies(0.1);
     const high = empiricalFrequencies(0.9);
-    const expectedLow = expectedDistribution(baseRow, 0.1, CONTOUR_POS, ladder, PULL_INACTIVE_BEATS);
-    const expectedHigh = expectedDistribution(baseRow, 0.9, CONTOUR_POS, ladder, PULL_INACTIVE_BEATS);
+    const expectedLow = expectedDistribution(
+      baseRow,
+      0.1,
+      CONTOUR_POS,
+      ladder,
+      PULL_INACTIVE_BEATS,
+      poolFifthPitchClass(ladder.offsets),
+    );
+    const expectedHigh = expectedDistribution(
+      baseRow,
+      0.9,
+      CONTOUR_POS,
+      ladder,
+      PULL_INACTIVE_BEATS,
+      poolFifthPitchClass(ladder.offsets),
+    );
     // Move +2 has the smallest base entry, so the blend RAISES it; move 0 has
     // the largest, so the blend LOWERS it.
     const plusTwo = MARKOV_MOVES.indexOf(2);
@@ -344,12 +373,11 @@ describe("Melody V2: boundary snap", () => {
   }
   const ladderFor = (c: ChordState): MelodyLadder => buildMelodyLadder(c, "majorPent");
 
-  // Independent oracle: the spec'd ±6-semitone root fold plus a nearest-step
+  // Independent oracle: the spec'd ±CHORD_ROOT_FOLD_SEMITONES root fold plus a nearest-step
   // search with ties to the lower step, both written out here.
-  const FOLD_SEMITONES = 6;
   const oracleFold = (pc: number): number => {
     const p = mod12(pc);
-    return p <= FOLD_SEMITONES ? p : p - Z12;
+    return p <= CHORD_ROOT_FOLD_SEMITONES ? p : p - Z12;
   };
   const oracleSnap = (oldC: ChordState, newC: ChordState, pos: number): number => {
     const pitch =
@@ -551,6 +579,46 @@ describe("Melody V2: scale mode (neo off)", () => {
       expect(currentScale(scaleName)).toEqual(scalePcs);
     });
   }
+
+  it("poolFifthPitchClass picks the pool's nearest pitch class to the perfect fifth", () => {
+    for (const [scaleName, scalePcs] of Object.entries(expectedModes) as Array<[ScaleName, number[]]>) {
+      const expected = scalePcs.includes(MELODY_FIFTH_PITCH_CLASS)
+        ? MELODY_FIFTH_PITCH_CLASS
+        : LOCRIAN_POOL_FIFTH_PC;
+      expect(poolFifthPitchClass(scalePcs), scaleName).toBe(expected);
+    }
+  });
+
+  it("poolFifthPitchClass breaks equal-distance ties by the lower pitch class, regardless of offsets order", () => {
+    // Both are distance 1 from the perfect-fifth target: lower below, higher above.
+    const lower = mod12(MELODY_FIFTH_PITCH_CLASS - 1);
+    const higher = mod12(MELODY_FIFTH_PITCH_CLASS + 1);
+    expect(poolFifthPitchClass([higher, lower])).toBe(lower);
+    expect(poolFifthPitchClass([lower, higher])).toBe(lower);
+  });
+});
+
+describe("Melody V2: locrian cadence landing", () => {
+  it("every cadence-beat melody pitch class is the root or the diminished fifth", () => {
+    const params = neoOn({
+      scale: "locrian",
+      enableNeoHarmony: false,
+      enableMelodyV2: true,
+      enableScenes: false,
+    });
+    const run = runStream(params, STREAM_BEATS);
+    let cadenceNotes = 0;
+    for (const ev of run.melodyEvents) {
+      if (ev.beatIndex % CADENCE_INTERVAL !== CADENCE_INTERVAL - 1) continue;
+      const relPc = mod12(relSemitones(ev.hz!, run.trackedRootHzByBeat[ev.beatIndex]));
+      expect(
+        relPc === MELODY_ROOT_PITCH_CLASS || relPc === LOCRIAN_POOL_FIFTH_PC,
+        `beat ${ev.beatIndex}: cadence pc ${relPc}`,
+      ).toBe(true);
+      cadenceNotes++;
+    }
+    expect(cadenceNotes, "cadence-beat melody events").toBeGreaterThan(0);
+  });
 });
 
 // ── Acceptance and backward compatibility ────────────────────────────────────
@@ -577,7 +645,7 @@ describe("Melody V2: acceptance (leap statistics)", () => {
       expect(
         v2.mean,
         `seed ${seed}: V2 mean |leap| ${v2.mean.toFixed(3)} vs legacy ${legacy.mean.toFixed(3)}`,
-      ).toBeLessThanOrEqual(legacy.mean + MEAN_LEAP_MARGIN_SEMITONES);
+      ).toBeLessThanOrEqual(legacy.mean);
       expect(
         v2.bigFraction,
         `seed ${seed}: V2 ≥${BIG_LEAP_SEMITONES}-semitone fraction ${v2.bigFraction.toFixed(4)} vs legacy ${legacy.bigFraction.toFixed(4)}`,
@@ -587,8 +655,7 @@ describe("Melody V2: acceptance (leap statistics)", () => {
 });
 
 describe("Melody V2: backward compatibility (flag off)", () => {
-  // Same contract literals as harmony.test.ts, re-captured from THIS tree
-  // immediately before the melody V2 commit (256 beats, full default path,
+  // Same contract literals as harmony.test.ts (256 beats, full default path,
   // rounded-float hash scheme). V2 off/absent must not move them.
   const PRE_V2: Record<number, { events: number; rngState: number; sha256: string }> = {
     42: {
@@ -666,7 +733,7 @@ describe("Melody V2: backward compatibility (flag off)", () => {
       }
       return state.rngState >>> 0;
     };
-    const firstBoundary = 8 * 4; // HARMONIC_CYCLE_BARS * BEATS_PER_BAR
+    const firstBoundary = HARMONIC_CYCLE_BARS * BEATS_PER_BAR;
     expect(finalState(true, firstBoundary)).toBe(finalState(false, firstBoundary));
     expect(finalState(true, firstBoundary + 1)).not.toBe(finalState(false, firstBoundary + 1));
   });

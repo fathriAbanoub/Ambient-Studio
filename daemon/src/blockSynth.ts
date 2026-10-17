@@ -558,7 +558,7 @@ export class BlockSynth {
   private padPanL: ExpApproach; private padPanR: ExpApproach; private bellPan: ExpApproach;
   private duck: SidechainDuck;
 
-  // ✅ ADD (Phase 1 Space): reverb + bed state. All null/empty when
+  // reverb + bed state. All null/empty when
   // reverbLevel resolves to 0 — the render loop then takes no space branch
   // and output is sample-identical to pre-Space builds.
   private readonly reverbLevel: number;
@@ -608,7 +608,7 @@ export class BlockSynth {
 
     // D3: noise values from the kernel stream snapshot — identical to
     // createNoiseBufferFromState's buffer (renderAmbient.ts:457-467).
-    // ✅ ADD (Phase 1 Space): the SAME base seed salts the medium noise bed's
+    // the SAME base seed salts the medium noise bed's
     // separate stream (seed ^ MEDIUM_NOISE_SEED_SALT) — zero draws from the
     // main kernel stream, identical table to the browser shells.
     const baseSeed = createInitialState(opts.params).rngState;
@@ -616,7 +616,7 @@ export class BlockSynth {
     const snap = { rngState: baseSeed };
     for (let i = 0; i < NOISE_BUFFER_SAMPLES; i++) this.noise[i] = mulberry32Next(snap) * 2 - 1;
 
-    // ✅ ADD (Phase 1 Space): build reverb + bed iff reverbLevel > 0. Tap
+    // build reverb + bed iff reverbLevel > 0. Tap
     // counts scale from the 44100 reference to this.sr (identity at 44100,
     // where the daemon always runs and offline renders stay sample-exact).
     this.reverbLevel = resolveReverbLevel(opts.params.reverbLevel);
@@ -1071,7 +1071,7 @@ export class BlockSynth {
         this.delayWrite = (this.delayWrite + 1) % ringLen;
         this.outL[i] = filtL + dL + this.drumL[i];
         this.outR[i] = filtR + dR + this.drumR[i];
-        // ✅ ADD (Phase 1 Space): reverb wet + noise bed. The send is the
+        // reverb wet + noise bed. The send is the
         // tonal bus (post-duck, PRE-master-filter) — exactly what the browser
         // shells tap at the tonal-bus GainNode; the wet return and the bed
         // join the master sum here just as they join `out` there. The bed is

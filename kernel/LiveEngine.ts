@@ -158,7 +158,7 @@ export class LiveEngine {
   private readonly noiseBuffer: AudioBuffer;
   private sampleBuffers: DecodedSampleBank = new Map();
 
-  // ✅ ADD (Phase 1 Space): reverb wet path + noise bed. Constructed ONLY
+  // reverb wet path + noise bed. Constructed ONLY
   // when params.reverbLevel > 0 — reverbLevel 0 leaves the graph exactly as
   // before (sample-identical). spaceNodes collects every node created here
   // so dispose() can disconnect them; the bed's AudioBufferSourceNode is
@@ -312,7 +312,7 @@ export class LiveEngine {
 
     // ── FIX C2: RNG init order matches original engine.ts constructor ──
     this.state = createInitialState(params);
-    // ✅ ADD (Phase 1 Space): the bed seed is the recipe seed itself (the
+    // the bed seed is the recipe seed itself (the
     // rngState right after createInitialState, BEFORE any main-stream draw
     // happens below). The bed runs on its own mulberry32 stream salted from
     // this value — zero draws from the main stream (see kernel/space.ts).
@@ -327,7 +327,7 @@ export class LiveEngine {
   }
 
   /**
-   * ✅ ADD (Phase 1 Space): build the reverb wet path (tonal bus -> predelay
+   * build the reverb wet path (tonal bus -> predelay
    * -> 4 parallel combs -> sum -> wet-tone LPF -> 2 series allpasses -> wet
    * gain -> out) and the noise bed (looped medium noise table -> LPF -> bed
    * gain -> out). No-op when reverbLevel resolves to 0 — the graph then
@@ -423,7 +423,7 @@ export class LiveEngine {
     this.spaceNodes.push(bedFilterNode, bedGain);
   }
 
-  /** ✅ ADD (Phase 1 Space): fresh looped source per start — a stopped
+  /** fresh looped source per start — a stopped
    * AudioBufferSourceNode cannot be restarted, so live stop()/start()
    * cycles create a new one over the persistent filter/gain nodes. */
   private startBedSource(): void {
@@ -469,7 +469,7 @@ export class LiveEngine {
 
     this.running = true;
 
-    // ✅ ADD (Phase 1 Space): run the noise bed while the engine runs.
+    // run the noise bed while the engine runs.
     this.startBedSource();
 
     // ✅ ADD (droneLayersStarted reset): musicalLogic latches drone emission
