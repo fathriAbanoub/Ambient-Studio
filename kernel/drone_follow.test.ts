@@ -158,8 +158,10 @@ describe("drone layers: flag on follows the chord root", () => {
   it("zero new draws: final rngState equals a run without drone layers (flag on and off)", () => {
     for (const neo of [true, false] as const) {
       const withLayers = runDrones({ ...baseParams, seed: 42, enableNeoHarmony: neo }, PROBE_BEATS);
-      const { drone: _drone, ...withoutDrone } = baseParams;
-      const noLayers = runDrones({ ...withoutDrone, seed: 42, enableNeoHarmony: neo }, PROBE_BEATS);
+      const noLayers = runDrones(
+        { ...baseParams, drone: undefined, seed: 42, enableNeoHarmony: neo },
+        PROBE_BEATS,
+      );
       expect(withLayers.rngState, `enableNeoHarmony ${neo}`).toBe(noLayers.rngState);
     }
   });

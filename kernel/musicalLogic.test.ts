@@ -451,7 +451,7 @@ describe("beatless mode (enableBeats: false)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ✅ ADD (drum styles): Tests for the new `drumStyle` param.
+// ✅ ADD (drum styles): Tests for the `drumStyle` param.
 // "euclideanTrap" (default) preserves the original 5/16 euclidean kick
 // pattern. "fourFloor" fires a kick on every quarter note (subBeatIndex 0
 // of each beat). Both must coexist with the existing snare/hihat patterns
@@ -720,12 +720,12 @@ describe("scene progress agreement (updateSceneEngine vs getEffectiveSceneParams
       // Set to false here — this test doesn't exercise beatless mode, so the
       // latch value is irrelevant to the scene-progress agreement check.
       droneLayersStarted: false,
-      // ✅ ADD (Phase 2 Neo-Harmony): chord fields are required on
+      // Chord fields are required on
       // EngineState; this test doesn't exercise harmony, so the tonic values
       // are irrelevant here.
       chordRootPc: 0,
       chordQuality: "major",
-      // ✅ ADD (Melody V2): melodyLadderPos is a required field on
+      // melodyLadderPos is required on
       // EngineState; this test doesn't exercise the melody lane, so the
       // value is irrelevant here.
       melodyLadderPos: 0,

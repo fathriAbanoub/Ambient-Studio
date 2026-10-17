@@ -10,6 +10,7 @@ import {
   applyHarmonyDraw,
   transformChord,
   triadPitchClasses,
+  absoluteColourPcs,
   isHarmonicCycleBoundary,
   chordRootHz,
   HARMONY_TRANSFORM_WEIGHTS,
@@ -69,18 +70,6 @@ const allTwentyFourTriads = (): Set<string> => {
 
 const pcKey = (pcs: readonly number[]): string =>
   pcs.slice().sort((a, b) => a - b).join(",");
-
-// The declared colour intervals as ABSOLUTE pitch classes (relative to
-// params.rootHz): they are semitones above the chord root, so they must be
-// transposed by the chord root and folded mod 12 before they can be compared
-// with absolute pitch classes. Used by the pad/bass pool audit below.
-const absoluteColourPcs = (rootPc: number, quality: Quality): Set<number> =>
-  new Set(
-    (quality === "major"
-      ? MAJOR_COLOUR_INTERVALS
-      : MINOR_COLOUR_INTERVALS
-    ).map((iv) => mod12(rootPc + iv)),
-  );
 
 const baseParams: EngineParams = {
   scale: "majorPent",
